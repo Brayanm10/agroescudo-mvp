@@ -1,0 +1,89 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at top left, rgba(4, 120, 87, 0.08), transparent 34rem),
+    linear-gradient(180deg, #f8faf8 0%, #eef3ef 100%);
+  color: #111827;
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  -webkit-font-smoothing: antialiased;
+  text-rendering: geometricPrecision;
+}
+
+::selection {
+  background: rgba(4, 120, 87, 0.18);
+  color: #022c22;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+@layer components {
+  .input {
+    @apply w-full rounded-lg border border-slate-200 bg-white px-3.5 py-2.5 text-sm font-medium text-slate-950 shadow-soft outline-none transition placeholder:text-slate-400 hover:border-slate-300 focus:border-emeraldTech focus:ring-4 focus:ring-emerald-100;
+  }
+
+  .panel {
+    @apply rounded-panel border border-slate-200/80 bg-white shadow-panel;
+  }
+
+  .panel-muted {
+    @apply rounded-panel border border-slate-200/80 bg-field shadow-soft;
+  }
+
+  .section-kicker {
+    @apply text-[11px] font-black uppercase tracking-[0.18em] text-emeraldDeep;
+  }
+
+  .section-title {
+    @apply text-xl font-black tracking-tight text-slate-950;
+  }
+
+  .section-subtitle {
+    @apply mt-1 text-sm leading-6 text-slate-500;
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center justify-center rounded-lg bg-emeraldDeep px-4 py-2.5 text-sm font-bold text-white shadow-soft transition hover:-translate-y-0.5 hover:bg-emeraldInk hover:shadow-panel disabled:cursor-not-allowed disabled:translate-y-0 disabled:opacity-60;
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center justify-center rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-sm font-bold text-slate-700 shadow-soft transition hover:border-emerald-200 hover:bg-emerald-50 hover:text-emeraldDeep disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .table-head {
+    @apply bg-slate-50 text-left text-[11px] font-bold uppercase tracking-[0.14em] text-slate-500;
+  }
+
+  .metric-tile {
+    @apply rounded-xl border border-slate-200/80 bg-white p-4 shadow-soft transition hover:border-emerald-100 hover:shadow-panel;
+  }
+
+  .brand-grid {
+    background-image:
+      linear-gradient(rgba(255, 255, 255, 0.055) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255, 255, 255, 0.055) 1px, transparent 1px);
+    background-size: 34px 34px;
+  }
+
+  .brand-surface {
+    background:
+      linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(248, 250, 248, 0.92)),
+      radial-gradient(circle at top right, rgba(4, 120, 87, 0.1), transparent 24rem);
+  }
+}

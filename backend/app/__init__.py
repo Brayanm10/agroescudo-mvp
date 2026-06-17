@@ -1,0 +1,1 @@
+"""AgroEscudo backend package."""
