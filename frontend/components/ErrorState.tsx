@@ -7,14 +7,14 @@ export function ErrorState({ message, onRetry }: { message: string; onRetry?: ()
         <AlertTriangle size={20} aria-hidden="true" />
         <div>
           <p className="font-semibold">Error de conexion</p>
-          <p className="mt-1 text-sm">{message}</p>
+          <p className="mt-1 whitespace-pre-line text-sm">{message}</p>
           {onRetry ? (
             <button
               type="button"
               onClick={onRetry}
               className="mt-3 rounded-lg bg-red-700 px-3 py-2 text-sm font-bold text-white hover:bg-red-800"
             >
-              Reintentar
+              Reintentar conexión
             </button>
           ) : null}
         </div>

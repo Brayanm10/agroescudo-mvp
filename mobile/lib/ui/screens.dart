@@ -92,14 +92,32 @@ class _LoginScreenState extends State<LoginScreen> {
                   icon: Icon(
                     hidePassword ? Icons.visibility_off : Icons.visibility,
                   ),
-                  onPressed: () =>
-                      setState(() => hidePassword = !hidePassword),
+                  onPressed: () => setState(() => hidePassword = !hidePassword),
                 ),
               ),
             ),
             if (store.error != null) ...[
               const SizedBox(height: 12),
               _Notice(text: store.error!, danger: true),
+              const SizedBox(height: 8),
+              OutlinedButton.icon(
+                onPressed: store.loading
+                    ? null
+                    : () async {
+                        try {
+                          await context.read<AppStore>().checkConnection();
+                          if (!context.mounted) return;
+                          _toast(
+                            context,
+                            'Conexion con AgroEscudo API verificada.',
+                          );
+                        } on ApiException {
+                          // The store exposes the detailed connection diagnosis.
+                        }
+                      },
+                icon: const Icon(Icons.refresh),
+                label: const Text('Reintentar conexion'),
+              ),
             ],
             const SizedBox(height: 16),
             ElevatedButton.icon(
@@ -107,9 +125,10 @@ class _LoginScreenState extends State<LoginScreen> {
                   ? null
                   : () async {
                       try {
-                        await context
-                            .read<AppStore>()
-                            .login(email.text.trim(), password.text);
+                        await context.read<AppStore>().login(
+                          email.text.trim(),
+                          password.text,
+                        );
                       } on ApiException {
                         // The store exposes a polished error message.
                       }
@@ -221,11 +240,26 @@ class _MobileShellState extends State<MobileShell> {
         selectedIndex: index,
         onDestinationSelected: (value) => setState(() => index = value),
         destinations: const [
-          NavigationDestination(icon: Icon(Icons.dashboard_outlined), label: 'Inicio'),
-          NavigationDestination(icon: Icon(Icons.warehouse_outlined), label: 'Unidades'),
-          NavigationDestination(icon: Icon(Icons.warning_amber), label: 'Alertas'),
-          NavigationDestination(icon: Icon(Icons.fact_check_outlined), label: 'Bitacora'),
-          NavigationDestination(icon: Icon(Icons.picture_as_pdf_outlined), label: 'Reportes'),
+          NavigationDestination(
+            icon: Icon(Icons.dashboard_outlined),
+            label: 'Inicio',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.warehouse_outlined),
+            label: 'Unidades',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.warning_amber),
+            label: 'Alertas',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.fact_check_outlined),
+            label: 'Bitacora',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.picture_as_pdf_outlined),
+            label: 'Reportes',
+          ),
         ],
       ),
     );
@@ -245,13 +279,15 @@ class DashboardScreen extends StatelessWidget {
     final state = critical > 0
         ? 'Atencion critica'
         : store.activeAlerts.isNotEmpty
-            ? 'Seguimiento requerido'
-            : 'Operacion estable';
+        ? 'Seguimiento requerido'
+        : 'Operacion estable';
     return _Page(
       children: [
         _SectionTitle(
           eyebrow: _roleLabel(store.role),
-          title: store.role == 'client' ? 'Portal del propietario' : 'Centro operativo',
+          title: store.role == 'client'
+              ? 'Portal del propietario'
+              : 'Centro operativo',
           subtitle: 'Estado consolidado del monitoreo postcosecha.',
         ),
         _RiskPanel(
@@ -270,10 +306,26 @@ class DashboardScreen extends StatelessWidget {
           mainAxisSpacing: 10,
           crossAxisSpacing: 10,
           children: [
-            _Metric(label: 'SITIOS', value: '${store.sites.length}', icon: Icons.location_on_outlined),
-            _Metric(label: 'UNIDADES', value: '${store.units.length}', icon: Icons.warehouse_outlined),
-            _Metric(label: 'DISPOSITIVOS', value: '${store.devices.length}', icon: Icons.sensors_outlined),
-            _Metric(label: 'ALERTAS ACTIVAS', value: '${store.activeAlerts.length}', icon: Icons.warning_amber),
+            _Metric(
+              label: 'SITIOS',
+              value: '${store.sites.length}',
+              icon: Icons.location_on_outlined,
+            ),
+            _Metric(
+              label: 'UNIDADES',
+              value: '${store.units.length}',
+              icon: Icons.warehouse_outlined,
+            ),
+            _Metric(
+              label: 'DISPOSITIVOS',
+              value: '${store.devices.length}',
+              icon: Icons.sensors_outlined,
+            ),
+            _Metric(
+              label: 'ALERTAS ACTIVAS',
+              value: '${store.activeAlerts.length}',
+              icon: Icons.warning_amber,
+            ),
           ],
         ),
         const SizedBox(height: 20),
@@ -294,7 +346,8 @@ class DashboardScreen extends StatelessWidget {
           _ActionCard(
             icon: Icons.install_mobile_outlined,
             title: 'Checklist de instalacion',
-            text: 'Documenta instalacion, conectividad, lectura inicial y bateria.',
+            text:
+                'Documenta instalacion, conectividad, lectura inicial y bateria.',
             onTap: () => _showInstallation(context),
           ),
         ],
@@ -326,7 +379,9 @@ class UnitsScreen extends StatelessWidget {
               child: InkWell(
                 borderRadius: BorderRadius.circular(12),
                 onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => UnitDetailScreen(unit: unit)),
+                  MaterialPageRoute(
+                    builder: (_) => UnitDetailScreen(unit: unit),
+                  ),
                 ),
                 child: Padding(
                   padding: const EdgeInsets.all(15),
@@ -340,7 +395,10 @@ class UnitsScreen extends StatelessWidget {
                           Expanded(
                             child: Text(
                               unit['name']?.toString() ?? 'Unidad',
-                              style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 17),
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w800,
+                                fontSize: 17,
+                              ),
                             ),
                           ),
                           const Icon(Icons.chevron_right, color: muted),
@@ -356,7 +414,10 @@ class UnitsScreen extends StatelessWidget {
                         latest == null
                             ? 'Sin lectura reciente'
                             : '${_num(latest['grain_temperature'])} C grano  |  ${_num(latest['ambient_humidity'])}% humedad',
-                        style: const TextStyle(color: ink, fontWeight: FontWeight.w700),
+                        style: const TextStyle(
+                          color: ink,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                     ],
                   ),
@@ -380,7 +441,9 @@ class UnitDetailScreen extends StatelessWidget {
     final id = unit['id'] as int;
     final latest = store.latestReadingFor(id);
     final readings = store.readingsFor(id);
-    final unitAlerts = store.activeAlerts.where((item) => item['storage_unit_id'] == id);
+    final unitAlerts = store.activeAlerts.where(
+      (item) => item['storage_unit_id'] == id,
+    );
     final unitLogs = store.logs.where((item) => item['storage_unit_id'] == id);
     return Scaffold(
       appBar: AppBar(title: Text(unit['name']?.toString() ?? 'Unidad')),
@@ -395,8 +458,8 @@ class UnitDetailScreen extends StatelessWidget {
             title: unitAlerts.any((item) => item['severity'] == 'critical')
                 ? 'Riesgo critico'
                 : unitAlerts.isNotEmpty
-                    ? 'Seguimiento requerido'
-                    : 'Condicion estable',
+                ? 'Seguimiento requerido'
+                : 'Condicion estable',
             critical: unitAlerts.any((item) => item['severity'] == 'critical'),
             subtitle: unitAlerts.isEmpty
                 ? 'No se observan alertas activas para esta unidad.'
@@ -414,19 +477,43 @@ class UnitDetailScreen extends StatelessWidget {
               mainAxisSpacing: 10,
               crossAxisSpacing: 10,
               children: [
-                _Metric(label: 'GRANO', value: '${_num(latest['grain_temperature'])} C', icon: Icons.device_thermostat),
-                _Metric(label: 'HUMEDAD', value: '${_num(latest['ambient_humidity'])}%', icon: Icons.water_drop_outlined),
-                _Metric(label: 'BATERIA', value: '${_num(latest['battery_voltage'])} V', icon: Icons.battery_4_bar),
-                _Metric(label: 'SENAL', value: '${latest['signal_quality']} dBm', icon: Icons.network_cell),
+                _Metric(
+                  label: 'GRANO',
+                  value: '${_num(latest['grain_temperature'])} C',
+                  icon: Icons.device_thermostat,
+                ),
+                _Metric(
+                  label: 'HUMEDAD',
+                  value: '${_num(latest['ambient_humidity'])}%',
+                  icon: Icons.water_drop_outlined,
+                ),
+                _Metric(
+                  label: 'BATERIA',
+                  value: '${_num(latest['battery_voltage'])} V',
+                  icon: Icons.battery_4_bar,
+                ),
+                _Metric(
+                  label: 'SENAL',
+                  value: '${latest['signal_quality']} dBm',
+                  icon: Icons.network_cell,
+                ),
               ],
             ),
           if (readings.isNotEmpty) ...[
             const SizedBox(height: 20),
             const _BlockTitle('Tendencia de temperatura'),
-            _ReadingChart(readings: readings, keyName: 'grain_temperature', suffix: ' C'),
+            _ReadingChart(
+              readings: readings,
+              keyName: 'grain_temperature',
+              suffix: ' C',
+            ),
             const SizedBox(height: 20),
             const _BlockTitle('Tendencia de humedad'),
-            _ReadingChart(readings: readings, keyName: 'ambient_humidity', suffix: '%'),
+            _ReadingChart(
+              readings: readings,
+              keyName: 'ambient_humidity',
+              suffix: '%',
+            ),
           ],
           const SizedBox(height: 20),
           const _BlockTitle('Alertas activas'),
@@ -476,10 +563,9 @@ class AlertsScreen extends StatelessWidget {
         if (store.alerts.isEmpty)
           const _Empty('No hay alertas registradas.')
         else
-          ...store.alerts.map((alert) => _AlertTile(
-                alert: alert,
-                actions: store.canOperate,
-              )),
+          ...store.alerts.map(
+            (alert) => _AlertTile(alert: alert, actions: store.canOperate),
+          ),
       ],
     );
   }
@@ -539,16 +625,17 @@ class ReportsScreen extends StatelessWidget {
         const _SectionTitle(
           eyebrow: 'EVIDENCIA PARA CLIENTE',
           title: 'Reportes semanales',
-          subtitle: 'Descarga el informe corporativo con indicadores y trazabilidad.',
+          subtitle:
+              'Descarga el informe corporativo con indicadores y trazabilidad.',
         ),
         if (store.units.isEmpty)
           const _Empty('No hay unidades disponibles para generar reportes.')
         else
           ...store.units.map((unit) {
             final pilot = store.pilots.cast<Map<String, dynamic>?>().firstWhere(
-                  (item) => item?['storage_unit_id'] == unit['id'],
-                  orElse: () => null,
-                );
+              (item) => item?['storage_unit_id'] == unit['id'],
+              orElse: () => null,
+            );
             return Card(
               margin: const EdgeInsets.only(bottom: 11),
               child: Padding(
@@ -558,7 +645,10 @@ class ReportsScreen extends StatelessWidget {
                   children: [
                     Text(
                       unit['name']?.toString() ?? 'Unidad',
-                      style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
+                      style: const TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w800,
+                      ),
                     ),
                     const SizedBox(height: 5),
                     Text(
@@ -596,7 +686,10 @@ class _Page extends StatelessWidget {
           await context.read<AppStore>().refresh();
         } on ApiException {
           if (!context.mounted) return;
-          _toast(context, 'No se pudo actualizar. Se conserva el ultimo estado.');
+          _toast(
+            context,
+            'No se pudo actualizar. Se conserva el ultimo estado.',
+          );
         }
       },
       child: ListView(
@@ -636,7 +729,10 @@ class _SectionTitle extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 4),
-          Text(title, style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w800)),
+          Text(
+            title,
+            style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w800),
+          ),
           const SizedBox(height: 5),
           Text(subtitle, style: const TextStyle(color: muted, height: 1.4)),
         ],
@@ -654,7 +750,10 @@ class _BlockTitle extends StatelessWidget {
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 9),
-      child: Text(text, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800)),
+      child: Text(
+        text,
+        style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w800),
+      ),
     );
   }
 }
@@ -682,15 +781,29 @@ class _RiskPanel extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Icon(critical ? Icons.warning_rounded : Icons.verified_outlined, color: color, size: 34),
+          Icon(
+            critical ? Icons.warning_rounded : Icons.verified_outlined,
+            color: color,
+            size: 34,
+          ),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title, style: TextStyle(color: color, fontSize: 18, fontWeight: FontWeight.w800)),
+                Text(
+                  title,
+                  style: TextStyle(
+                    color: color,
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
                 const SizedBox(height: 3),
-                Text(subtitle, style: const TextStyle(color: muted, height: 1.3)),
+                Text(
+                  subtitle,
+                  style: const TextStyle(color: muted, height: 1.3),
+                ),
               ],
             ),
           ),
@@ -717,12 +830,20 @@ class _Metric extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Icon(icon, color: emerald, size: 21),
-            Text(value, style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w800)),
+            Text(
+              value,
+              style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w800),
+            ),
             Text(
               label,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(color: muted, fontSize: 9, fontWeight: FontWeight.w800, letterSpacing: .8),
+              style: const TextStyle(
+                color: muted,
+                fontSize: 9,
+                fontWeight: FontWeight.w800,
+                letterSpacing: .8,
+              ),
             ),
           ],
         ),
@@ -753,9 +874,18 @@ class _ReadingSummary extends StatelessWidget {
               spacing: 18,
               runSpacing: 10,
               children: [
-                _InlineValue('Grano', '${_num(reading['grain_temperature'])} C'),
-                _InlineValue('Humedad', '${_num(reading['ambient_humidity'])}%'),
-                _InlineValue('Bateria', '${_num(reading['battery_voltage'])} V'),
+                _InlineValue(
+                  'Grano',
+                  '${_num(reading['grain_temperature'])} C',
+                ),
+                _InlineValue(
+                  'Humedad',
+                  '${_num(reading['ambient_humidity'])}%',
+                ),
+                _InlineValue(
+                  'Bateria',
+                  '${_num(reading['battery_voltage'])} V',
+                ),
                 _InlineValue('Senal', '${reading['signal_quality']} dBm'),
               ],
             ),
@@ -777,7 +907,14 @@ class _InlineValue extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label.toUpperCase(), style: const TextStyle(color: muted, fontSize: 9, fontWeight: FontWeight.w700)),
+        Text(
+          label.toUpperCase(),
+          style: const TextStyle(
+            color: muted,
+            fontSize: 9,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
         const SizedBox(height: 2),
         Text(value, style: const TextStyle(fontWeight: FontWeight.w800)),
       ],
@@ -805,15 +942,28 @@ class _AlertTile extends StatelessWidget {
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _StatusBadge(value: active ? alert['severity']?.toString() ?? 'warning' : 'resolved'),
+                _StatusBadge(
+                  value: active
+                      ? alert['severity']?.toString() ?? 'warning'
+                      : 'resolved',
+                ),
                 const Spacer(),
-                Text(_date(alert['created_at']), style: const TextStyle(color: muted, fontSize: 11)),
+                Text(
+                  _date(alert['created_at']),
+                  style: const TextStyle(color: muted, fontSize: 11),
+                ),
               ],
             ),
             const SizedBox(height: 9),
-            Text(alert['title']?.toString() ?? 'Alerta operativa', style: const TextStyle(fontWeight: FontWeight.w800)),
+            Text(
+              alert['title']?.toString() ?? 'Alerta operativa',
+              style: const TextStyle(fontWeight: FontWeight.w800),
+            ),
             const SizedBox(height: 3),
-            Text(alert['message']?.toString() ?? '', style: const TextStyle(color: muted, height: 1.35)),
+            Text(
+              alert['message']?.toString() ?? '',
+              style: const TextStyle(color: muted, height: 1.35),
+            ),
             if (actions && active) ...[
               const SizedBox(height: 10),
               Wrap(
@@ -821,13 +971,21 @@ class _AlertTile extends StatelessWidget {
                 children: [
                   if (alert['acknowledged_at'] == null)
                     TextButton.icon(
-                      onPressed: () => _run(context, () => store.acknowledge(alert['id'] as int), 'Alerta reconocida.'),
+                      onPressed: () => _run(
+                        context,
+                        () => store.acknowledge(alert['id'] as int),
+                        'Alerta reconocida.',
+                      ),
                       icon: const Icon(Icons.visibility_outlined),
                       label: const Text('Reconocer'),
                     ),
                   if (store.canResolve)
                     TextButton.icon(
-                      onPressed: () => _run(context, () => store.resolve(alert['id'] as int), 'Alerta resuelta.'),
+                      onPressed: () => _run(
+                        context,
+                        () => store.resolve(alert['id'] as int),
+                        'Alerta resuelta.',
+                      ),
                       icon: const Icon(Icons.check_circle_outline),
                       label: const Text('Resolver'),
                     ),
@@ -868,7 +1026,10 @@ class _LogTile extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 7),
-            Text(log['notes']?.toString() ?? '', style: const TextStyle(color: muted, height: 1.35)),
+            Text(
+              log['notes']?.toString() ?? '',
+              style: const TextStyle(color: muted, height: 1.35),
+            ),
             const SizedBox(height: 7),
             Text(
               '${log['operator_name']}  |  ${_date(log['timestamp'])}',
@@ -894,9 +1055,14 @@ class _ReadingChart extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final values = readings.length > 28 ? readings.sublist(readings.length - 28) : readings;
+    final values = readings.length > 28
+        ? readings.sublist(readings.length - 28)
+        : readings;
     final spots = values.asMap().entries.map((entry) {
-      return FlSpot(entry.key.toDouble(), (entry.value[keyName] as num).toDouble());
+      return FlSpot(
+        entry.key.toDouble(),
+        (entry.value[keyName] as num).toDouble(),
+      );
     }).toList();
     return Card(
       child: Padding(
@@ -907,15 +1073,26 @@ class _ReadingChart extends StatelessWidget {
             LineChartData(
               gridData: const FlGridData(show: true, drawVerticalLine: false),
               titlesData: const FlTitlesData(
-                topTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                rightTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                bottomTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                topTitles: AxisTitles(
+                  sideTitles: SideTitles(showTitles: false),
+                ),
+                rightTitles: AxisTitles(
+                  sideTitles: SideTitles(showTitles: false),
+                ),
+                bottomTitles: AxisTitles(
+                  sideTitles: SideTitles(showTitles: false),
+                ),
               ),
               borderData: FlBorderData(show: false),
               lineTouchData: LineTouchData(
                 touchTooltipData: LineTouchTooltipData(
                   getTooltipItems: (items) => items
-                      .map((item) => LineTooltipItem('${item.y.toStringAsFixed(1)}$suffix', const TextStyle(color: Colors.white)))
+                      .map(
+                        (item) => LineTooltipItem(
+                          '${item.y.toStringAsFixed(1)}$suffix',
+                          const TextStyle(color: Colors.white),
+                        ),
+                      )
                       .toList(),
                 ),
               ),
@@ -926,7 +1103,10 @@ class _ReadingChart extends StatelessWidget {
                   barWidth: 3,
                   isCurved: true,
                   dotData: const FlDotData(show: false),
-                  belowBarData: BarAreaData(show: true, color: emerald.withValues(alpha: .08)),
+                  belowBarData: BarAreaData(
+                    show: true,
+                    color: emerald.withValues(alpha: .08),
+                  ),
                 ),
               ],
             ),
@@ -946,16 +1126,28 @@ class _StatusBadge extends StatelessWidget {
   Widget build(BuildContext context) {
     final config = switch (value) {
       'critical' => (danger, const Color(0xffffebe9), 'CRITICA'),
-      'technical' => (const Color(0xff6b4a00), const Color(0xfffff5d6), 'TECNICA'),
+      'technical' => (
+        const Color(0xff6b4a00),
+        const Color(0xfffff5d6),
+        'TECNICA',
+      ),
       'resolved' => (emerald, const Color(0xffe8f7f0), 'RESUELTA'),
       _ => (const Color(0xff8a5b00), const Color(0xfffff6df), 'ALERTA'),
     };
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(color: config.$2, borderRadius: BorderRadius.circular(20)),
+      decoration: BoxDecoration(
+        color: config.$2,
+        borderRadius: BorderRadius.circular(20),
+      ),
       child: Text(
         config.$3,
-        style: TextStyle(color: config.$1, fontSize: 9, fontWeight: FontWeight.w800, letterSpacing: .6),
+        style: TextStyle(
+          color: config.$1,
+          fontSize: 9,
+          fontWeight: FontWeight.w800,
+          letterSpacing: .6,
+        ),
       ),
     );
   }
@@ -976,7 +1168,11 @@ class _OfflineBanner extends StatelessWidget {
           Expanded(
             child: Text(
               'Modo sin conexion: mostrando el ultimo estado guardado.',
-              style: TextStyle(color: Color(0xff714d00), fontSize: 12, fontWeight: FontWeight.w600),
+              style: TextStyle(
+                color: Color(0xff714d00),
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
         ],
@@ -999,7 +1195,9 @@ class _Empty extends StatelessWidget {
           children: [
             const Icon(Icons.inbox_outlined, color: muted),
             const SizedBox(width: 12),
-            Expanded(child: Text(text, style: const TextStyle(color: muted))),
+            Expanded(
+              child: Text(text, style: const TextStyle(color: muted)),
+            ),
           ],
         ),
       ),
@@ -1036,9 +1234,15 @@ class _ActionCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
+                    Text(
+                      title,
+                      style: const TextStyle(fontWeight: FontWeight.w800),
+                    ),
                     const SizedBox(height: 3),
-                    Text(text, style: const TextStyle(color: muted, height: 1.3)),
+                    Text(
+                      text,
+                      style: const TextStyle(color: muted, height: 1.3),
+                    ),
                   ],
                 ),
               ),
@@ -1065,7 +1269,10 @@ class _Notice extends StatelessWidget {
         color: danger ? const Color(0xffffebe9) : const Color(0xffe8f7f0),
         borderRadius: BorderRadius.circular(8),
       ),
-      child: Text(text, style: TextStyle(color: danger ? dangerColor : emerald, height: 1.35)),
+      child: Text(
+        text,
+        style: TextStyle(color: danger ? dangerColor : emerald, height: 1.35),
+      ),
     );
   }
 
@@ -1087,24 +1294,48 @@ class _DemoAccounts extends StatelessWidget {
       child: const Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('CUENTAS DE PILOTO', style: TextStyle(color: emerald, fontSize: 10, fontWeight: FontWeight.w800, letterSpacing: 1)),
+          Text(
+            'CUENTAS DE PILOTO',
+            style: TextStyle(
+              color: emerald,
+              fontSize: 10,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 1,
+            ),
+          ),
           SizedBox(height: 8),
-          Text('Admin: admin@agroescudo.local / admin123', style: TextStyle(fontSize: 12)),
-          Text('Tecnico: tecnico@agroescudo.local / tecnico123', style: TextStyle(fontSize: 12)),
-          Text('Cliente: cliente@silo-demo.local / cliente123', style: TextStyle(fontSize: 12)),
+          Text(
+            'Admin: admin@agroescudo.local / admin123',
+            style: TextStyle(fontSize: 12),
+          ),
+          Text(
+            'Tecnico: tecnico@agroescudo.local / tecnico123',
+            style: TextStyle(fontSize: 12),
+          ),
+          Text(
+            'Cliente: cliente@silo-demo.local / cliente123',
+            style: TextStyle(fontSize: 12),
+          ),
         ],
       ),
     );
   }
 }
 
-Future<void> _showLogForm(BuildContext context, {Map<String, dynamic>? initialUnit}) async {
+Future<void> _showLogForm(
+  BuildContext context, {
+  Map<String, dynamic>? initialUnit,
+}) async {
   final store = context.read<AppStore>();
   if (store.units.isEmpty) return;
   var selected = initialUnit ?? store.units.first;
   var category = 'corrective_action';
-  final action = TextEditingController(text: 'Se realizo inspeccion operativa del punto monitoreado.');
-  final operatorName = TextEditingController(text: store.me?['full_name']?.toString() ?? '');
+  final action = TextEditingController(
+    text: 'Se realizo inspeccion operativa del punto monitoreado.',
+  );
+  final operatorName = TextEditingController(
+    text: store.me?['full_name']?.toString() ?? '',
+  );
   final notes = TextEditingController();
   await showModalBottomSheet<void>(
     context: context,
@@ -1124,26 +1355,54 @@ Future<void> _showLogForm(BuildContext context, {Map<String, dynamic>? initialUn
             DropdownButtonFormField<Map<String, dynamic>>(
               initialValue: selected,
               decoration: const InputDecoration(labelText: 'Unidad'),
-              items: store.units.map((unit) => DropdownMenuItem(value: unit, child: Text(unit['name']))).toList(),
-              onChanged: (value) => setSheetState(() => selected = value ?? selected),
+              items: store.units
+                  .map(
+                    (unit) => DropdownMenuItem(
+                      value: unit,
+                      child: Text(unit['name']),
+                    ),
+                  )
+                  .toList(),
+              onChanged: (value) =>
+                  setSheetState(() => selected = value ?? selected),
             ),
             const SizedBox(height: 10),
             DropdownButtonFormField<String>(
               initialValue: category,
               decoration: const InputDecoration(labelText: 'Categoria'),
               items: const [
-                DropdownMenuItem(value: 'corrective_action', child: Text('Accion correctiva')),
-                DropdownMenuItem(value: 'maintenance', child: Text('Mantenimiento')),
-                DropdownMenuItem(value: 'inspection', child: Text('Inspeccion')),
+                DropdownMenuItem(
+                  value: 'corrective_action',
+                  child: Text('Accion correctiva'),
+                ),
+                DropdownMenuItem(
+                  value: 'maintenance',
+                  child: Text('Mantenimiento'),
+                ),
+                DropdownMenuItem(
+                  value: 'inspection',
+                  child: Text('Inspeccion'),
+                ),
               ],
-              onChanged: (value) => setSheetState(() => category = value ?? category),
+              onChanged: (value) =>
+                  setSheetState(() => category = value ?? category),
             ),
             const SizedBox(height: 10),
-            TextField(controller: action, decoration: const InputDecoration(labelText: 'Accion tomada')),
+            TextField(
+              controller: action,
+              decoration: const InputDecoration(labelText: 'Accion tomada'),
+            ),
             const SizedBox(height: 10),
-            TextField(controller: operatorName, decoration: const InputDecoration(labelText: 'Responsable')),
+            TextField(
+              controller: operatorName,
+              decoration: const InputDecoration(labelText: 'Responsable'),
+            ),
             const SizedBox(height: 10),
-            TextField(controller: notes, decoration: const InputDecoration(labelText: 'Notas'), maxLines: 3),
+            TextField(
+              controller: notes,
+              decoration: const InputDecoration(labelText: 'Notas'),
+              maxLines: 3,
+            ),
             const SizedBox(height: 14),
             ElevatedButton(
               onPressed: () async {
@@ -1156,7 +1415,8 @@ Future<void> _showLogForm(BuildContext context, {Map<String, dynamic>? initialUn
                     action: action.text,
                     operatorName: operatorName.text,
                     notes: notes.text,
-                    deviceId: store.deviceFor(selected['id'] as int)?['id'] as int?,
+                    deviceId:
+                        store.deviceFor(selected['id'] as int)?['id'] as int?,
                   ),
                   'Accion registrada.',
                 );
@@ -1183,7 +1443,9 @@ Future<void> _showInstallation(BuildContext context) async {
   var battery = true;
   final location = TextEditingController(text: 'Punto de monitoreo principal');
   final notes = TextEditingController();
-  final technician = TextEditingController(text: store.me?['full_name']?.toString() ?? '');
+  final technician = TextEditingController(
+    text: store.me?['full_name']?.toString() ?? '',
+  );
   await showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
@@ -1206,19 +1468,56 @@ Future<void> _showInstallation(BuildContext context) async {
                 decoration: const InputDecoration(labelText: 'Unidad'),
                 items: store.units
                     .where((unit) => store.deviceFor(unit['id'] as int) != null)
-                    .map((unit) => DropdownMenuItem(value: unit, child: Text(unit['name'])))
+                    .map(
+                      (unit) => DropdownMenuItem(
+                        value: unit,
+                        child: Text(unit['name']),
+                      ),
+                    )
                     .toList(),
-                onChanged: (value) => setSheetState(() => selected = value ?? selected),
+                onChanged: (value) =>
+                    setSheetState(() => selected = value ?? selected),
               ),
               const SizedBox(height: 10),
-              TextField(controller: location, decoration: const InputDecoration(labelText: 'Ubicacion fisica')),
-              CheckboxListTile(value: sensor, onChanged: (v) => setSheetState(() => sensor = v ?? sensor), title: const Text('Sensor instalado correctamente')),
-              CheckboxListTile(value: connectivity, onChanged: (v) => setSheetState(() => connectivity = v ?? connectivity), title: const Text('Conectividad verificada')),
-              CheckboxListTile(value: reading, onChanged: (v) => setSheetState(() => reading = v ?? reading), title: const Text('Lectura inicial registrada')),
-              CheckboxListTile(value: battery, onChanged: (v) => setSheetState(() => battery = v ?? battery), title: const Text('Bateria verificada')),
-              TextField(controller: technician, decoration: const InputDecoration(labelText: 'Tecnico responsable')),
+              TextField(
+                controller: location,
+                decoration: const InputDecoration(
+                  labelText: 'Ubicacion fisica',
+                ),
+              ),
+              CheckboxListTile(
+                value: sensor,
+                onChanged: (v) => setSheetState(() => sensor = v ?? sensor),
+                title: const Text('Sensor instalado correctamente'),
+              ),
+              CheckboxListTile(
+                value: connectivity,
+                onChanged: (v) =>
+                    setSheetState(() => connectivity = v ?? connectivity),
+                title: const Text('Conectividad verificada'),
+              ),
+              CheckboxListTile(
+                value: reading,
+                onChanged: (v) => setSheetState(() => reading = v ?? reading),
+                title: const Text('Lectura inicial registrada'),
+              ),
+              CheckboxListTile(
+                value: battery,
+                onChanged: (v) => setSheetState(() => battery = v ?? battery),
+                title: const Text('Bateria verificada'),
+              ),
+              TextField(
+                controller: technician,
+                decoration: const InputDecoration(
+                  labelText: 'Tecnico responsable',
+                ),
+              ),
               const SizedBox(height: 10),
-              TextField(controller: notes, decoration: const InputDecoration(labelText: 'Observaciones'), maxLines: 2),
+              TextField(
+                controller: notes,
+                decoration: const InputDecoration(labelText: 'Observaciones'),
+                maxLines: 2,
+              ),
               const SizedBox(height: 14),
               ElevatedButton(
                 onPressed: device == null
@@ -1251,17 +1550,20 @@ Future<void> _showInstallation(BuildContext context) async {
   );
 }
 
-Future<void> _downloadPdf(BuildContext context, Map<String, dynamic> unit) async {
-  await _run(
-    context,
-    () async {
-      await context.read<AppStore>().downloadWeeklyPdf(unit);
-    },
-    'Reporte descargado.',
-  );
+Future<void> _downloadPdf(
+  BuildContext context,
+  Map<String, dynamic> unit,
+) async {
+  await _run(context, () async {
+    await context.read<AppStore>().downloadWeeklyPdf(unit);
+  }, 'Reporte descargado.');
 }
 
-Future<void> _run(BuildContext context, Future<void> Function() action, String success) async {
+Future<void> _run(
+  BuildContext context,
+  Future<void> Function() action,
+  String success,
+) async {
   try {
     await action();
     if (context.mounted) _toast(context, success);
@@ -1275,13 +1577,20 @@ void _toast(BuildContext context, String message) {
 }
 
 Map<String, dynamic> _newest(List<Map<String, dynamic>> items) {
-  return (items.toList()..sort((a, b) => _parse(b['timestamp']).compareTo(_parse(a['timestamp'])))).first;
+  return (items.toList()..sort(
+        (a, b) => _parse(b['timestamp']).compareTo(_parse(a['timestamp'])),
+      ))
+      .first;
 }
 
-DateTime _parse(dynamic value) => DateTime.tryParse(value?.toString() ?? '') ?? DateTime.fromMillisecondsSinceEpoch(0);
+DateTime _parse(dynamic value) =>
+    DateTime.tryParse(value?.toString() ?? '') ??
+    DateTime.fromMillisecondsSinceEpoch(0);
 String _date(dynamic value) => formatDate.format(_parse(value).toLocal());
 String _num(dynamic value) => value is num ? value.toStringAsFixed(1) : '--';
-String _capacity(Map<String, dynamic> unit) => unit['capacity_tons'] == null ? 'Capacidad no registrada' : '${_num(unit['capacity_tons'])} t';
+String _capacity(Map<String, dynamic> unit) => unit['capacity_tons'] == null
+    ? 'Capacidad no registrada'
+    : '${_num(unit['capacity_tons'])} t';
 
 String _roleLabel(String role) {
   return switch (role) {

@@ -72,7 +72,7 @@ function clearStoredSession() {
 function loginErrorMessage(err: unknown) {
   if (err instanceof ApiError) {
     if (err.status === 401) return "Credenciales incorrectas. Verifica correo y contraseña.";
-    if (err.status === 0) return "No se pudo conectar con el servidor.";
+    if (err.status === 0) return err.message;
   }
   return "No se pudo iniciar sesión. Intenta nuevamente.";
 }
@@ -347,7 +347,7 @@ function LoginScreen({
             <h2 className="mt-2 text-2xl font-black tracking-tight text-slate-950">Centro operativo AgroEscudo</h2>
             <p className="mt-2 text-sm leading-6 text-slate-500">Ingresa para revisar alertas, lecturas, umbrales y acciones de campo.</p>
           </div>
-          <form onSubmit={submit} className="mt-6 space-y-4">
+          <form id="agroescudo-login-form" onSubmit={submit} className="mt-6 space-y-4">
             <label className="block">
               <span className="text-xs font-black uppercase tracking-[0.14em] text-slate-500">Email</span>
               <input
@@ -365,7 +365,21 @@ function LoginScreen({
                 className="input mt-1.5"
               />
             </label>
-            {error ? <p className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm font-medium text-red-800">{error}</p> : null}
+            {error ? (
+              <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm font-medium text-red-800">
+                <p className="whitespace-pre-line">{error}</p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const form = document.querySelector<HTMLFormElement>("#agroescudo-login-form");
+                    form?.requestSubmit();
+                  }}
+                  className="mt-3 rounded-lg bg-red-700 px-3 py-2 text-xs font-black text-white transition hover:bg-red-800"
+                >
+                  Reintentar conexión
+                </button>
+              </div>
+            ) : null}
             <button
               type="submit"
               disabled={loading}

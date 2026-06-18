@@ -11,11 +11,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'api_client.dart';
 
 class AppStore extends ChangeNotifier {
-  AppStore({
-    ApiClient? api,
-    FlutterSecureStorage? secureStorage,
-  })  : _api = api ?? ApiClient(),
-        _secureStorage = secureStorage ?? const FlutterSecureStorage();
+  AppStore({ApiClient? api, FlutterSecureStorage? secureStorage})
+    : _api = api ?? ApiClient(),
+      _secureStorage = secureStorage ?? const FlutterSecureStorage();
 
   static const _tokenKey = 'agroescudo.jwt';
   static const _cacheKey = 'agroescudo.mobile.cache';
@@ -68,10 +66,12 @@ class AppStore extends ChangeNotifier {
     error = null;
     notifyListeners();
     try {
-      final payload = await _api.postJson('/api/auth/login', {
-        'email': email,
-        'password': password,
-      }) as Map<String, dynamic>;
+      final payload =
+          await _api.postJson('/api/auth/login', {
+                'email': email,
+                'password': password,
+              })
+              as Map<String, dynamic>;
       token = payload['access_token']?.toString();
       if (token == null) throw ApiException('Token no recibido.', 500);
       await _secureStorage.write(key: _tokenKey, value: token);
@@ -80,6 +80,21 @@ class AppStore extends ChangeNotifier {
       error = exception.statusCode == 401
           ? 'Credenciales incorrectas. Verifica correo y contrasena.'
           : exception.message;
+      rethrow;
+    } finally {
+      loading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> checkConnection() async {
+    loading = true;
+    error = null;
+    notifyListeners();
+    try {
+      await _api.getJson('/health');
+    } on ApiException catch (exception) {
+      error = exception.message;
       rethrow;
     } finally {
       loading = false;
@@ -163,20 +178,16 @@ class AppStore extends ChangeNotifier {
     int? alertId,
   }) async {
     await _ensureOnline();
-    await _api.postJson(
-      '/api/operational-logs',
-      {
-        'storage_unit_id': storageUnitId,
-        'device_id': deviceId,
-        'alert_id': alertId,
-        'category': category,
-        'action_taken': action,
-        'operator_name': operatorName,
-        'notes': notes,
-        'timestamp': DateTime.now().toUtc().toIso8601String(),
-      },
-      token: token,
-    );
+    await _api.postJson('/api/operational-logs', {
+      'storage_unit_id': storageUnitId,
+      'device_id': deviceId,
+      'alert_id': alertId,
+      'category': category,
+      'action_taken': action,
+      'operator_name': operatorName,
+      'notes': notes,
+      'timestamp': DateTime.now().toUtc().toIso8601String(),
+    }, token: token);
     await refresh();
   }
 
@@ -192,22 +203,18 @@ class AppStore extends ChangeNotifier {
     required bool batteryOk,
   }) async {
     await _ensureOnline();
-    await _api.postJson(
-      '/api/operational-logs/installations',
-      {
-        'storage_unit_id': storageUnitId,
-        'device_id': deviceId,
-        'physical_location': location,
-        'sensor_installed_correctly': sensorOk,
-        'connectivity_verified': connectivityOk,
-        'initial_reading_registered': readingOk,
-        'battery_verified': batteryOk,
-        'observations': notes,
-        'technician_name': technicianName,
-        'timestamp': DateTime.now().toUtc().toIso8601String(),
-      },
-      token: token,
-    );
+    await _api.postJson('/api/operational-logs/installations', {
+      'storage_unit_id': storageUnitId,
+      'device_id': deviceId,
+      'physical_location': location,
+      'sensor_installed_correctly': sensorOk,
+      'connectivity_verified': connectivityOk,
+      'initial_reading_registered': readingOk,
+      'battery_verified': batteryOk,
+      'observations': notes,
+      'technician_name': technicianName,
+      'timestamp': DateTime.now().toUtc().toIso8601String(),
+    }, token: token);
     await refresh();
   }
 
@@ -227,8 +234,13 @@ class AppStore extends ChangeNotifier {
   }
 
   Future<List<Map<String, dynamic>>> notificationPreferences() async {
-    final payload = await _api.getJson('/api/notifications/preferences', token: token);
-    return (payload as List).map((item) => Map<String, dynamic>.from(item as Map)).toList();
+    final payload = await _api.getJson(
+      '/api/notifications/preferences',
+      token: token,
+    );
+    return (payload as List)
+        .map((item) => Map<String, dynamic>.from(item as Map))
+        .toList();
   }
 
   Future<void> updateNotificationPreference({
@@ -237,40 +249,45 @@ class AppStore extends ChangeNotifier {
     String? destination,
     String minimumSeverity = 'critical',
   }) async {
-    await _api.putJson(
-      '/api/notifications/preferences/$channel',
-      {
-        'enabled': enabled,
-        'destination': destination,
-        'minimum_severity': minimumSeverity,
-      },
-      token: token,
-    );
+    await _api.putJson('/api/notifications/preferences/$channel', {
+      'enabled': enabled,
+      'destination': destination,
+      'minimum_severity': minimumSeverity,
+    }, token: token);
   }
 
   Future<Map<String, dynamic>> aiRecommendationForAlert(int alertId) async {
-    final payload = await _api.getJson('/api/ai/alerts/$alertId/recommendation', token: token);
+    final payload = await _api.getJson(
+      '/api/ai/alerts/$alertId/recommendation',
+      token: token,
+    );
     return Map<String, dynamic>.from(payload as Map);
   }
 
   Map<String, dynamic>? latestReadingFor(int storageUnitId) {
-    final values = readings
-        .where((reading) => reading['storage_unit_id'] == storageUnitId)
-        .toList()
-      ..sort((a, b) => _date(b['timestamp']).compareTo(_date(a['timestamp'])));
+    final values =
+        readings
+            .where((reading) => reading['storage_unit_id'] == storageUnitId)
+            .toList()
+          ..sort(
+            (a, b) => _date(b['timestamp']).compareTo(_date(a['timestamp'])),
+          );
     return values.isEmpty ? null : values.first;
   }
 
-  List<Map<String, dynamic>> readingsFor(int storageUnitId) => readings
-      .where((reading) => reading['storage_unit_id'] == storageUnitId)
-      .toList()
-    ..sort((a, b) => _date(a['timestamp']).compareTo(_date(b['timestamp'])));
+  List<Map<String, dynamic>> readingsFor(int storageUnitId) =>
+      readings
+          .where((reading) => reading['storage_unit_id'] == storageUnitId)
+          .toList()
+        ..sort(
+          (a, b) => _date(a['timestamp']).compareTo(_date(b['timestamp'])),
+        );
 
   Map<String, dynamic>? deviceFor(int storageUnitId) {
     return devices.cast<Map<String, dynamic>?>().firstWhere(
-          (device) => device?['storage_unit_id'] == storageUnitId,
-          orElse: () => null,
-        );
+      (device) => device?['storage_unit_id'] == storageUnitId,
+      orElse: () => null,
+    );
   }
 
   Future<void> _mutate(String path, {required String method}) async {

@@ -16,7 +16,7 @@ flutter run --dart-define=API_BASE_URL=http://10.0.2.2:8010
 ```powershell
 flutter analyze
 flutter test
-flutter build apk --release --dart-define=API_BASE_URL=https://api.agroescudo.com
+flutter build apk --release --dart-define=API_BASE_URL=https://agroescudo-api.onrender.com
 ```
 
 Consulta `../MOBILE_DEMO_CHECKLIST.md` para el recorrido completo.

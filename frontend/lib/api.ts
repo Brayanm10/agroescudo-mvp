@@ -17,7 +17,35 @@ import type {
   WeeklyReport
 } from "./types";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8010";
+const LOCAL_API_URL = "http://127.0.0.1:8010";
+
+function normalizeApiUrl(value: string) {
+  return value.replace(/\/+$/, "");
+}
+
+function apiUrlFor(path: string) {
+  const configuredUrl = process.env.NEXT_PUBLIC_API_URL?.trim();
+
+  if (configuredUrl) {
+    return normalizeApiUrl(configuredUrl);
+  }
+
+  if (process.env.NODE_ENV === "production") {
+    throw new ApiError(
+      [
+        "NEXT_PUBLIC_API_URL no configurada. Define la URL pública del backend en Vercel.",
+        "URL de API usada: no configurada",
+        `Endpoint probado: ${path}`,
+        "Código HTTP: no disponible",
+        "Mensaje técnico: variable de entorno pública ausente en build de producción.",
+        "Posibles causas: backend dormido por Render Free, API caída, NEXT_PUBLIC_API_URL incorrecta, CORS o error de internet."
+      ].join("\n"),
+      0
+    );
+  }
+
+  return LOCAL_API_URL;
+}
 
 type RequestOptions = {
   token?: string;
@@ -27,14 +55,19 @@ type RequestOptions = {
 
 export class ApiError extends Error {
   status: number;
+  endpoint?: string;
+  apiUrl?: string;
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, endpoint?: string, apiUrl?: string) {
     super(message);
     this.status = status;
+    this.endpoint = endpoint;
+    this.apiUrl = apiUrl;
   }
 }
 
 async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  const apiUrl = apiUrlFor(path);
   const headers: HeadersInit = {
     "Content-Type": "application/json"
   };
@@ -44,13 +77,13 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
 
   let response: Response;
   try {
-    response = await fetch(`${API_URL}${path}`, {
+    response = await fetch(`${apiUrl}${path}`, {
       method: options.method || "GET",
       headers,
       body: options.body ? JSON.stringify(options.body) : undefined
     });
-  } catch {
-    throw new ApiError("No se pudo conectar con el servidor.", 0);
+  } catch (err) {
+    throw new ApiError(connectionMessage(apiUrl, path, err), 0, path, apiUrl);
   }
 
   if (!response.ok) {
@@ -61,7 +94,7 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     } catch {
       message = response.statusText || message;
     }
-    throw new ApiError(message, response.status);
+    throw new ApiError(httpMessage(apiUrl, path, response.status, message), response.status, path, apiUrl);
   }
 
   return response.json() as Promise<T>;
@@ -201,18 +234,50 @@ export function getWeeklyReport(token: string, storageUnitId: number) {
 }
 
 export async function getWeeklyReportPdf(token: string, storageUnitId: number) {
+  const path = `/api/reports/weekly/pdf?storage_unit_id=${storageUnitId}`;
+  const apiUrl = apiUrlFor(path);
   let response: Response;
   try {
-    response = await fetch(`${API_URL}/api/reports/weekly/pdf?storage_unit_id=${storageUnitId}`, {
+    response = await fetch(`${apiUrl}${path}`, {
       headers: { Authorization: `Bearer ${token}` }
     });
-  } catch {
-    throw new ApiError("No se pudo conectar con el servidor.", 0);
+  } catch (err) {
+    throw new ApiError(connectionMessage(apiUrl, path, err), 0, path, apiUrl);
   }
   if (!response.ok) {
-    throw new ApiError("No se pudo generar el reporte PDF.", response.status);
+    let message = "No se pudo generar el reporte PDF.";
+    try {
+      const payload = await response.json();
+      message = payload.detail || message;
+    } catch {
+      message = response.statusText || message;
+    }
+    throw new ApiError(httpMessage(apiUrl, path, response.status, message), response.status, path, apiUrl);
   }
   return response.blob();
+}
+
+function connectionMessage(apiUrl: string, path: string, err: unknown) {
+  const technicalMessage = err instanceof Error ? err.message : String(err);
+  return [
+    "No se pudo conectar con AgroEscudo API.",
+    `URL de API usada: ${apiUrl}`,
+    `Endpoint probado: ${path}`,
+    "Código HTTP: no disponible",
+    `Mensaje técnico: ${technicalMessage || "error de red del navegador"}`,
+    "Posibles causas: backend dormido por Render Free, API caída, NEXT_PUBLIC_API_URL incorrecta, CORS o error de internet."
+  ].join("\n");
+}
+
+function httpMessage(apiUrl: string, path: string, status: number, detail: string) {
+  return [
+    "No se pudo completar la solicitud a AgroEscudo API.",
+    `URL de API usada: ${apiUrl}`,
+    `Endpoint probado: ${path}`,
+    `Código HTTP: ${status}`,
+    `Mensaje técnico: ${detail}`,
+    "Posibles causas: backend dormido por Render Free, API caída, NEXT_PUBLIC_API_URL incorrecta, CORS o error de internet."
+  ].join("\n");
 }
 
 export function simulateCriticalDemoReading(token: string) {

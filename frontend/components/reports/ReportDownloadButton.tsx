@@ -81,7 +81,7 @@ export function ReportDownloadButton({
         {loading ? <FileText className="mr-2 animate-pulse" size={16} aria-hidden="true" /> : <Download className="mr-2" size={16} aria-hidden="true" />}
         {loading ? "Generando PDF..." : "Descargar reporte PDF"}
       </button>
-      {error ? <p className="max-w-sm rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-800">{error}</p> : null}
+      {error ? <p className="max-w-sm whitespace-pre-line rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-800">{error}</p> : null}
     </div>
   );
 }
