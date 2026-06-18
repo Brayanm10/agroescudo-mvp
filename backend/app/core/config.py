@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     whatsapp_template_alert: str | None = None
     telegram_enabled: bool = False
     telegram_bot_token: str | None = None
+    notifications_dry_run: bool = Field(default=True, validation_alias=AliasChoices("NOTIFICATIONS_DRY_RUN", "notifications_dry_run"))
     fcm_enabled: bool = False
     firebase_project_id: str | None = None
     firebase_service_account_file: str | None = None

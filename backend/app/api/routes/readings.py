@@ -5,7 +5,7 @@ from fastapi import Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, scope_company_query
+from app.api.deps import get_current_user, require_device_access, scope_storage_unit_records_query
 from app.db.session import get_db
 from app.models import Device, SensorReading, User
 from app.schemas import ReadingIngestResponse, ReadingOut, SensorReadingCreate
@@ -28,12 +28,16 @@ def list_readings(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> list[SensorReading]:
-    stmt = scope_company_query(select(SensorReading), SensorReading, current_user)
+    stmt = scope_storage_unit_records_query(select(SensorReading), SensorReading, current_user, db)
     if device_id is not None:
         device = db.scalar(select(Device).where(Device.external_id == device_id))
         if device is None and device_id.isdigit():
             device = db.get(Device, int(device_id))
-        if device is None or (current_user.role == "client" and device.company_id != current_user.company_id):
+        if device is None:
+            return []
+        try:
+            require_device_access(db, current_user, device.id)
+        except Exception:
             return []
         stmt = stmt.where(SensorReading.device_id == device.id)
     if from_ is not None:

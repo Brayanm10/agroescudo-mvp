@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, require_role, require_site_access, scope_company_query
+from app.api.deps import get_current_user, require_role, require_site_access, scope_sites_query
 from app.db.session import get_db
 from app.models import Company, Site, User
 from app.schemas import SiteCreate, SiteOut
@@ -16,9 +16,7 @@ def list_sites(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> list[Site]:
-    if company_id is not None and not (current_user.role in {"admin", "technician"} or current_user.company_id == company_id):
-        return []
-    stmt = scope_company_query(select(Site), Site, current_user)
+    stmt = scope_sites_query(select(Site), current_user, db)
     if company_id is not None:
         stmt = stmt.where(Site.company_id == company_id)
     return list(db.scalars(stmt.order_by(Site.name)).all())

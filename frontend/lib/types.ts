@@ -205,6 +205,22 @@ export type NotificationEvent = {
   sent_at: string | null;
 };
 
+export type NotificationDelivery = {
+  id: number;
+  alert_id: number | null;
+  user_id: number | null;
+  channel: string;
+  destination: string | null;
+  severity: string;
+  status: "dry_run" | "pending" | "sent" | "skipped" | "failed" | string;
+  dry_run: boolean;
+  payload_preview: string;
+  provider_response: string | null;
+  error: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type AiAlertRecommendation = {
   alert_id: number;
   source: "rules" | "openai" | string;
@@ -215,5 +231,5 @@ export type AiAlertRecommendation = {
   technical_notes: string[];
 };
 
-export type ViewKey = "dashboard" | "demo" | "pilots" | "sites" | "alerts" | "logs" | "thresholds" | "reports";
+export type ViewKey = "dashboard" | "demo" | "pilots" | "sites" | "alerts" | "logs" | "thresholds" | "reports" | "users" | "notifications";
 export type RiskStatus = "normal" | "warning" | "critical" | "technical";

@@ -5,6 +5,7 @@ import type {
   Company,
   Device,
   DemoSimulation,
+  NotificationDelivery,
   NotificationEvent,
   NotificationPreference,
   OperationalLog,
@@ -119,7 +120,7 @@ export async function loadAppData(token: string): Promise<AppData> {
     request<Alert[]>("/api/alerts/active", { token }),
     request<OperationalLog[]>("/api/operational-logs", { token }),
     request<Pilot[]>("/api/pilots", { token }),
-    me.role === "admin" ? request<User[]>("/api/users", { token }) : Promise.resolve([])
+    me.role === "admin" ? request<User[]>("/api/admin/users", { token }) : Promise.resolve([])
   ]);
   return {
     me,
@@ -317,4 +318,65 @@ export function testNotification(token: string, channel: "whatsapp" | "telegram"
 
 export function getAiAlertRecommendation(token: string, alertId: number) {
   return request<AiAlertRecommendation>(`/api/ai/alerts/${alertId}/recommendation`, { token });
+}
+
+export function createAdminUser(
+  token: string,
+  payload: {
+    company_id: number;
+    email: string;
+    full_name: string;
+    password: string;
+    role: "admin" | "technician" | "client";
+  }
+) {
+  return request<User>("/api/admin/users", { token, method: "POST", body: payload });
+}
+
+export function updateAdminUser(
+  token: string,
+  userId: number,
+  payload: Partial<Pick<User, "company_id" | "email" | "full_name" | "role" | "is_active">>
+) {
+  return request<User>(`/api/admin/users/${userId}`, { token, method: "PATCH", body: payload });
+}
+
+export function resetAdminUserPassword(token: string, userId: number, password: string) {
+  return request<User>(`/api/admin/users/${userId}/reset-password`, {
+    token,
+    method: "POST",
+    body: { password }
+  });
+}
+
+export function activateAdminUser(token: string, userId: number) {
+  return request<User>(`/api/admin/users/${userId}/activate`, { token, method: "POST" });
+}
+
+export function deactivateAdminUser(token: string, userId: number) {
+  return request<User>(`/api/admin/users/${userId}/deactivate`, { token, method: "POST" });
+}
+
+export function assignAdminUserStorageUnits(token: string, userId: number, storageUnitIds: number[]) {
+  return request<User>(`/api/admin/users/${userId}/assign-storage-units`, {
+    token,
+    method: "POST",
+    body: { storage_unit_ids: storageUnitIds }
+  });
+}
+
+export function getNotificationDeliveries(token: string) {
+  return request<NotificationDelivery[]>("/api/admin/notifications/deliveries", { token });
+}
+
+export function testAdminNotification(
+  token: string,
+  channel: "whatsapp" | "telegram",
+  payload: { user_id?: number | null; destination?: string | null; message: string }
+) {
+  return request<NotificationDelivery>(`/api/admin/notifications/test/${channel}`, {
+    token,
+    method: "POST",
+    body: payload
+  });
 }

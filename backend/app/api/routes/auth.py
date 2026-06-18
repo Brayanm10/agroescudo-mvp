@@ -13,9 +13,11 @@ router = APIRouter()
 
 @router.post("/auth/login", response_model=TokenOut)
 def login(payload: LoginRequest, db: Session = Depends(get_db)) -> TokenOut:
-    user = db.scalar(select(User).where(User.email == payload.email, User.is_active.is_(True)))
+    user = db.scalar(select(User).where(User.email == payload.email))
     if user is None or not verify_password(payload.password, user.hashed_password):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
+    if not user.is_active:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Usuario desactivado. Contacta al administrador.")
 
     return TokenOut(access_token=create_access_token(str(user.id)))
 

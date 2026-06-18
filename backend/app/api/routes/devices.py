@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, require_device_access, require_role, scope_company_query
+from app.api.deps import get_current_user, require_device_access, require_role, require_storage_unit_access, scope_storage_unit_records_query
 from app.core.security import hash_secret
 from app.db.session import get_db
 from app.models import Device, StorageUnit, User
@@ -18,12 +18,14 @@ def list_devices(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> list[Device]:
-    stmt = scope_company_query(select(Device), Device, current_user)
+    stmt = scope_storage_unit_records_query(select(Device), Device, current_user, db)
     if storage_unit_id is not None:
         storage_unit = db.get(StorageUnit, storage_unit_id)
         if storage_unit is None:
             return []
-        if current_user.role == "client" and storage_unit.company_id != current_user.company_id:
+        try:
+            require_storage_unit_access(db, current_user, storage_unit.id)
+        except HTTPException:
             return []
         stmt = stmt.where(Device.storage_unit_id == storage_unit_id)
     return list(db.scalars(stmt.order_by(Device.external_id)).all())

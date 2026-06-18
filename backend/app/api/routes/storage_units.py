@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, require_role, require_storage_unit_access, scope_company_query
+from app.api.deps import get_current_user, require_role, require_storage_unit_access, scope_storage_units_query
 from app.db.session import get_db
 from app.models import Site, StorageUnit, User
 from app.schemas import OperationalLogOut, ReadingOut, StorageUnitAssignmentsIn, StorageUnitCreate, StorageUnitOut
@@ -16,12 +16,12 @@ def list_storage_units(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> list[StorageUnit]:
-    stmt = scope_company_query(select(StorageUnit), StorageUnit, current_user)
+    stmt = scope_storage_units_query(select(StorageUnit), current_user, db)
     if site_id is not None:
         site = db.get(Site, site_id)
         if site is None:
             return []
-        if current_user.role == "client" and site.company_id != current_user.company_id:
+        if current_user.role != "admin" and site.id not in {unit.site_id for unit in db.scalars(scope_storage_units_query(select(StorageUnit), current_user, db)).all()}:
             return []
         stmt = stmt.where(StorageUnit.site_id == site_id)
     return list(db.scalars(stmt.order_by(StorageUnit.name)).all())

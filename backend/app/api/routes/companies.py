@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, require_company_access, require_role
+from app.api.deps import get_current_user, require_company_access, require_role, scope_companies_query
 from app.db.session import get_db
 from app.models import Company, User
 from app.schemas import CompanyCreate, CompanyOut
@@ -15,9 +15,7 @@ def list_companies(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> list[Company]:
-    stmt = select(Company)
-    if current_user.role == "client":
-        stmt = stmt.where(Company.id == current_user.company_id)
+    stmt = scope_companies_query(select(Company), current_user, db)
     return list(db.scalars(stmt.order_by(Company.name)).all())
 
 
@@ -43,5 +41,5 @@ def get_company(
     company = db.get(Company, company_id)
     if company is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Company not found")
-    require_company_access(current_user, company.id)
+    require_company_access(db, current_user, company.id)
     return company

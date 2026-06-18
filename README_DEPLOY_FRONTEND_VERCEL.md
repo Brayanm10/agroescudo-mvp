@@ -41,6 +41,7 @@ En Vercel, agrega:
 
 ```env
 NEXT_PUBLIC_API_URL=https://agroescudo-api.onrender.com
+NEXT_PUBLIC_SHOW_DEMO_CREDENTIALS=false
 ```
 
 Debe estar disponible para Production, Preview y Development si quieres probar previews.

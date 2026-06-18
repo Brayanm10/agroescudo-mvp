@@ -6,6 +6,14 @@ import 'package:http/http.dart' as http;
 
 const _configuredApiBaseUrl = String.fromEnvironment('API_BASE_URL');
 const _localFallbackApiBaseUrl = 'http://10.0.2.2:8010';
+const _jsonTimeout = Duration(seconds: 30);
+const _longJsonTimeout = Duration(seconds: 75);
+const _fileTimeout = Duration(seconds: 120);
+const _retryDelays = [
+  Duration(seconds: 3),
+  Duration(seconds: 6),
+  Duration(seconds: 12),
+];
 
 String get apiBaseUrl => _resolveApiBaseUrl();
 
@@ -42,18 +50,11 @@ class ApiClient {
 
   Future<Uint8List> getBytes(String path, {required String token}) async {
     final target = _targetUri(path);
-    late http.Response response;
-    try {
-      response = await _client
-          .get(target, headers: _headers(token))
-          .timeout(const Duration(seconds: 20));
-    } on ApiException {
-      rethrow;
-    } on TimeoutException catch (error) {
-      throw ApiException(_connectionMessage(path, target, error), 0);
-    } on Exception catch (error) {
-      throw ApiException(_connectionMessage(path, target, error), 0);
-    }
+    final response = await _requestWithRetry(
+      path,
+      target,
+      () => _client.get(target, headers: _headers(token)).timeout(_fileTimeout),
+    );
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw _exceptionFrom(response, path, target);
     }
@@ -68,32 +69,17 @@ class ApiClient {
   }) async {
     final uri = _targetUri(path);
     final headers = _headers(token);
-    late http.Response response;
-    try {
+    final timeout = _timeoutFor(path);
+    final response = await _requestWithRetry(path, uri, () {
       if (method == 'POST') {
-        response = await _client
-            .post(uri, headers: headers, body: jsonEncode(body))
-            .timeout(const Duration(seconds: 15));
+        return _client.post(uri, headers: headers, body: jsonEncode(body)).timeout(timeout);
       } else if (method == 'PATCH') {
-        response = await _client
-            .patch(uri, headers: headers)
-            .timeout(const Duration(seconds: 15));
+        return _client.patch(uri, headers: headers).timeout(timeout);
       } else if (method == 'PUT') {
-        response = await _client
-            .put(uri, headers: headers, body: jsonEncode(body))
-            .timeout(const Duration(seconds: 15));
-      } else {
-        response = await _client
-            .get(uri, headers: headers)
-            .timeout(const Duration(seconds: 15));
+        return _client.put(uri, headers: headers, body: jsonEncode(body)).timeout(timeout);
       }
-    } on ApiException {
-      rethrow;
-    } on TimeoutException catch (error) {
-      throw ApiException(_connectionMessage(path, uri, error), 0);
-    } on Exception catch (error) {
-      throw ApiException(_connectionMessage(path, uri, error), 0);
-    }
+      return _client.get(uri, headers: headers).timeout(timeout);
+    });
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw _exceptionFrom(response, path, uri);
     }
@@ -104,6 +90,29 @@ class ApiClient {
     'Content-Type': 'application/json',
     if (token != null) 'Authorization': 'Bearer $token',
   };
+
+  Future<http.Response> _requestWithRetry(
+    String path,
+    Uri uri,
+    Future<http.Response> Function() request,
+  ) async {
+    Object? lastError;
+    for (var attempt = 0; attempt <= _retryDelays.length; attempt += 1) {
+      try {
+        return await request();
+      } on ApiException {
+        rethrow;
+      } on TimeoutException catch (error) {
+        lastError = error;
+      } on Exception catch (error) {
+        lastError = error;
+      }
+      if (attempt < _retryDelays.length) {
+        await Future<void>.delayed(_retryDelays[attempt]);
+      }
+    }
+    throw ApiException(_connectionMessage(path, uri, lastError ?? 'error de red'), 0);
+  }
 
   ApiException _exceptionFrom(http.Response response, String path, Uri uri) {
     var message = 'No se pudo completar la solicitud.';
@@ -125,6 +134,13 @@ class ApiClient {
     final baseUrl = _resolveApiBaseUrl();
     return Uri.parse('$baseUrl$path');
   }
+}
+
+Duration _timeoutFor(String path) {
+  if (path == '/health' || path == '/api/health/db' || path == '/api/auth/login' || path == '/api/me') {
+    return _longJsonTimeout;
+  }
+  return _jsonTimeout;
 }
 
 String _resolveApiBaseUrl() {

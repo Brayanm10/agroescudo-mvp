@@ -37,6 +37,7 @@ Backend (`backend/.env`, copiar desde `backend/.env.example`):
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | Duracion de sesion JWT. | `480` |
 | `WHATSAPP_ENABLED` / `WHATSAPP_ACCESS_TOKEN` / `WHATSAPP_PHONE_NUMBER_ID` | Activa envio por WhatsApp Cloud API. | `false` hasta tener credenciales Meta |
 | `TELEGRAM_ENABLED` / `TELEGRAM_BOT_TOKEN` | Activa envio por bot de Telegram. | `false` hasta crear bot |
+| `NOTIFICATIONS_DRY_RUN` | Registra entregas WhatsApp/Telegram sin enviar mensajes reales. | `true` |
 | `FCM_ENABLED` / `FIREBASE_PROJECT_ID` / `FIREBASE_SERVICE_ACCOUNT_FILE` | Activa push notification para Android. | `false` hasta configurar Firebase |
 | `AI_ENABLED` / `OPENAI_API_KEY` / `OPENAI_MODEL` | Activa recomendaciones IA; sin API key usa reglas internas. | `false` |
 
@@ -47,6 +48,7 @@ Frontend (`frontend/.env.local`, copiar desde `frontend/.env.example`):
 | Variable | Uso | Valor local recomendado |
 | --- | --- | --- |
 | `NEXT_PUBLIC_API_URL` | URL del backend consumida desde el navegador. | `http://127.0.0.1:8010` |
+| `NEXT_PUBLIC_SHOW_DEMO_CREDENTIALS` | Muestra el bloque de credenciales demo en login. En Vercel publico debe ser `false`. | `true` local |
 
 ## Modo Local Sin Docker
 
@@ -114,6 +116,8 @@ Login demo:
 - Admin: `admin@agroescudo.local` / `admin123`
 - Tecnico: `tecnico@agroescudo.local` / `tecnico123`
 - Cliente silo demo: `cliente@silo-demo.local` / `cliente123`
+
+En Vercel publico configura `NEXT_PUBLIC_SHOW_DEMO_CREDENTIALS=false` para no mostrar estas credenciales en pantalla.
 
 Build frontend:
 
@@ -317,7 +321,18 @@ Invoke-RestMethod -Method Post `
 
 `POST /api/readings` sigue siendo publico para dispositivos IoT y usa `device_token`, no JWT.
 
-## Notificaciones e IA Operativa
+## Usuarios, Notificaciones e IA Operativa
+
+El admin dispone de secciones para cierre comercial de piloto:
+
+- `Usuarios`: crear usuarios, activar/desactivar cuentas, resetear password y asignar storage units a tecnicos/clientes.
+- `Notificaciones`: registrar pruebas dry-run de WhatsApp/Telegram y revisar entregas auditables.
+
+El acceso efectivo se limita por storage unit:
+
+- `admin`: acceso total.
+- `technician`: solo unidades asignadas en `assigned_technician_id`.
+- `client`: solo unidades asignadas en `assigned_client_id`.
 
 AgroEscudo ya incluye infraestructura backend para notificaciones multicanal:
 
@@ -328,7 +343,7 @@ AgroEscudo ya incluye infraestructura backend para notificaciones multicanal:
 - `POST /api/notifications/test/{channel}`
 - `GET /api/ai/alerts/{id}/recommendation`
 
-Cuando una lectura crea una alerta nueva, el backend busca preferencias activas de usuarios de la empresa y registra eventos de notificacion. Si el canal no tiene credenciales, el evento queda como `skipped` con el motivo; asi no se rompe la ingestion IoT.
+Cuando una lectura crea una alerta nueva, el backend busca preferencias activas y registra eventos de notificacion. Para WhatsApp/Telegram tambien registra `notification_deliveries`, pensados para auditoria comercial. Con `NOTIFICATIONS_DRY_RUN=true`, el sistema deja evidencia sin enviar mensajes reales; es el modo recomendado para pilotos y demo.
 
 Para activar WhatsApp necesitas:
 

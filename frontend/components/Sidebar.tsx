@@ -1,4 +1,4 @@
-import { AlertTriangle, BarChart3, ClipboardList, LayoutDashboard, MapPinned, Presentation, Rocket, ShieldCheck, SlidersHorizontal } from "lucide-react";
+import { AlertTriangle, BarChart3, BellRing, ClipboardList, LayoutDashboard, MapPinned, Presentation, Rocket, ShieldCheck, SlidersHorizontal, Users } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import type { ViewKey } from "@/lib/types";
 
@@ -10,7 +10,9 @@ const items: Array<{ key: ViewKey; label: string; icon: LucideIcon }> = [
   { key: "alerts", label: "Alertas", icon: AlertTriangle },
   { key: "logs", label: "Bitacora", icon: ClipboardList },
   { key: "thresholds", label: "Umbrales", icon: SlidersHorizontal },
-  { key: "reports", label: "Reportes", icon: BarChart3 }
+  { key: "reports", label: "Reportes", icon: BarChart3 },
+  { key: "users", label: "Usuarios", icon: Users },
+  { key: "notifications", label: "Notificaciones", icon: BellRing }
 ];
 
 export function Sidebar({

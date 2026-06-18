@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.models import Alert, NotificationEvent, NotificationPreference, PushDeviceToken, SensorReading, User
+from app.models import Alert, NotificationDelivery, NotificationEvent, NotificationPreference, PushDeviceToken, SensorReading, User
 
 CHANNELS = {"whatsapp", "telegram", "push"}
 
@@ -101,6 +101,7 @@ def dispatch_alert_notifications(db: Session, alert: Alert, reading: SensorReadi
                 events.append(_send_or_record(db, alert, preference, token.token, reading))
         else:
             events.append(_send_or_record(db, alert, preference, preference.destination, reading))
+            _create_delivery_for_alert(db, alert, preference, preference.destination, reading)
     return events
 
 
@@ -147,6 +148,34 @@ def send_test_notification(db: Session, user: User, channel: str) -> Notificatio
     return event
 
 
+def create_admin_test_delivery(
+    db: Session,
+    *,
+    user: User | None,
+    channel: str,
+    destination: str | None,
+    message: str,
+) -> NotificationDelivery:
+    if channel not in {"whatsapp", "telegram"}:
+        raise ValueError("Unsupported notification channel")
+    delivery = NotificationDelivery(
+        alert_id=None,
+        user_id=user.id if user else None,
+        channel=channel,
+        destination=destination,
+        severity="test",
+        status="dry_run" if settings.notifications_dry_run else "pending",
+        dry_run=settings.notifications_dry_run,
+        payload_preview=message,
+    )
+    db.add(delivery)
+    db.flush()
+    _deliver_delivery(delivery)
+    db.commit()
+    db.refresh(delivery)
+    return delivery
+
+
 def _send_or_record(
     db: Session,
     alert: Alert,
@@ -170,6 +199,91 @@ def _send_or_record(
     return event
 
 
+def _create_delivery_for_alert(
+    db: Session,
+    alert: Alert,
+    preference: NotificationPreference,
+    destination: str | None,
+    reading: SensorReading | None,
+) -> NotificationDelivery:
+    existing = db.scalar(
+        select(NotificationDelivery).where(
+            NotificationDelivery.alert_id == alert.id,
+            NotificationDelivery.user_id == preference.user_id,
+            NotificationDelivery.channel == preference.channel,
+        )
+    )
+    if existing is not None:
+        return existing
+
+    message = _alert_message(alert, reading)
+    delivery = NotificationDelivery(
+        alert_id=alert.id,
+        user_id=preference.user_id,
+        channel=preference.channel,
+        destination=destination,
+        severity=alert.severity,
+        status="dry_run" if settings.notifications_dry_run else "pending",
+        dry_run=settings.notifications_dry_run,
+        payload_preview=message,
+    )
+    db.add(delivery)
+    db.flush()
+    _deliver_delivery(delivery)
+    return delivery
+
+
+def _deliver_delivery(delivery: NotificationDelivery) -> None:
+    delivery.updated_at = datetime.now(timezone.utc)
+    if delivery.dry_run:
+        delivery.status = "dry_run"
+        delivery.provider_response = "Dry-run activo. No se envio mensaje real."
+        return
+    if delivery.channel == "whatsapp":
+        _send_whatsapp_delivery(delivery)
+    elif delivery.channel == "telegram":
+        _send_telegram_delivery(delivery)
+    else:
+        delivery.status = "skipped"
+        delivery.error = "Canal no soportado para delivery comercial."
+
+
+def _send_whatsapp_delivery(delivery: NotificationDelivery) -> None:
+    if not settings.whatsapp_enabled or not settings.whatsapp_access_token or not settings.whatsapp_phone_number_id:
+        delivery.status = "skipped"
+        delivery.error = "WhatsApp Cloud API no configurado."
+        return
+    if not delivery.destination:
+        delivery.status = "skipped"
+        delivery.error = "Destino WhatsApp no configurado."
+        return
+    url = (
+        f"https://graph.facebook.com/{settings.whatsapp_api_version}/"
+        f"{settings.whatsapp_phone_number_id}/messages"
+    )
+    payload: dict[str, Any] = {
+        "messaging_product": "whatsapp",
+        "to": delivery.destination,
+        "type": "text",
+        "text": {"body": delivery.payload_preview[:3900]},
+    }
+    _post_json_delivery(delivery, url, payload, {"Authorization": f"Bearer {settings.whatsapp_access_token}"})
+
+
+def _send_telegram_delivery(delivery: NotificationDelivery) -> None:
+    if not settings.telegram_enabled or not settings.telegram_bot_token:
+        delivery.status = "skipped"
+        delivery.error = "Telegram Bot API no configurado."
+        return
+    if not delivery.destination:
+        delivery.status = "skipped"
+        delivery.error = "Chat ID de Telegram no configurado."
+        return
+    url = f"https://api.telegram.org/bot{settings.telegram_bot_token}/sendMessage"
+    payload = {"chat_id": delivery.destination, "text": delivery.payload_preview[:3900]}
+    _post_json_delivery(delivery, url, payload)
+
+
 def _deliver_event(event: NotificationEvent, *, title: str, body: str) -> None:
     if event.channel == "whatsapp":
         _send_whatsapp(event, body)
@@ -183,6 +297,10 @@ def _deliver_event(event: NotificationEvent, *, title: str, body: str) -> None:
 
 
 def _send_whatsapp(event: NotificationEvent, body: str) -> None:
+    if settings.notifications_dry_run:
+        event.status = "skipped"
+        event.error = "Dry-run activo para WhatsApp. No se envio mensaje real."
+        return
     if not settings.whatsapp_enabled or not settings.whatsapp_access_token or not settings.whatsapp_phone_number_id:
         event.status = "skipped"
         event.error = "WhatsApp Cloud API no configurado."
@@ -205,6 +323,10 @@ def _send_whatsapp(event: NotificationEvent, body: str) -> None:
 
 
 def _send_telegram(event: NotificationEvent, body: str) -> None:
+    if settings.notifications_dry_run:
+        event.status = "skipped"
+        event.error = "Dry-run activo para Telegram. No se envio mensaje real."
+        return
     if not settings.telegram_enabled or not settings.telegram_bot_token:
         event.status = "skipped"
         event.error = "Telegram Bot API no configurado."
@@ -265,6 +387,28 @@ def _post_json(event: NotificationEvent, url: str, payload: dict[str, Any], head
     except Exception as exc:  # pragma: no cover - network failure shape depends on provider
         event.status = "failed"
         event.error = f"Provider error: {exc.__class__.__name__}"
+
+
+def _post_json_delivery(
+    delivery: NotificationDelivery,
+    url: str,
+    payload: dict[str, Any],
+    headers: dict[str, str] | None = None,
+) -> None:
+    try:
+        with httpx.Client(timeout=10) as client:
+            response = client.post(url, json=payload, headers=headers)
+        if response.status_code >= 300:
+            delivery.status = "failed"
+            delivery.error = f"Provider HTTP {response.status_code}: {response.text[:300]}"
+            return
+        data = response.json() if response.content else {}
+        delivery.status = "sent"
+        delivery.provider_response = str(_provider_id(data) or data)[:500]
+        delivery.updated_at = datetime.now(timezone.utc)
+    except Exception as exc:  # pragma: no cover - network failure shape depends on provider
+        delivery.status = "failed"
+        delivery.error = f"Provider error: {exc.__class__.__name__}"
 
 
 def _provider_id(data: dict[str, Any]) -> str | None:

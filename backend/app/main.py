@@ -5,7 +5,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from starlette.requests import Request
 
-from app.api.routes import ai, alerts, auth, companies, demo, devices, notifications, operational_logs, pilots, readings, reports, sites, storage_units, users
+from app.api.routes import admin, ai, alerts, auth, companies, demo, devices, notifications, operational_logs, pilots, readings, reports, sites, storage_units, users
 from app.core.config import settings
 from app.db.session import SessionLocal
 
@@ -20,6 +20,7 @@ app.add_middleware(
 )
 
 app.include_router(auth.router, prefix="/api", tags=["auth"])
+app.include_router(admin.router, prefix="/api", tags=["admin"])
 app.include_router(companies.router, prefix="/api", tags=["companies"])
 app.include_router(sites.router, prefix="/api", tags=["sites"])
 app.include_router(storage_units.router, prefix="/api", tags=["storage-units"])

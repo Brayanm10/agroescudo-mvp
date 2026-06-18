@@ -4,7 +4,7 @@ from sqlalchemy import func, select
 
 from app import seed as seed_module
 from app.core.security import hash_password, verify_password
-from app.models import Alert, Device, NotificationPreference, OperationalLog, PushDeviceToken, SensorReading, StorageUnit, User
+from app.models import Alert, Company, Device, NotificationDelivery, NotificationPreference, OperationalLog, PushDeviceToken, SensorReading, Site, StorageUnit, User
 
 
 def valid_payload(**overrides):
@@ -153,6 +153,20 @@ def test_login_incorrect(client):
     )
 
     assert response.status_code == 401
+
+
+def test_inactive_user_gets_clean_login_error(client, db_session):
+    user = db_session.scalar(select(User).where(User.email == "cliente@silo-demo.local"))
+    user.is_active = False
+    db_session.commit()
+
+    response = client.post(
+        "/api/auth/login",
+        json={"email": "cliente@silo-demo.local", "password": "cliente123"},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Usuario desactivado. Contacta al administrador."
 
 
 def test_list_companies(client):
@@ -342,6 +356,38 @@ def test_client_has_scoped_read_access(client):
     assert devices.status_code == 200
     assert devices.json()[0]["external_id"] == "SILO-001"
     assert alerts.status_code == 200
+
+
+def test_technician_cannot_read_unassigned_storage_unit(client, db_session):
+    company = db_session.scalar(select(Company).where(Company.name == "AgroEscudo Demo"))
+    site = db_session.scalar(select(Site).where(Site.company_id == company.id))
+    storage_unit = StorageUnit(company_id=company.id, site_id=site.id, name="Silo No Asignado", unit_type="silo")
+    db_session.add(storage_unit)
+    db_session.commit()
+
+    response = client.get(
+        f"/api/storage-units/{storage_unit.id}",
+        headers=auth_headers(client, "tecnico@agroescudo.local", "tecnico123"),
+    )
+
+    assert response.status_code == 403
+
+
+def test_client_does_not_list_unassigned_storage_units(client, db_session):
+    company = db_session.scalar(select(Company).where(Company.name == "AgroEscudo Demo"))
+    site = db_session.scalar(select(Site).where(Site.company_id == company.id))
+    storage_unit = StorageUnit(company_id=company.id, site_id=site.id, name="Silo Cliente No Asignado", unit_type="silo")
+    db_session.add(storage_unit)
+    db_session.commit()
+
+    response = client.get(
+        "/api/storage-units",
+        headers=auth_headers(client, "cliente@silo-demo.local", "cliente123"),
+    )
+
+    assert response.status_code == 200
+    names = {item["name"] for item in response.json()}
+    assert "Silo Cliente No Asignado" not in names
 
 
 def test_generate_weekly_report(client, db_session):
@@ -622,6 +668,90 @@ def test_test_notification_records_skipped_event_when_channel_unconfigured(clien
     assert response.status_code == 200
     assert response.json()["channel"] == "telegram"
     assert response.json()["event"]["status"] == "skipped"
+
+
+def test_admin_user_management_and_assignments(client, db_session):
+    company = db_session.scalar(select(Company).where(Company.name == "AgroEscudo Demo"))
+    storage_unit = db_session.scalar(select(StorageUnit))
+    headers = auth_headers(client)
+
+    created = client.post(
+        "/api/admin/users",
+        headers=headers,
+        json={
+            "company_id": company.id,
+            "email": "tecnico2@agroescudo.local",
+            "full_name": "Tecnico Dos",
+            "password": "tecnico222",
+            "role": "technician",
+        },
+    )
+    assert created.status_code == 201
+    user_id = created.json()["id"]
+
+    assigned = client.post(
+        f"/api/admin/users/{user_id}/assign-storage-units",
+        headers=headers,
+        json={"storage_unit_ids": [storage_unit.id]},
+    )
+    assert assigned.status_code == 200
+    db_session.refresh(storage_unit)
+    assert storage_unit.assigned_technician_id == user_id
+
+    deactivated = client.post(f"/api/admin/users/{user_id}/deactivate", headers=headers)
+    assert deactivated.status_code == 200
+    assert deactivated.json()["is_active"] is False
+
+    reset = client.post(
+        f"/api/admin/users/{user_id}/reset-password",
+        headers=headers,
+        json={"password": "nuevo123"},
+    )
+    assert reset.status_code == 200
+    user = db_session.get(User, user_id)
+    assert verify_password("nuevo123", user.hashed_password)
+
+
+def test_admin_notification_test_creates_dry_run_delivery(client):
+    response = client.post(
+        "/api/admin/notifications/test/telegram",
+        headers=auth_headers(client),
+        json={"destination": "123456", "message": "Prueba controlada AgroEscudo."},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["channel"] == "telegram"
+    assert body["dry_run"] is True
+    assert body["status"] == "dry_run"
+
+    deliveries = client.get("/api/admin/notifications/deliveries", headers=auth_headers(client))
+    assert deliveries.status_code == 200
+    assert deliveries.json()[0]["payload_preview"] == "Prueba controlada AgroEscudo."
+
+
+def test_alert_notification_creates_delivery_without_duplicate(client, db_session):
+    user = db_session.scalar(select(User).where(User.email == "cliente@silo-demo.local"))
+    db_session.add(
+        NotificationPreference(
+            company_id=user.company_id,
+            user_id=user.id,
+            channel="telegram",
+            destination="123456",
+            minimum_severity="warning",
+            enabled=True,
+        )
+    )
+    db_session.commit()
+
+    payload = valid_payload(grain_temperature=31.0)
+    client.post("/api/readings", json=payload)
+    client.post("/api/readings", json=payload)
+
+    deliveries = db_session.scalars(select(NotificationDelivery).where(NotificationDelivery.channel == "telegram")).all()
+    assert len(deliveries) == 1
+    assert deliveries[0].dry_run is True
+    assert deliveries[0].status == "dry_run"
 
 
 def test_ai_alert_recommendation_uses_rules_without_api_key(client):

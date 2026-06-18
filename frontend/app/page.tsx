@@ -8,6 +8,7 @@ import {
   AlertTriangle,
   ArrowRight,
   Battery,
+  BellRing,
   Bot,
   Building2,
   CalendarDays,
@@ -27,10 +28,12 @@ import {
   Presentation,
   Rocket,
   Save,
+  Send,
   Server,
   Sparkles,
   Thermometer,
   Trash2,
+  UserPlus,
   Wrench,
   Wifi,
   X
@@ -47,20 +50,28 @@ import { ReportDownloadButton } from "@/components/reports/ReportDownloadButton"
 import {
   ApiError,
   acknowledgeAlert,
+  activateAdminUser,
+  assignAdminUserStorageUnits,
   createInstallationChecklist,
+  createAdminUser,
   createOperationalLog,
   createPilot,
+  deactivateAdminUser,
   deletePilotOperationalData,
+  getNotificationDeliveries,
   getThresholds,
   getWeeklyReport,
   loadAppData,
   login,
+  resetAdminUserPassword,
   resolveAlert,
   simulateCriticalDemoReading,
+  testAdminNotification,
+  updateAdminUser,
   updateThresholds
 } from "@/lib/api";
 import { formatDateTime, formatNumber, statusFromAlerts } from "@/lib/format";
-import type { Alert, AppData, Device, OperationalLog, Pilot, Reading, StorageUnit, Thresholds, UserRole, ViewKey, WeeklyReport } from "@/lib/types";
+import type { Alert, AppData, Device, NotificationDelivery, OperationalLog, Pilot, Reading, StorageUnit, Thresholds, User, UserRole, ViewKey, WeeklyReport } from "@/lib/types";
 
 const TOKEN_KEY = "agroescudo_token";
 
@@ -78,7 +89,7 @@ function loginErrorMessage(err: unknown) {
 }
 
 function allowedViewsForRole(role: UserRole): ViewKey[] {
-  if (role === "admin") return ["dashboard", "demo", "pilots", "sites", "alerts", "logs", "thresholds", "reports"];
+  if (role === "admin") return ["dashboard", "demo", "pilots", "sites", "alerts", "logs", "thresholds", "reports", "users", "notifications"];
   return ["dashboard", "sites", "alerts", "logs", "reports"];
 }
 
@@ -251,6 +262,8 @@ export default function Home() {
         canEditThresholds(data.me.role) ? <ThresholdsView devices={data.devices} token={token} /> : <UnauthorizedState />
       ) : null}
       {viewAllowed && view === "reports" ? <ReportsView data={data} token={token} /> : null}
+      {viewAllowed && view === "users" ? <UsersAdminView data={data} token={token} onChanged={() => refresh(token)} /> : null}
+      {viewAllowed && view === "notifications" ? <NotificationsAdminView data={data} token={token} /> : null}
     </AppLayout>
   );
 }
@@ -282,6 +295,7 @@ function LoginScreen({
   const [password, setPassword] = useState("admin123");
   const [error, setError] = useState<string | null>(initialMessage || null);
   const [loading, setLoading] = useState(false);
+  const showDemoAccounts = process.env.NEXT_PUBLIC_SHOW_DEMO_CREDENTIALS === "true" || process.env.NODE_ENV !== "production";
 
   useEffect(() => {
     setError(initialMessage || null);
@@ -396,7 +410,7 @@ function LoginScreen({
               <span className="rounded-lg bg-slate-100 px-2 py-2 text-slate-700">Trazabilidad</span>
             </div>
           </div>
-          <div className="mt-4 rounded-xl border border-slate-200 bg-white/75 p-4 text-xs text-slate-600 shadow-soft">
+          {showDemoAccounts ? <div className="mt-4 rounded-xl border border-slate-200 bg-white/75 p-4 text-xs text-slate-600 shadow-soft">
             <p className="mb-3 text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">Cuentas demo local</p>
             <div className="space-y-2">
               {demoAccounts.map(([label, accountEmail, accountPassword]) => (
@@ -418,7 +432,7 @@ function LoginScreen({
                 </button>
               ))}
             </div>
-          </div>
+          </div> : null}
         </div>
       </section>
     </main>
@@ -1675,6 +1689,281 @@ function InstallationChecklist({ data, token, onChanged }: { data: AppData; toke
           </div>
         </form>
       ) : null}
+    </section>
+  );
+}
+
+function UsersAdminView({ data, token, onChanged }: { data: AppData; token: string; onChanged: () => void }) {
+  const firstCompanyId = data.companies[0]?.id ?? 0;
+  const [form, setForm] = useState({
+    company_id: firstCompanyId,
+    email: "",
+    full_name: "",
+    password: "",
+    role: "client" as "admin" | "technician" | "client"
+  });
+  const [selectedUnits, setSelectedUnits] = useState<Record<number, number[]>>({});
+  const [passwords, setPasswords] = useState<Record<number, string>>({});
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function run(action: () => Promise<unknown>, success: string) {
+    setBusy(true);
+    setError(null);
+    setMessage(null);
+    try {
+      await action();
+      setMessage(success);
+      onChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No se pudo completar la operacion.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    await run(async () => {
+      await createAdminUser(token, form);
+      setForm({ company_id: firstCompanyId, email: "", full_name: "", password: "", role: "client" });
+    }, "Usuario creado correctamente.");
+  }
+
+  function unitIdsFor(user: User) {
+    if (selectedUnits[user.id]) return selectedUnits[user.id];
+    return data.storageUnits
+      .filter((unit) => unit.assigned_client_id === user.id || unit.assigned_technician_id === user.id)
+      .map((unit) => unit.id);
+  }
+
+  return (
+    <section className="space-y-5">
+      <div>
+        <p className="section-kicker">Administracion segura</p>
+        <h2 className="section-title">Usuarios y accesos del piloto</h2>
+        <p className="section-subtitle">Gestiona roles, activacion y asignacion de silos o galpones sin exponer configuracion tecnica al cliente.</p>
+      </div>
+      {error ? <ErrorState message={error} /> : null}
+      {message ? <p className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-bold text-emerald-800">{message}</p> : null}
+      <form onSubmit={submit} className="panel grid gap-4 p-5 lg:grid-cols-5">
+        <Field label="Empresa">
+          <select value={form.company_id} onChange={(event) => setForm({ ...form, company_id: Number(event.target.value) })} className="input">
+            {data.companies.map((company) => <option key={company.id} value={company.id}>{company.name}</option>)}
+          </select>
+        </Field>
+        <Field label="Nombre">
+          <input required value={form.full_name} onChange={(event) => setForm({ ...form, full_name: event.target.value })} className="input" />
+        </Field>
+        <Field label="Email">
+          <input required type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} className="input" />
+        </Field>
+        <Field label="Password inicial">
+          <input required type="password" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} className="input" />
+        </Field>
+        <div className="flex items-end gap-2">
+          <Field label="Rol">
+            <select value={form.role} onChange={(event) => setForm({ ...form, role: event.target.value as typeof form.role })} className="input">
+              <option value="client">Cliente</option>
+              <option value="technician">Tecnico</option>
+              <option value="admin">Admin</option>
+            </select>
+          </Field>
+          <button disabled={busy} type="submit" className="btn-primary h-12">
+            <UserPlus size={16} aria-hidden="true" />
+          </button>
+        </div>
+      </form>
+      <div className="panel overflow-hidden">
+        <div className="border-b border-slate-200 px-5 py-4">
+          <p className="section-kicker">Control de acceso</p>
+          <h3 className="font-black text-slate-950">Usuarios registrados</h3>
+        </div>
+        <div className="divide-y divide-slate-200">
+          {data.users.map((user) => (
+            <article key={user.id} className="grid gap-4 p-5 xl:grid-cols-[1.2fr_0.9fr_1.4fr_1fr]">
+              <div>
+                <p className="font-black text-slate-950">{user.full_name}</p>
+                <p className="text-sm text-slate-500">{user.email}</p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-slate-700">{user.role}</span>
+                  <span className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em] ${user.is_active ? "bg-emerald-50 text-emerald-800" : "bg-red-50 text-red-700"}`}>
+                    {user.is_active ? "Activo" : "Inactivo"}
+                  </span>
+                </div>
+              </div>
+              <div className="space-y-2">
+                <Field label="Rol">
+                  <select value={user.role} onChange={(event) => run(() => updateAdminUser(token, user.id, { role: event.target.value as UserRole }), "Rol actualizado.")} className="input">
+                    <option value="admin">Admin</option>
+                    <option value="technician">Tecnico</option>
+                    <option value="client">Cliente</option>
+                  </select>
+                </Field>
+                <button type="button" disabled={busy} onClick={() => run(() => user.is_active ? deactivateAdminUser(token, user.id) : activateAdminUser(token, user.id), user.is_active ? "Usuario desactivado." : "Usuario activado.")} className="btn-secondary w-full">
+                  {user.is_active ? "Desactivar" : "Activar"}
+                </button>
+              </div>
+              <Field label="Asignacion storage units">
+                <select
+                  multiple
+                  value={unitIdsFor(user).map(String)}
+                  onChange={(event) => {
+                    const ids = Array.from(event.target.selectedOptions).map((option) => Number(option.value));
+                    setSelectedUnits((current) => ({ ...current, [user.id]: ids }));
+                  }}
+                  className="input min-h-28"
+                  disabled={user.role === "admin"}
+                >
+                  {data.storageUnits
+                    .filter((unit) => user.role !== "client" || unit.company_id === user.company_id)
+                    .map((unit) => <option key={unit.id} value={unit.id}>{unit.name}</option>)}
+                </select>
+                <button type="button" disabled={busy || user.role === "admin"} onClick={() => run(() => assignAdminUserStorageUnits(token, user.id, unitIdsFor(user)), "Asignacion actualizada.")} className="btn-secondary mt-2">
+                  Guardar asignacion
+                </button>
+              </Field>
+              <div className="space-y-2">
+                <Field label="Reset password">
+                  <input type="password" value={passwords[user.id] || ""} onChange={(event) => setPasswords((current) => ({ ...current, [user.id]: event.target.value }))} className="input" placeholder="Nuevo password" />
+                </Field>
+                <button type="button" disabled={busy || !(passwords[user.id] || "").trim()} onClick={() => run(() => resetAdminUserPassword(token, user.id, passwords[user.id]), "Password actualizado.")} className="btn-secondary w-full">
+                  Resetear password
+                </button>
+              </div>
+            </article>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function NotificationsAdminView({ data, token }: { data: AppData; token: string }) {
+  const [deliveries, setDeliveries] = useState<NotificationDelivery[]>([]);
+  const [channel, setChannel] = useState<"whatsapp" | "telegram">("telegram");
+  const [userId, setUserId] = useState<number>(data.users.find((user) => user.role === "client")?.id ?? data.users[0]?.id ?? 0);
+  const [destination, setDestination] = useState("");
+  const [message, setMessage] = useState("Prueba AgroEscudo: alerta crítica registrada para seguimiento operativo.");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function load() {
+    setLoading(true);
+    setError(null);
+    try {
+      setDeliveries(await getNotificationDeliveries(token));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No se pudieron cargar deliveries.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    load();
+  }, [token]);
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setLoading(true);
+    setError(null);
+    try {
+      await testAdminNotification(token, channel, {
+        user_id: userId || null,
+        destination: destination || null,
+        message
+      });
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No se pudo registrar prueba de notificacion.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <section className="space-y-5">
+      <div>
+        <p className="section-kicker">Auditoria comercial</p>
+        <h2 className="section-title">Notificaciones WhatsApp y Telegram</h2>
+        <p className="section-subtitle">Registra pruebas dry-run para validar el flujo sin enviar mensajes reales durante la demo.</p>
+      </div>
+      {error ? <ErrorState message={error} onRetry={load} /> : null}
+      <form onSubmit={submit} className="panel grid gap-4 p-5 lg:grid-cols-[0.7fr_1fr_1fr_2fr_auto]">
+        <Field label="Canal">
+          <select value={channel} onChange={(event) => setChannel(event.target.value as typeof channel)} className="input">
+            <option value="telegram">Telegram</option>
+            <option value="whatsapp">WhatsApp</option>
+          </select>
+        </Field>
+        <Field label="Usuario">
+          <select value={userId} onChange={(event) => setUserId(Number(event.target.value))} className="input">
+            {data.users.map((user) => <option key={user.id} value={user.id}>{user.full_name} / {user.role}</option>)}
+          </select>
+        </Field>
+        <Field label="Destino">
+          <input value={destination} onChange={(event) => setDestination(event.target.value)} className="input" placeholder={channel === "telegram" ? "Chat ID" : "Telefono WhatsApp"} />
+        </Field>
+        <Field label="Mensaje">
+          <input value={message} onChange={(event) => setMessage(event.target.value)} className="input" />
+        </Field>
+        <div className="flex items-end">
+          <button disabled={loading} type="submit" className="btn-primary h-12">
+            <Send className="mr-2" size={16} aria-hidden="true" />
+            Probar
+          </button>
+        </div>
+      </form>
+      <div className="panel overflow-hidden">
+        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+          <div>
+            <p className="section-kicker">Deliveries</p>
+            <h3 className="font-black text-slate-950">Historial dry-run y envios</h3>
+          </div>
+          <button type="button" onClick={load} className="btn-secondary">
+            <BellRing className="mr-2" size={16} aria-hidden="true" />
+            Actualizar
+          </button>
+        </div>
+        {loading && !deliveries.length ? <LoadingState label="Cargando deliveries" /> : null}
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-left text-sm">
+            <thead className="bg-slate-50 text-[11px] font-black uppercase tracking-[0.13em] text-slate-500">
+              <tr>
+                <th className="px-4 py-3">Fecha</th>
+                <th className="px-4 py-3">Canal</th>
+                <th className="px-4 py-3">Estado</th>
+                <th className="px-4 py-3">Destino</th>
+                <th className="px-4 py-3">Mensaje</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-200">
+              {deliveries.map((delivery) => (
+                <tr key={delivery.id}>
+                  <td className="px-4 py-3 text-slate-500">{formatDateTime(delivery.created_at)}</td>
+                  <td className="px-4 py-3 font-bold text-slate-900">{delivery.channel}</td>
+                  <td className="px-4 py-3">
+                    <span className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em] ${delivery.status === "dry_run" ? "bg-amber-50 text-amber-800" : delivery.status === "sent" ? "bg-emerald-50 text-emerald-800" : "bg-slate-100 text-slate-700"}`}>
+                      {delivery.status}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-slate-600">{delivery.destination || "No configurado"}</td>
+                  <td className="max-w-xl px-4 py-3 text-slate-600">{delivery.payload_preview}</td>
+                </tr>
+              ))}
+              {!deliveries.length && !loading ? (
+                <tr>
+                  <td colSpan={5} className="px-4 py-8">
+                    <EmptyState title="Sin deliveries" message="Ejecuta una prueba dry-run o genera una alerta para ver evidencia aqui." />
+                  </td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </section>
   );
 }

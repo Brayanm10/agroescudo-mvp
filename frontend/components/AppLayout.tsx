@@ -11,7 +11,9 @@ const pageCopy: Record<ViewKey, { eyebrow: string; title: string }> = {
   alerts: { eyebrow: "Gestion de riesgo", title: "Alertas operativas" },
   logs: { eyebrow: "Trazabilidad", title: "Bitacora operativa" },
   thresholds: { eyebrow: "Configuracion", title: "Umbrales por dispositivo" },
-  reports: { eyebrow: "Reporte", title: "Resumen semanal" }
+  reports: { eyebrow: "Reporte", title: "Resumen semanal" },
+  users: { eyebrow: "Administracion", title: "Usuarios y accesos" },
+  notifications: { eyebrow: "Canales externos", title: "Notificaciones dry-run" }
 };
 
 export function AppLayout({

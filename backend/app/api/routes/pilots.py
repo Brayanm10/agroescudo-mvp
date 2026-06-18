@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, require_role, require_storage_unit_access, scope_company_query
+from app.api.deps import get_current_user, require_role, require_storage_unit_access, scope_storage_units_query
 from app.core.security import hash_password, hash_secret
 from app.db.session import get_db
 from app.models import Alert, Company, Device, OperationalLog, SensorReading, Site, StorageUnit, ThresholdConfig, User
@@ -17,7 +17,7 @@ def list_pilots(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> list[PilotOut]:
-    stmt = scope_company_query(select(StorageUnit), StorageUnit, current_user)
+    stmt = scope_storage_units_query(select(StorageUnit), current_user, db)
     storage_units = db.scalars(stmt.order_by(StorageUnit.created_at.desc())).all()
     return [build_pilot_summary(db, storage_unit) for storage_unit in storage_units]
 

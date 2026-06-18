@@ -188,6 +188,24 @@ class NotificationEvent(Base):
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+class NotificationDelivery(Base):
+    __tablename__ = "notification_deliveries"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    alert_id: Mapped[int | None] = mapped_column(ForeignKey("alerts.id"), nullable=True, index=True)
+    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    channel: Mapped[str] = mapped_column(String(32), index=True)
+    destination: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    severity: Mapped[str] = mapped_column(String(20), default="info", index=True)
+    status: Mapped[str] = mapped_column(String(32), default="dry_run", index=True)
+    dry_run: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    payload_preview: Mapped[str] = mapped_column(Text)
+    provider_response: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
+
+
 class ThresholdConfig(Base):
     __tablename__ = "threshold_configs"
 

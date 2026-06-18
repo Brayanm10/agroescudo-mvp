@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, require_alert_access, require_role, scope_company_query
+from app.api.deps import get_current_user, require_alert_access, require_role, require_storage_unit_access, scope_storage_unit_records_query
 from app.db.session import get_db
 from app.models import Alert, User
 from app.schemas import AlertOut
@@ -78,14 +78,16 @@ def _query_alerts(
     status: str | None,
     severity: str | None,
 ) -> list[Alert]:
-    if company_id is not None and current_user.role == "client" and company_id != current_user.company_id:
-        return []
-    stmt = scope_company_query(select(Alert), Alert, current_user)
+    stmt = scope_storage_unit_records_query(select(Alert), Alert, current_user, db)
     if company_id is not None:
         stmt = stmt.where(Alert.company_id == company_id)
     if site_id is not None:
         stmt = stmt.where(Alert.site_id == site_id)
     if storage_unit_id is not None:
+        try:
+            require_storage_unit_access(db, current_user, storage_unit_id)
+        except Exception:
+            return []
         stmt = stmt.where(Alert.storage_unit_id == storage_unit_id)
     if device_id is not None:
         stmt = stmt.where(Alert.device_id == device_id)

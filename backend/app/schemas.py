@@ -48,6 +48,22 @@ class UserCreate(BaseModel):
     role: Literal["admin", "technician", "client"]
 
 
+class UserUpdate(BaseModel):
+    company_id: int | None = None
+    email: str | None = Field(default=None, min_length=3, max_length=255)
+    full_name: str | None = Field(default=None, min_length=1, max_length=160)
+    role: Literal["admin", "technician", "client"] | None = None
+    is_active: bool | None = None
+
+
+class PasswordResetIn(BaseModel):
+    password: str = Field(min_length=6)
+
+
+class UserStorageUnitAssignmentsIn(BaseModel):
+    storage_unit_ids: list[int] = []
+
+
 class SiteCreate(BaseModel):
     company_id: int
     name: str = Field(min_length=1, max_length=160)
@@ -366,6 +382,30 @@ class NotificationEventOut(BaseModel):
 class NotificationTestOut(BaseModel):
     channel: str
     event: NotificationEventOut
+
+
+class NotificationDeliveryOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    alert_id: int | None = None
+    user_id: int | None = None
+    channel: str
+    destination: str | None = None
+    severity: str
+    status: str
+    dry_run: bool
+    payload_preview: str
+    provider_response: str | None = None
+    error: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class AdminNotificationTestIn(BaseModel):
+    user_id: int | None = None
+    destination: str | None = Field(default=None, max_length=255)
+    message: str = Field(default="Prueba AgroEscudo: canal de notificacion configurado para piloto.", max_length=500)
 
 
 class AiAlertRecommendationOut(BaseModel):

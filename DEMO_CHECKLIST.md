@@ -33,6 +33,8 @@ npm run dev
 ## Recorrido Admin: Historia Comercial
 
 - [ ] Ingresar con `admin@agroescudo.local` / `admin123`.
+- [ ] Abrir `Usuarios` y confirmar que admin, tecnico y cliente estan activos y asignados al piloto demo.
+- [ ] Abrir `Notificaciones` y ejecutar una prueba dry-run de Telegram o WhatsApp.
 - [ ] Abrir `Modo presentacion`.
 - [ ] Mostrar el sitio `Centro de Acopio Norte` y el silo `Silo Maiz Seco 01`.
 - [ ] Explicar la ultima lectura recibida desde el nodo `SILO-001`.

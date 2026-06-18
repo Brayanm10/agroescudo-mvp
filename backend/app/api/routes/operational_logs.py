@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, require_role, require_storage_unit_access, scope_company_query
+from app.api.deps import get_current_user, require_role, require_storage_unit_access, scope_storage_unit_records_query
 from app.db.session import get_db
 from app.models import Alert, Device, OperationalLog, User
 from app.schemas import InstallationChecklistCreate, OperationalLogCreate, OperationalLogOut
@@ -92,7 +92,7 @@ def list_operational_logs(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> list[OperationalLog]:
-    stmt = scope_company_query(select(OperationalLog), OperationalLog, current_user)
+    stmt = scope_storage_unit_records_query(select(OperationalLog), OperationalLog, current_user, db)
     if storage_unit_id is not None:
         require_storage_unit_access(db, current_user, storage_unit_id)
         stmt = stmt.where(OperationalLog.storage_unit_id == storage_unit_id)
