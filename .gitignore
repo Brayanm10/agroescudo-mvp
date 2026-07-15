@@ -1,13 +1,19 @@
 ﻿# Environment files
 .env
 .env.*
+!.env.example
+!backend/.env.example
 !frontend/.env.example
 !frontend/.env.production.example
+!mobile/.env.example
 backend/.env
 frontend/.env
 frontend/.env.local
 frontend/.env.production
 mobile/.env
+mobile/android/app/google-services.json
+**/firebase-service-account*.json
+**/service-account*.json
 
 # Python
 backend/.venv/
@@ -28,6 +34,7 @@ frontend/node_modules/
 frontend/.next/
 frontend/out/
 frontend/.vercel/
+.vercel/
 
 # Flutter
 mobile/build/
@@ -35,6 +42,10 @@ mobile/.dart_tool/
 mobile/.packages
 dist/
 *.apk
+*.aab
+*.jks
+*.keystore
+key.properties
 
 # OS / IDE
 .DS_Store
@@ -46,9 +57,21 @@ Thumbs.db
 *.log
 backend/*.log
 frontend/*.log
+tmp/
+output/
 
 # Existing landing project handled separately
 landing/
+
+# Firmware provisioning secrets
+firmware/**/secrets.h
+firmware/**/secrets.hpp
+firmware/**/secrets.ini
+firmware/**/provisioning.json
+firmware/**/certs/*.key
+firmware/**/certs/*.pem
+firmware/.pio/
+firmware/.platformio/
 
 # Logs
 *.log
@@ -57,3 +80,4 @@ frontend/*.log
 
 # Existing landing project handled separately
 landing/
+.vercel/

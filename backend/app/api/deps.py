@@ -7,9 +7,15 @@ from sqlalchemy.orm import Session, joinedload
 from app.core.security import ALGORITHM
 from app.core.config import settings
 from app.db.session import get_db
-from app.models import Alert, Company, Device, SensorReading, Site, StorageUnit, User
+from app.models import Alert, Company, Device, SensorReading, Site, StorageUnit, User, UserSession, utc_now
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
+
+
+def _as_utc_aware(value):
+    if value is None or value.tzinfo is not None:
+        return value
+    return value.replace(tzinfo=utc_now().tzinfo)
 
 
 def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> User:
@@ -21,6 +27,7 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     try:
         payload = jwt.decode(token, settings.secret_key, algorithms=[ALGORITHM])
         subject = payload.get("sub")
+        jti = payload.get("jti")
         if subject is None:
             raise credentials_error
     except JWTError as exc:
@@ -33,6 +40,14 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     )
     if user is None:
         raise credentials_error
+    if getattr(user, "status", "ACTIVE") != "ACTIVE":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Usuario desactivado. Contacta al administrador.")
+    if jti:
+        session = db.scalar(select(UserSession).where(UserSession.jti == jti, UserSession.user_id == user.id))
+        if session is None or session.revoked_at is not None or _as_utc_aware(session.expires_at) < utc_now():
+            raise credentials_error
+        session.last_seen_at = utc_now()
+        user.last_seen_at = utc_now()
     return user
 
 

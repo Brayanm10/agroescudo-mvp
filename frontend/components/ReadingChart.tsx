@@ -1,19 +1,23 @@
 "use client";
 
-import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Area, AreaChart, CartesianGrid, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import type { Reading } from "@/lib/types";
 
 type Props = {
   title: string;
   readings: Reading[];
-  metric: "grain_temperature" | "ambient_humidity";
+  metric: "grain_temperature" | "ambient_temperature" | "ambient_humidity" | "battery_voltage";
   color: string;
   unit: string;
+  threshold?: number;
 };
 
-export function ReadingChart({ title, readings, metric, color, unit }: Props) {
+export function ReadingChart({ title, readings, metric, color, unit, threshold }: Props) {
   const latest = readings[0]?.[metric];
   const max = readings.length ? Math.max(...readings.map((reading) => reading[metric])) : null;
+  const avg = readings.length ? readings.reduce((sum, reading) => sum + reading[metric], 0) / readings.length : null;
+  const previous = readings[1]?.[metric];
+  const trend = latest === undefined || previous === undefined ? null : latest - previous;
   const data = readings
     .slice()
     .reverse()
@@ -50,13 +54,25 @@ export function ReadingChart({ title, readings, metric, color, unit }: Props) {
               formatter={(value) => [`${Number(value).toFixed(1)}${unit}`, title]}
               contentStyle={{ borderRadius: 12, border: "1px solid #e2e8f0", boxShadow: "0 10px 30px rgba(15, 23, 42, 0.12)" }}
             />
+            {threshold !== undefined ? (
+              <ReferenceLine
+                y={threshold}
+                stroke="#b45309"
+                strokeDasharray="4 4"
+                label={{ value: `Umbral ${threshold}${unit}`, fill: "#92400e", fontSize: 11, position: "insideTopRight" }}
+              />
+            ) : null}
             <Area type="monotone" dataKey="value" stroke={color} fill={`url(#${metric}-fill)`} strokeWidth={2.5} />
           </AreaChart>
         </ResponsiveContainer>
       </div>
-      <div className="mt-3 flex items-center justify-between text-xs font-semibold text-slate-500">
+      <div className="mt-3 grid grid-cols-3 gap-2 text-xs font-semibold text-slate-500">
         <span>{readings.length} lecturas</span>
-        <span>Max. {max === null ? "--" : `${max.toFixed(1)}${unit}`}</span>
+        <span>Prom. {avg === null ? "--" : `${avg.toFixed(1)}${unit}`}</span>
+        <span className="text-right">
+          Max. {max === null ? "--" : `${max.toFixed(1)}${unit}`}
+          {trend === null ? "" : ` / ${trend >= 0 ? "+" : ""}${trend.toFixed(1)}${unit}`}
+        </span>
       </div>
     </section>
   );

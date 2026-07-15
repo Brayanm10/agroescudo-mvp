@@ -4,7 +4,7 @@ set -e
 echo "Running database migrations..."
 alembic upgrade head
 
-echo "Running demo seed..."
+echo "Running pilot seed..."
 python -m app.seed
 
 echo "Starting AgroEscudo API..."

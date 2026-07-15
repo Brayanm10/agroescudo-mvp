@@ -710,7 +710,7 @@ export function AgroReportDocument({ data }: { data: AgroReportPdfData }) {
             </View>
             <View style={styles.coverMetaCard}>
               <Text style={styles.metaLabel}>Preparado por</Text>
-              <Text style={styles.metaValue}>AgroEscudo / Versión MVP-1.0</Text>
+              <Text style={styles.metaValue}>AgroEscudo / Version Piloto Comercial 1.0</Text>
             </View>
             <View style={styles.coverMetaCard}>
               <Text style={styles.metaLabel}>Estado general</Text>

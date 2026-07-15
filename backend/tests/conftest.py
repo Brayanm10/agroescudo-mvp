@@ -4,11 +4,11 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.core.security import hash_password, hash_secret
+from app.core.security import encrypt_secret, hash_password, hash_secret
 from app.db.base import Base
 from app.db.session import get_db
 from app.main import app
-from app.models import Company, Device, Site, StorageUnit, ThresholdConfig, User
+from app.models import Company, Device, IotDevice, IotGateway, IotGatewayCredential, Site, StorageUnit, ThresholdConfig, User
 
 
 @pytest.fixture()
@@ -70,6 +70,27 @@ def seed_test_data(db: Session) -> None:
         token_hash=hash_secret("secret-token"),
     )
     db.add(device)
+    db.flush()
+
+    gateway_secret = "gateway-secret-001"
+    gateway = IotGateway(
+        gateway_id="GW-CBBA-001",
+        name="Gateway Test",
+        firmware_version="1.0.0",
+        is_active=True,
+    )
+    db.add(gateway)
+    db.flush()
+    db.add(
+        IotGatewayCredential(
+            gateway_id=gateway.id,
+            key_version=1,
+            secret_hash=hash_secret(gateway_secret),
+            encrypted_secret=encrypt_secret(gateway_secret),
+            is_active=True,
+        )
+    )
+    db.add(IotDevice(node_id=1001, device_id=device.id, key_version=1, firmware_version="1.0.0", is_active=True))
 
     admin = User(
         company_id=company.id,

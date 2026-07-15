@@ -42,6 +42,10 @@ def create_device(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Storage unit not found")
     if storage_unit.company_id != payload.company_id or storage_unit.site_id != payload.site_id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Device hierarchy is inconsistent")
+    if not storage_unit.is_active:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Storage unit is inactive")
+    if db.scalar(select(Device).where(Device.external_id == payload.external_id)) is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Device ID already registered")
 
     device = Device(
         company_id=payload.company_id,
@@ -49,6 +53,7 @@ def create_device(
         storage_unit_id=payload.storage_unit_id,
         external_id=payload.external_id,
         name=payload.name,
+        device_type=payload.device_type,
         token_hash=hash_secret(payload.device_token),
         is_active=payload.is_active,
     )

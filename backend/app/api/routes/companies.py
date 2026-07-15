@@ -25,7 +25,7 @@ def create_company(
     _: User = Depends(require_role("admin")),
     db: Session = Depends(get_db),
 ) -> Company:
-    company = Company(name=payload.name, tax_id=payload.tax_id)
+    company = Company(**payload.model_dump())
     db.add(company)
     db.commit()
     db.refresh(company)

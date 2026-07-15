@@ -1,14 +1,39 @@
-from datetime import datetime, timedelta, timezone
+import os
 
 from sqlalchemy import delete, select
+
+from app.core.config import settings
 from sqlalchemy.orm import Session
 
-from app.core.security import hash_password, hash_secret
+from app.core.security import encrypt_secret, hash_password, hash_secret
 from app.db.session import SessionLocal
-from app.models import Alert, Company, Device, NotificationPreference, OperationalLog, SensorReading, Site, StorageUnit, ThresholdConfig, User
+from app.models import (
+    Alert,
+    Company,
+    Device,
+    EducationArticle,
+    IotDevice,
+    IotGateway,
+    IotGatewayCredential,
+    IotGatewayHealth,
+    IotIngestionBatch,
+    IotIngestionEvent,
+    IotReading,
+    NotificationDelivery,
+    NotificationEvent,
+    NotificationPreference,
+    OperationalLog,
+    PushDeviceToken,
+    SensorReading,
+    Site,
+    StorageUnit,
+    ThresholdConfig,
+    User,
+)
 
-DEMO_COMPANY = "Acopio Valle Bajo S.R.L."
-DEMO_SITE = "Centro de Acopio Norte"
+PILOT_COMPANY = "Acopio Valle Bajo S.R.L."
+PILOT_SITE = "Centro de Acopio Norte"
+CLIENT_EMAIL = "operaciones@vallebajo.bo"
 
 
 def seed() -> None:
@@ -22,32 +47,37 @@ def seed() -> None:
             full_name="Administrador AgroEscudo",
             password="admin123",
             role="admin",
+            receives_alerts=False,
         )
         technician = _ensure_user(
             db,
             company.id,
             email="tecnico@agroescudo.local",
-            full_name="Técnico AgroEscudo",
+            full_name="Tecnico AgroEscudo",
             password="tecnico123",
             role="technician",
+            phone_whatsapp="+59170000001",
+            telegram_chat_id="100001",
         )
         client = _ensure_user(
             db,
             company.id,
-            email="cliente@silo-demo.local",
+            email=CLIENT_EMAIL,
             full_name="Responsable de Operaciones",
             password="cliente123",
             role="client",
+            phone_whatsapp="+59170000002",
+            telegram_chat_id="100002",
         )
         site = _ensure_site(db, company.id)
 
         demo_assets = [
-            ("Silo Maíz Seco 01", "silo", 500.0, "SILO-001", "Nodo Silo Maíz 001", "secret-token"),
-            ("Galpón Sorgo 02", "galpón", 300.0, "GALPON-001", "Nodo Galpón Sorgo 001", "secret-token-galpon-001"),
-            ("Almacén Balanceado 03", "almacén", 150.0, "SILO-002", "Nodo Almacén Balanceado 002", "secret-token-silo-002"),
+            ("Silo Maiz Seco 01", "silo", 500.0, "Maiz seco", "Sector norte - bateria 1", "SILO-001", "Nodo Silo Maiz 001", "secret-token"),
+            ("Galpon Sorgo 02", "galpon", 300.0, "Sorgo", "Galpon ventilado - ala este", "GALPON-001", "Nodo Galpon Sorgo 001", "secret-token-galpon-001"),
+            ("Almacen Balanceado 03", "almacen", 150.0, "Alimento balanceado", "Almacen cerrado - zona despacho", "SILO-002", "Nodo Almacen Balanceado 002", "secret-token-silo-002"),
         ]
         assets: dict[str, tuple[StorageUnit, Device]] = {}
-        for name, unit_type, capacity, external_id, device_name, device_token in demo_assets:
+        for name, unit_type, capacity, crop_type, location, external_id, device_name, device_token in demo_assets:
             storage_unit, device = _ensure_asset(
                 db,
                 company,
@@ -57,6 +87,8 @@ def seed() -> None:
                 name=name,
                 unit_type=unit_type,
                 capacity_tons=capacity,
+                crop_type=crop_type,
+                location=location,
                 external_id=external_id,
                 device_name=device_name,
                 device_token=device_token,
@@ -64,44 +96,52 @@ def seed() -> None:
             assets[external_id] = (storage_unit, device)
             _ensure_thresholds(db, company.id, storage_unit.id)
 
-        _remove_legacy_informal_logs(db, company.id)
         for user in [technician, client]:
             _ensure_notification_preferences(db, user)
-        anchor = _demo_anchor()
-        readings = _ensure_historical_readings(db, assets, anchor)
-        _ensure_demo_alerts(db, company, site, assets, readings, anchor)
-        _ensure_demo_logs(db, company, site, technician, assets, anchor)
+        _ensure_education_articles(db)
+        _ensure_iot_gateway(db)
+        _ensure_iot_devices(db, assets)
+        _clear_seeded_operational_data(db, company.id)
 
         db.commit()
         print(
-            "Seed data ready: Acopio Valle Bajo S.R.L., 3 storage units, "
-            "3 devices, 7 days of readings, alerts, maintenance and demo users"
+            "Pilot base ready: Acopio Valle Bajo S.R.L., 3 storage units, "
+            "3 devices, users and thresholds. Operational data is clean."
         )
     finally:
         db.close()
 
 
 def _ensure_company(db: Session) -> Company:
-    company = db.scalar(select(Company).where(Company.name == DEMO_COMPANY))
+    company = db.scalar(select(Company).where(Company.name == PILOT_COMPANY))
     if company is None:
-        company = db.scalar(select(Company).where(Company.name == "AgroEscudo Demo"))
-    if company is None:
-        company = Company(name=DEMO_COMPANY, tax_id="VALLE-BAJO-DEMO")
+        company = Company(name=PILOT_COMPANY, tax_id="VALLE-BAJO")
         db.add(company)
-    else:
-        company.name = DEMO_COMPANY
-        company.tax_id = "VALLE-BAJO-DEMO"
+    company.name = PILOT_COMPANY
+    company.tax_id = "VALLE-BAJO"
+    company.type = "acopiador"
+    company.city = "Quillacollo, Cochabamba"
+    company.contact_name = "Gerencia Operativa"
+    company.contact_email = "operaciones@vallebajo.bo"
+    company.contact_phone = "+59170000000"
+    company.is_active = True
+    company.approval_status = "APPROVED"
+    company.rejection_reason = None
     db.flush()
     return company
 
 
 def _ensure_site(db: Session, company_id: int) -> Site:
-    site = db.scalar(select(Site).where(Site.company_id == company_id, Site.name == DEMO_SITE))
+    site = db.scalar(select(Site).where(Site.company_id == company_id, Site.name == PILOT_SITE))
     if site is None:
-        site = Site(company_id=company_id, name=DEMO_SITE, location="Quillacollo, Cochabamba")
+        site = Site(company_id=company_id, name=PILOT_SITE, location="Quillacollo, Cochabamba")
         db.add(site)
     else:
         site.location = "Quillacollo, Cochabamba"
+    site.address = "Zona norte de Quillacollo"
+    site.department = "Cochabamba"
+    site.municipality = "Quillacollo"
+    site.timezone = "America/La_Paz"
     db.flush()
     return site
 
@@ -116,6 +156,8 @@ def _ensure_asset(
     name: str,
     unit_type: str,
     capacity_tons: float,
+    crop_type: str,
+    location: str,
     external_id: str,
     device_name: str,
     device_token: str,
@@ -124,8 +166,6 @@ def _ensure_asset(
     storage_unit = db.get(StorageUnit, device.storage_unit_id) if device else None
     if storage_unit is None:
         storage_unit = db.scalar(select(StorageUnit).where(StorageUnit.site_id == site.id, StorageUnit.name == name))
-    if storage_unit is None and external_id == "SILO-001":
-        storage_unit = db.scalar(select(StorageUnit).where(StorageUnit.site_id == site.id, StorageUnit.name == "Silo Demo 1"))
     if storage_unit is None:
         storage_unit = StorageUnit(company_id=company.id, site_id=site.id, name=name, unit_type=unit_type)
         db.add(storage_unit)
@@ -135,6 +175,9 @@ def _ensure_asset(
     storage_unit.name = name
     storage_unit.unit_type = unit_type
     storage_unit.capacity_tons = capacity_tons
+    storage_unit.crop_type = crop_type
+    storage_unit.location = location
+    storage_unit.is_active = True
     storage_unit.assigned_technician_id = technician.id
     storage_unit.assigned_client_id = client.id
     db.flush()
@@ -149,167 +192,15 @@ def _ensure_asset(
             token_hash=hash_secret(device_token),
         )
         db.add(device)
-    else:
-        device.company_id = company.id
-        device.site_id = site.id
-        device.storage_unit_id = storage_unit.id
-        device.name = device_name
-        device.token_hash = hash_secret(device_token)
-        device.is_active = True
+    device.company_id = company.id
+    device.site_id = site.id
+    device.storage_unit_id = storage_unit.id
+    device.name = device_name
+    device.token_hash = hash_secret(device_token)
+    device.device_type = "esp32_lora_wifi_node"
+    device.is_active = True
     db.flush()
     return storage_unit, device
-
-
-def _ensure_historical_readings(
-    db: Session,
-    assets: dict[str, tuple[StorageUnit, Device]],
-    anchor: datetime,
-) -> dict[str, list[SensorReading]]:
-    readings: dict[str, list[SensorReading]] = {}
-    for external_id, (storage_unit, device) in assets.items():
-        unit_readings: list[SensorReading] = []
-        for index in range(29):
-            timestamp = anchor - timedelta(hours=(28 - index) * 6)
-            metrics = _reading_metrics(external_id, index)
-            reading = db.scalar(
-                select(SensorReading).where(
-                    SensorReading.device_id == device.id,
-                    SensorReading.timestamp == timestamp,
-                )
-            )
-            if reading is None:
-                reading = SensorReading(
-                    company_id=device.company_id,
-                    site_id=device.site_id,
-                    storage_unit_id=device.storage_unit_id,
-                    device_id=device.id,
-                    timestamp=timestamp,
-                    received_at=timestamp + timedelta(minutes=2),
-                    **metrics,
-                )
-                db.add(reading)
-            else:
-                for field, value in metrics.items():
-                    setattr(reading, field, value)
-            unit_readings.append(reading)
-        db.flush()
-        readings[external_id] = unit_readings
-    return readings
-
-
-def _reading_metrics(external_id: str, index: int) -> dict[str, float | int]:
-    cycle = index % 6
-    metrics: dict[str, float | int] = {
-        "grain_temperature": round(24.2 + cycle * 0.55, 1),
-        "ambient_temperature": round(22.8 + cycle * 0.7, 1),
-        "ambient_humidity": round(57.0 + cycle * 1.8, 1),
-        "battery_voltage": round(3.95 - index * 0.005, 2),
-        "signal_quality": -61 - cycle * 2,
-    }
-    if external_id == "SILO-001":
-        if index == 22:
-            metrics.update(grain_temperature=31.2, ambient_temperature=27.5, ambient_humidity=67.4)
-        if index == 25:
-            metrics.update(grain_temperature=28.7, ambient_temperature=27.1, ambient_humidity=72.8)
-        if index == 28:
-            metrics.update(grain_temperature=34.6, ambient_temperature=29.2, ambient_humidity=80.4)
-    elif external_id == "GALPON-001":
-        if index >= 26:
-            metrics.update(grain_temperature=27.7 + (index - 26) * 0.35, ambient_humidity=72.4 + (index - 26) * 1.5)
-    elif external_id == "SILO-002" and index == 28:
-        metrics.update(battery_voltage=3.34, signal_quality=-78)
-    return metrics
-
-
-def _ensure_demo_alerts(
-    db: Session,
-    company: Company,
-    site: Site,
-    assets: dict[str, tuple[StorageUnit, Device]],
-    readings: dict[str, list[SensorReading]],
-    anchor: datetime,
-) -> None:
-    specs = [
-        ("SILO-001", 22, "grain_temperature_high", "warning", "Temperatura de grano elevada", "La temperatura de grano superó el umbral configurado.", False, anchor - timedelta(hours=30)),
-        ("SILO-001", 25, "ambient_humidity_high", "warning", "Humedad ambiental elevada", "La humedad ambiental superó el umbral configurado.", False, anchor - timedelta(hours=12)),
-        ("SILO-001", 28, "critical_environment", "critical", "Riesgo crítico de conservación", "Temperatura de grano y humedad ambiental superan los umbrales configurados.", True, None),
-        ("GALPON-001", 28, "ambient_humidity_high", "warning", "Humedad ambiental elevada", "La humedad ambiental supera el umbral configurado.", True, None),
-        ("SILO-002", 28, "battery_low", "technical", "Batería baja del dispositivo", "El voltaje de batería está por debajo del umbral configurado.", True, None),
-    ]
-    for external_id, reading_index, alert_type, severity, title, message, is_active, resolved_at in specs:
-        storage_unit, device = assets[external_id]
-        reading = readings[external_id][reading_index]
-        alert = db.scalar(select(Alert).where(Alert.device_id == device.id, Alert.reading_id == reading.id, Alert.alert_type == alert_type))
-        if alert is None:
-            alert = Alert(
-                company_id=company.id,
-                site_id=site.id,
-                storage_unit_id=storage_unit.id,
-                device_id=device.id,
-                reading_id=reading.id,
-                alert_type=alert_type,
-                severity=severity,
-                title=title,
-                message=message,
-                created_at=reading.timestamp,
-            )
-            db.add(alert)
-        alert.severity = severity
-        alert.title = title
-        alert.message = message
-        alert.is_active = is_active
-        alert.resolved_at = resolved_at
-        alert.acknowledged_at = resolved_at
-
-
-def _ensure_demo_logs(
-    db: Session,
-    company: Company,
-    site: Site,
-    technician: User,
-    assets: dict[str, tuple[StorageUnit, Device]],
-    anchor: datetime,
-) -> None:
-    specs = [
-        ("SILO-001", "installation", "Instalación inicial del nodo IoT.", "Se instaló y validó el nodo en el punto definido para monitoreo continuo.", -168),
-        ("GALPON-001", "installation", "Instalación inicial del nodo IoT.", "Se verificó fijación, conectividad y primera lectura del dispositivo.", -164),
-        ("SILO-002", "installation", "Instalación inicial del nodo IoT.", "Se registró instalación inicial y disponibilidad operativa del nodo.", -160),
-        ("SILO-001", "inspection", "Se verificó ventilación del área monitoreada.", "La inspección confirmó circulación de aire y ausencia de obstrucciones visibles.", -34),
-        ("SILO-001", "corrective_action", "Se activó aireación preventiva durante 30 minutos.", "Acción preventiva aplicada ante incremento térmico observado en la serie de lecturas.", -28),
-        ("SILO-002", "maintenance", "Se revisó estado de batería y conexión del nodo.", "Se programó recambio preventivo de batería y se verificó enlace de comunicación.", -20),
-        ("SILO-001", "inspection", "Se inspeccionó físicamente el punto de monitoreo.", "Se revisó el área de almacenamiento y se confirmó la necesidad de seguimiento operativo.", -10),
-        ("GALPON-001", "inspection", "Se validó lectura con revisión operativa del almacenamiento.", "La lectura fue contrastada con una revisión visual del galpón.", -8),
-        ("SILO-002", "maintenance", "Revisión de batería del nodo.", "Se verificó voltaje reportado y se dejó recomendación de recambio preventivo.", -18),
-        ("GALPON-001", "maintenance", "Revisión de conectividad del nodo.", "Se comprobó intensidad de señal y continuidad de transmisión.", -16),
-        ("SILO-001", "maintenance", "Limpieza de caja de protección.", "Se retiró polvo superficial y se verificó el cierre de la caja del dispositivo.", -14),
-        ("SILO-001", "maintenance", "Validación del sensor de temperatura.", "Se contrastó la lectura del sensor con inspección operativa del punto monitoreado.", -12),
-    ]
-    for external_id, category, action_taken, notes, hours_delta in specs:
-        storage_unit, device = assets[external_id]
-        timestamp = anchor + timedelta(hours=hours_delta)
-        log = db.scalar(
-            select(OperationalLog).where(
-                OperationalLog.storage_unit_id == storage_unit.id,
-                OperationalLog.category == category,
-                OperationalLog.action_taken == action_taken,
-                OperationalLog.timestamp == timestamp,
-            )
-        )
-        if log is None:
-            db.add(
-                OperationalLog(
-                    company_id=company.id,
-                    site_id=site.id,
-                    storage_unit_id=storage_unit.id,
-                    device_id=device.id,
-                    user_id=technician.id,
-                    category=category,
-                    action_taken=action_taken,
-                    operator_name=technician.full_name,
-                    notes=notes,
-                    timestamp=timestamp,
-                )
-            )
 
 
 def _ensure_thresholds(db: Session, company_id: int, storage_unit_id: int) -> None:
@@ -337,7 +228,63 @@ def _ensure_thresholds(db: Session, company_id: int, storage_unit_id: int) -> No
         threshold.is_active = True
 
 
-def _ensure_user(db: Session, company_id: int, email: str, full_name: str, password: str, role: str) -> User:
+def _ensure_iot_gateway(db: Session) -> IotGateway:
+    gateway = db.scalar(select(IotGateway).where(IotGateway.gateway_id == "GW-CBBA-001"))
+    if gateway is None:
+        gateway = IotGateway(gateway_id="GW-CBBA-001", name="Gateway Centro de Acopio Norte")
+        db.add(gateway)
+        db.flush()
+    gateway.name = "Gateway Centro de Acopio Norte"
+    gateway.firmware_version = "1.0.0"
+    gateway.is_active = True
+
+    secret = os.getenv("AGRO_SEED_GATEWAY_SECRET") or hash_secret(f"{settings.secret_key}:GW-CBBA-001")[:48]
+    credential = db.scalar(
+        select(IotGatewayCredential).where(
+            IotGatewayCredential.gateway_id == gateway.id,
+            IotGatewayCredential.key_version == 1,
+        )
+    )
+    if credential is None:
+        credential = IotGatewayCredential(gateway_id=gateway.id, key_version=1, secret_hash="", encrypted_secret="")
+        db.add(credential)
+    credential.secret_hash = hash_secret(secret)
+    credential.encrypted_secret = encrypt_secret(secret)
+    credential.is_active = True
+    credential.revoked_at = None
+    db.flush()
+    return gateway
+
+
+def _ensure_iot_devices(db: Session, assets: dict[str, tuple[StorageUnit, Device]]) -> None:
+    node_ids = {
+        "SILO-001": 1001,
+        "GALPON-001": 1002,
+        "SILO-002": 1003,
+    }
+    for external_id, node_id in node_ids.items():
+        _storage_unit, device = assets[external_id]
+        iot_device = db.scalar(select(IotDevice).where(IotDevice.node_id == node_id))
+        if iot_device is None:
+            iot_device = IotDevice(node_id=node_id, device_id=device.id)
+            db.add(iot_device)
+        iot_device.device_id = device.id
+        iot_device.key_version = 1
+        iot_device.firmware_version = "1.0.0"
+        iot_device.is_active = True
+
+
+def _ensure_user(
+    db: Session,
+    company_id: int,
+    email: str,
+    full_name: str,
+    password: str,
+    role: str,
+    phone_whatsapp: str | None = None,
+    telegram_chat_id: str | None = None,
+    receives_alerts: bool = True,
+) -> User:
     user = db.scalar(select(User).where(User.email == email))
     if user is None:
         user = User(company_id=company_id, email=email, full_name=full_name, hashed_password="", role=role)
@@ -347,6 +294,12 @@ def _ensure_user(db: Session, company_id: int, email: str, full_name: str, passw
     user.hashed_password = hash_password(password)
     user.role = role
     user.is_active = True
+    user.status = "ACTIVE"
+    user.locale = "es"
+    user.language = "es"
+    user.phone_whatsapp = phone_whatsapp
+    user.telegram_chat_id = telegram_chat_id
+    user.receives_alerts = receives_alerts
     db.flush()
     return user
 
@@ -364,24 +317,79 @@ def _ensure_notification_preferences(db: Session, user: User) -> None:
             db.add(preference)
         preference.company_id = user.company_id
         preference.minimum_severity = "critical"
-        if preference.destination is None and channel == "telegram":
-            preference.destination = ""
-        preference.enabled = False
+        if channel == "whatsapp":
+            preference.destination = user.phone_whatsapp
+        elif channel == "telegram":
+            preference.destination = user.telegram_chat_id
+        preference.enabled = bool(user.receives_alerts and preference.destination and channel in {"whatsapp", "telegram"})
 
 
-def _remove_legacy_informal_logs(db: Session, company_id: int) -> None:
-    db.execute(
-        delete(OperationalLog).where(
-            OperationalLog.company_id == company_id,
-            OperationalLog.action_taken.in_(["ARREGLAR", "Checklist de instalacion registrado"]),
-        )
-    )
+def _ensure_education_articles(db: Session) -> None:
+    articles = [
+        (
+            "temperatura-alta-postcosecha",
+            "Temperatura alta en grano almacenado",
+            "Como interpretar incrementos termicos y que acciones registrar.",
+            "Una temperatura de grano fuera de rango puede indicar acumulacion termica, mala aireacion o actividad biologica. Verifica el punto monitoreado, compara con lecturas historicas y registra toda accion correctiva.",
+            "alertas",
+        ),
+        (
+            "humedad-alta-ventilacion",
+            "Humedad alta y ventilacion",
+            "Criterios practicos para revisar aireacion y condensacion.",
+            "La humedad ambiente elevada incrementa el riesgo de deterioro postcosecha. Revisa ventilacion, puntos de condensacion, sellos del galpon y condicion del grano cercano al sensor.",
+            "postcosecha",
+        ),
+        (
+            "bitacora-evidencia-operativa",
+            "Bitacora como evidencia operativa",
+            "Buenas practicas para documentar acciones tecnicas.",
+            "Una bitacora clara permite demostrar trazabilidad: quien intervino, que se hizo, en que silo, a que hora y con que resultado. Evita textos informales cuando el reporte sera entregado a cliente externo.",
+            "operacion",
+        ),
+    ]
+    for slug, title, summary, body, category in articles:
+        article = db.scalar(select(EducationArticle).where(EducationArticle.slug == slug))
+        if article is None:
+            article = EducationArticle(slug=slug, locale="es", title=title, summary=summary, body=body, category=category)
+            db.add(article)
+        article.locale = "es"
+        article.title = title
+        article.summary = summary
+        article.body = body
+        article.category = category
+        article.translation_status = "VERIFIED"
+        article.is_published = True
 
 
-def _demo_anchor() -> datetime:
-    now = datetime.now(timezone.utc)
-    return now.replace(hour=(now.hour // 6) * 6, minute=0, second=0, microsecond=0)
+def _clear_seeded_operational_data(db: Session, company_id: int) -> None:
+    user_ids = list(db.scalars(select(User.id).where(User.company_id == company_id)).all())
+    alert_ids = list(db.scalars(select(Alert.id).where(Alert.company_id == company_id)).all())
+    storage_unit_ids = list(db.scalars(select(StorageUnit.id).where(StorageUnit.company_id == company_id)).all())
 
+    if alert_ids:
+        db.execute(delete(NotificationDelivery).where(NotificationDelivery.alert_id.in_(alert_ids)))
+    if user_ids:
+        db.execute(delete(NotificationDelivery).where(NotificationDelivery.user_id.in_(user_ids)))
+        db.execute(delete(PushDeviceToken).where(PushDeviceToken.user_id.in_(user_ids)))
+
+    gateway_ids = list(db.scalars(select(IotGateway.id)).all())
+    if gateway_ids:
+        db.execute(delete(IotGatewayHealth).where(IotGatewayHealth.gateway_id.in_(gateway_ids)))
+        db.execute(delete(IotIngestionEvent).where(IotIngestionEvent.gateway_id.in_(gateway_ids)))
+        db.execute(delete(IotReading).where(IotReading.gateway_id.in_(gateway_ids)))
+        db.execute(delete(IotIngestionBatch).where(IotIngestionBatch.gateway_id.in_(gateway_ids)))
+
+    db.execute(delete(NotificationEvent).where(NotificationEvent.company_id == company_id))
+    db.execute(delete(OperationalLog).where(OperationalLog.company_id == company_id))
+    db.execute(delete(Alert).where(Alert.company_id == company_id))
+    db.execute(delete(SensorReading).where(SensorReading.company_id == company_id))
+
+    if storage_unit_ids:
+        for storage_unit in db.scalars(select(StorageUnit).where(StorageUnit.id.in_(storage_unit_ids))).all():
+            storage_unit.last_report_generated_at = None
+    for device in db.scalars(select(Device).where(Device.company_id == company_id)).all():
+        device.last_seen_at = None
 
 if __name__ == "__main__":
     seed()

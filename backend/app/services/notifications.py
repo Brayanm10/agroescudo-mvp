@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import json
 from datetime import datetime, timezone
 from typing import Any
 
@@ -31,9 +33,9 @@ def upsert_preference(
         )
     )
     if preference is None:
-        preference = NotificationPreference(company_id=user.company_id, user_id=user.id, channel=channel)
+        preference = NotificationPreference(company_id=user.company_id or 0, user_id=user.id, channel=channel)
         db.add(preference)
-    preference.company_id = user.company_id
+    preference.company_id = user.company_id or 0
     preference.enabled = enabled
     preference.destination = destination
     preference.minimum_severity = minimum_severity
@@ -155,22 +157,35 @@ def create_admin_test_delivery(
     channel: str,
     destination: str | None,
     message: str,
+    severity: str = "test",
 ) -> NotificationDelivery:
     if channel not in {"whatsapp", "telegram"}:
         raise ValueError("Unsupported notification channel")
+    resolved_destination = destination
+    if user is not None and not resolved_destination:
+        resolved_destination = user.phone_whatsapp if channel == "whatsapp" else user.telegram_chat_id
+
+    status = "dry_run" if settings.notifications_dry_run else "pending"
+    error = None
+    if not resolved_destination:
+        status = "skipped"
+        error = "Usuario sin telefono WhatsApp" if channel == "whatsapp" else "Usuario sin Telegram chat_id"
+
     delivery = NotificationDelivery(
         alert_id=None,
         user_id=user.id if user else None,
         channel=channel,
-        destination=destination,
-        severity="test",
-        status="dry_run" if settings.notifications_dry_run else "pending",
+        destination=resolved_destination,
+        severity=severity,
+        status=status,
         dry_run=settings.notifications_dry_run,
         payload_preview=message,
+        error=error,
     )
     db.add(delivery)
     db.flush()
-    _deliver_delivery(delivery)
+    if resolved_destination:
+        _deliver_delivery(delivery)
     db.commit()
     db.refresh(delivery)
     return delivery
@@ -261,12 +276,7 @@ def _send_whatsapp_delivery(delivery: NotificationDelivery) -> None:
         f"https://graph.facebook.com/{settings.whatsapp_api_version}/"
         f"{settings.whatsapp_phone_number_id}/messages"
     )
-    payload: dict[str, Any] = {
-        "messaging_product": "whatsapp",
-        "to": delivery.destination,
-        "type": "text",
-        "text": {"body": delivery.payload_preview[:3900]},
-    }
+    payload = _whatsapp_payload(delivery.destination, delivery.payload_preview)
     _post_json_delivery(delivery, url, payload, {"Authorization": f"Bearer {settings.whatsapp_access_token}"})
 
 
@@ -313,13 +323,33 @@ def _send_whatsapp(event: NotificationEvent, body: str) -> None:
         f"https://graph.facebook.com/{settings.whatsapp_api_version}/"
         f"{settings.whatsapp_phone_number_id}/messages"
     )
-    payload: dict[str, Any] = {
+    payload = _whatsapp_payload(event.destination, body)
+    _post_json(event, url, payload, {"Authorization": f"Bearer {settings.whatsapp_access_token}"})
+
+
+def _whatsapp_payload(destination: str, body: str) -> dict[str, Any]:
+    if settings.whatsapp_template_alert:
+        return {
+            "messaging_product": "whatsapp",
+            "to": destination,
+            "type": "template",
+            "template": {
+                "name": settings.whatsapp_template_alert,
+                "language": {"code": settings.whatsapp_template_language},
+                "components": [
+                    {
+                        "type": "body",
+                        "parameters": [{"type": "text", "text": body[:900]}],
+                    }
+                ],
+            },
+        }
+    return {
         "messaging_product": "whatsapp",
-        "to": event.destination,
+        "to": destination,
         "type": "text",
         "text": {"body": body[:3900]},
     }
-    _post_json(event, url, payload, {"Authorization": f"Bearer {settings.whatsapp_access_token}"})
 
 
 def _send_telegram(event: NotificationEvent, body: str) -> None:
@@ -341,7 +371,9 @@ def _send_telegram(event: NotificationEvent, body: str) -> None:
 
 
 def _send_push(event: NotificationEvent, title: str, body: str) -> None:
-    if not settings.fcm_enabled or not settings.firebase_project_id or not settings.firebase_service_account_file:
+    if not settings.fcm_enabled or not settings.firebase_project_id or not (
+        settings.firebase_service_account_file or settings.firebase_service_account_json
+    ):
         event.status = "skipped"
         event.error = "Firebase Cloud Messaging no configurado."
         return
@@ -353,10 +385,19 @@ def _send_push(event: NotificationEvent, title: str, body: str) -> None:
         from google.oauth2 import service_account
         from google.auth.transport.requests import Request
 
-        credentials = service_account.Credentials.from_service_account_file(
-            settings.firebase_service_account_file,
-            scopes=["https://www.googleapis.com/auth/firebase.messaging"],
-        )
+        scopes = ["https://www.googleapis.com/auth/firebase.messaging"]
+        if settings.firebase_service_account_json:
+            raw = settings.firebase_service_account_json.strip()
+            try:
+                service_account_info = json.loads(raw)
+            except json.JSONDecodeError:
+                service_account_info = json.loads(base64.b64decode(raw).decode("utf-8"))
+            credentials = service_account.Credentials.from_service_account_info(service_account_info, scopes=scopes)
+        else:
+            credentials = service_account.Credentials.from_service_account_file(
+                settings.firebase_service_account_file,
+                scopes=scopes,
+            )
         credentials.refresh(Request())
         url = f"https://fcm.googleapis.com/v1/projects/{settings.firebase_project_id}/messages:send"
         payload = {

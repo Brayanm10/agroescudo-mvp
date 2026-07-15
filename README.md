@@ -7,7 +7,7 @@ El repositorio incluye:
 - Backend FastAPI con JWT, SQLAlchemy, Alembic, ingestion IoT, alertas, bitacora, umbrales y reporte semanal.
 - Base de datos SQLite para desarrollo local sin Docker.
 - PostgreSQL como opcion para Docker/produccion.
-- Frontend Next.js con dashboard industrial para operar el MVP con datos reales del backend.
+- Frontend Next.js con dashboard industrial para operar pilotos comerciales con datos reales del backend.
 - App Flutter Android para pilotos de campo con roles, cache local de solo lectura y descarga de PDF.
 - Flujo de pilotos comerciales con alta guiada, asignacion de responsables y checklist de instalacion.
 
@@ -35,11 +35,12 @@ Backend (`backend/.env`, copiar desde `backend/.env.example`):
 | `API_URL` | URL publica de referencia para operadores y scripts externos. | `http://127.0.0.1:8010` |
 | `ENVIRONMENT` | `local` y `demo` habilitan la simulacion comercial admin; `production` la bloquea. | `local` |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | Duracion de sesion JWT. | `480` |
-| `WHATSAPP_ENABLED` / `WHATSAPP_ACCESS_TOKEN` / `WHATSAPP_PHONE_NUMBER_ID` | Activa envio por WhatsApp Cloud API. | `false` hasta tener credenciales Meta |
+| `WHATSAPP_ENABLED` / `WHATSAPP_ACCESS_TOKEN` / `WHATSAPP_PHONE_NUMBER_ID` / `WHATSAPP_TEMPLATE_ALERT_NAME` | Activa envio por WhatsApp Cloud API. | `false` hasta tener credenciales Meta |
 | `TELEGRAM_ENABLED` / `TELEGRAM_BOT_TOKEN` | Activa envio por bot de Telegram. | `false` hasta crear bot |
 | `NOTIFICATIONS_DRY_RUN` | Registra entregas WhatsApp/Telegram sin enviar mensajes reales. | `true` |
 | `FCM_ENABLED` / `FIREBASE_PROJECT_ID` / `FIREBASE_SERVICE_ACCOUNT_FILE` | Activa push notification para Android. | `false` hasta configurar Firebase |
 | `AI_ENABLED` / `OPENAI_API_KEY` / `OPENAI_MODEL` | Activa recomendaciones IA; sin API key usa reglas internas. | `false` |
+| `IOT_SIGNATURE_WINDOW_SECONDS` | Ventana maxima para firmas HMAC de gateways IoT. | `300` |
 
 El backend sigue aceptando `SECRET_KEY` como alias historico de `JWT_SECRET`, pero las nuevas configuraciones deben usar `JWT_SECRET`.
 
@@ -48,7 +49,23 @@ Frontend (`frontend/.env.local`, copiar desde `frontend/.env.example`):
 | Variable | Uso | Valor local recomendado |
 | --- | --- | --- |
 | `NEXT_PUBLIC_API_URL` | URL del backend consumida desde el navegador. | `http://127.0.0.1:8010` |
-| `NEXT_PUBLIC_SHOW_DEMO_CREDENTIALS` | Muestra el bloque de credenciales demo en login. En Vercel publico debe ser `false`. | `true` local |
+
+## Documentacion De Auditoria Y Operacion
+
+- [Auditoria final](docs/AUDITORIA_FINAL.md)
+- [Arquitectura del sistema](docs/ARQUITECTURA_SISTEMA.md)
+- [Arquitectura IoT](docs/ARQUITECTURA_IOT.md)
+- [Protocolo LoRa](docs/PROTOCOLO_LORA.md)
+- [Seguridad y privacidad](docs/SEGURIDAD_Y_PRIVACIDAD.md)
+- [API ingestion IoT](docs/API_INGESTION_IOT.md)
+- [Despliegue completo](docs/DESPLIEGUE_COMPLETO.md)
+- [Operacion y recuperacion](docs/OPERACION_Y_RECUPERACION.md)
+- [Pruebas end to end](docs/PRUEBAS_END_TO_END.md)
+- [Checklist release piloto](docs/CHECKLIST_RELEASE_PILOTO.md)
+- [Reporte de tests](docs/REPORTE_DE_TESTS.md)
+- [Rollback](docs/ROLLBACK.md)
+- [Backup y restore](docs/BACKUP_RESTORE.md)
+- [Decision HTTP vs MQTT](docs/DECISION_HTTP_VS_MQTT.md)
 
 ## Modo Local Sin Docker
 
@@ -111,13 +128,7 @@ El frontend queda disponible en:
 
 - `http://localhost:3000`
 
-Login demo:
-
-- Admin: `admin@agroescudo.local` / `admin123`
-- Tecnico: `tecnico@agroescudo.local` / `tecnico123`
-- Cliente silo demo: `cliente@silo-demo.local` / `cliente123`
-
-En Vercel publico configura `NEXT_PUBLIC_SHOW_DEMO_CREDENTIALS=false` para no mostrar estas credenciales en pantalla.
+Las cuentas iniciales del piloto se crean con `python -m app.seed`. Para una entrega real, cambia las contrasenas iniciales desde la administracion antes de presentar a terceros.
 
 Build frontend:
 
@@ -166,7 +177,7 @@ El PDF incluye:
 
 - Portada corporativa AgroEscudo.
 - Resumen ejecutivo.
-- Consulta del sensor / asistente operativo basado en reglas del MVP.
+- Consulta del sensor / asistente operativo basado en reglas del piloto comercial.
 - Metricas principales.
 - Estado del piloto, checklist de instalacion y mantenimientos registrados.
 - Graficas simples de temperatura y humedad con lecturas disponibles.
@@ -183,7 +194,7 @@ Limitaciones actuales:
 
 - La plantilla PDF es comun para web y Android; los ajustes visuales se realizan en `backend/app/services/pdf_reports.py`.
 - Si un valor no existe en la API, el reporte muestra `Dato no disponible` o `No registrado durante el periodo`.
-- El asistente actual no llama a un modelo externo: usa reglas operativas simples del MVP para mantener bajo riesgo tecnico.
+- El asistente actual no llama a un modelo externo: usa reglas operativas simples del piloto para mantener bajo riesgo tecnico.
 
 ## App Flutter Android
 
@@ -269,25 +280,20 @@ DATABASE_URL=postgresql+psycopg://agroescudo:agroescudo@localhost:5432/agroescud
 El seed crea:
 
 - Empresa cliente: `Acopio Valle Bajo S.R.L.`
-- Usuario admin: `admin@agroescudo.local` / `admin123`
-- Usuario tecnico: `tecnico@agroescudo.local` / `tecnico123`
-- Usuario cliente: `cliente@silo-demo.local` / `cliente123`
+- Usuarios base para administracion, soporte tecnico y cliente
 - Sitio: `Centro de Acopio Norte`, Quillacollo, Cochabamba
 - Unidades: `Silo Maiz Seco 01`, `Galpon Sorgo 02` y `Almacen Balanceado 03`
 - Dispositivos: `SILO-001`, `GALPON-001` y `SILO-002`
 - Token principal del dispositivo `SILO-001`: `secret-token`
-- Umbrales demo de temperatura, humedad y bateria
-- Lecturas historicas de siete dias para graficas reales
-- Alertas normales, preventivas, criticas y tecnicas
-- Bitacora profesional con instalacion, mantenimiento, inspecciones y acciones correctivas
+- Umbrales operativos de temperatura, humedad y bateria
 
-El seed es idempotente: si la demo ya existe, actualiza estructura, usuarios y evidencia esperada sin duplicar registros.
+El seed es idempotente y deja la operacion limpia: no carga lecturas, alertas, bitacoras ni entregas de notificacion de prueba. Si ya existian datos operativos del piloto base, los purga para iniciar con una base limpia.
 
-Desde la seccion `Pilotos`, el admin puede usar `Borrar datos operativos` para limpiar lecturas, alertas y bitacora de una unidad sin eliminar el cliente, el sitio ni el dispositivo. Esto permite reiniciar una presentacion y volver a cargar la evidencia con `python -m app.seed`.
+Desde la seccion `Pilotos`, el admin puede usar `Borrar datos operativos` para limpiar lecturas, alertas y bitacora de una unidad sin eliminar el cliente, el sitio ni el dispositivo. Los datos vuelven a aparecer cuando ingresan lecturas reales por `POST /api/readings` o cuando el admin usa la simulacion controlada de presentacion.
 
 ## Modo Presentacion Comercial
 
-El rol `admin` dispone de la seccion `Modo presentacion`, accesible desde el dashboard y el sidebar. Esta vista organiza una demostracion B2B de 5 a 7 minutos:
+El rol `admin` dispone de la seccion `Presentacion comercial`, accesible desde el dashboard y el sidebar. Esta vista organiza un recorrido B2B de 5 a 7 minutos:
 
 1. Sitio monitoreado.
 2. Silo con nodo IoT asignado.
@@ -298,7 +304,7 @@ El rol `admin` dispone de la seccion `Modo presentacion`, accesible desde el das
 
 La accion `Simular lectura critica` usa `POST /api/demo/simulate-critical-reading`. El endpoint reutiliza el motor real de ingestion y alertas, pero solo esta disponible para `admin` cuando `ENVIRONMENT` es `local` o `demo`. Tecnicos y clientes no ven el acceso y reciben `403` si intentan invocarlo directamente.
 
-Para una presentacion, entra como admin y abre `Modo presentacion` desde el sidebar. El boton `Simular lectura critica` agrega una lectura fuera de rango al nodo `SILO-001`, actualiza alertas y deja evidencia visible para el PDF.
+Para una presentacion, entra como admin y abre `Presentacion comercial` desde el sidebar. El boton `Simular lectura critica` agrega una lectura fuera de rango al nodo `SILO-001`, actualiza alertas y deja evidencia visible para el PDF.
 
 Prueba directa por API en PowerShell:
 
@@ -306,18 +312,18 @@ Prueba directa por API en PowerShell:
 $login = Invoke-RestMethod -Method Post `
   -Uri "http://127.0.0.1:8010/api/auth/login" `
   -ContentType "application/json" `
-  -Body '{"email":"admin@agroescudo.local","password":"admin123"}'
+  -Body '{"email":"ADMIN_EMAIL","password":"ADMIN_PASSWORD"}'
 
 Invoke-RestMethod -Method Post `
   -Uri "http://127.0.0.1:8010/api/demo/simulate-critical-reading" `
   -Headers @{ Authorization = "Bearer $($login.access_token)" }
 ```
 
-## Roles Demo
+## Roles De Piloto Comercial
 
-- `admin`: ve toda la demo, prepara pilotos completos, asigna responsables, reconoce y resuelve alertas, registra bitacora y edita umbrales.
-- `technician`: ve operacion demo, dispositivos, lecturas y alertas; puede registrar checklist de instalacion, mantenimiento y acciones correctivas.
-- `client`: ve su empresa/sitio/silo demo en modo lectura, consulta estado del piloto, alertas, bitacora y descarga reportes PDF.
+- `admin`: ve toda la operacion del piloto, prepara pilotos completos, asigna responsables, reconoce y resuelve alertas, registra bitacora y edita umbrales.
+- `technician`: ve operacion asignada, dispositivos, lecturas y alertas; puede registrar checklist de instalacion, mantenimiento y acciones correctivas.
+- `client`: ve su empresa/sitio/silo asignado en modo lectura, consulta estado del piloto, alertas, bitacora y descarga reportes PDF.
 
 `POST /api/readings` sigue siendo publico para dispositivos IoT y usa `device_token`, no JWT.
 
@@ -325,6 +331,9 @@ Invoke-RestMethod -Method Post `
 
 El admin dispone de secciones para cierre comercial de piloto:
 
+- `Empresas`: crear/editar/activar/desactivar clientes con contacto comercial y operativo.
+- `Silos/Galpones`: crear unidades monitoreadas asociadas a empresa/sitio, producto almacenado y ubicacion fisica.
+- `Sensores`: registrar nodos, asociarlos a silos y generar API key del sensor visible una sola vez; compatible con `device_token`.
 - `Usuarios`: crear usuarios, activar/desactivar cuentas, resetear password y asignar storage units a tecnicos/clientes.
 - `Notificaciones`: registrar pruebas dry-run de WhatsApp/Telegram y revisar entregas auditables.
 
@@ -375,11 +384,11 @@ Para activar IA real necesitas:
 ## Probar Los Tres Roles
 
 1. Limpia la sesion desde el boton de cerrar sesion o borra `localStorage` del navegador.
-2. Ingresa como admin y verifica `Dashboard`, `Modo presentacion`, `Pilotos`, `Umbrales` y descarga PDF.
-3. Cierra sesion e ingresa como tecnico. Verifica lecturas, alertas, bitacora y mantenimiento. No debe aparecer `Modo presentacion`.
+2. Ingresa como admin y verifica `Dashboard`, `Presentacion comercial`, `Pilotos`, `Umbrales` y descarga PDF.
+3. Cierra sesion e ingresa como tecnico. Verifica lecturas, alertas, bitacora y mantenimiento. No debe aparecer `Presentacion comercial`.
 4. Cierra sesion e ingresa como cliente. Verifica estado del silo, alertas, bitacora y reporte PDF. No debe aparecer configuracion tecnica ni simulacion.
 
-La descarga PDF esta disponible desde `Reportes`, desde el detalle de storage unit y desde el recorrido admin `Modo presentacion`.
+La descarga PDF esta disponible desde `Reportes`, desde el detalle de storage unit y desde el recorrido admin `Presentacion comercial`.
 
 ## Flujo De Piloto Comercial
 
@@ -411,7 +420,7 @@ El estado del piloto se calcula con la evidencia disponible: instalacion, lectur
 ```bash
 curl -X POST http://127.0.0.1:8010/api/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"email":"admin@agroescudo.local","password":"admin123"}'
+  -d '{"email":"ADMIN_EMAIL","password":"ADMIN_PASSWORD"}'
 ```
 
 Usa el `access_token` devuelto como bearer token:
@@ -507,7 +516,7 @@ Backend Windows:
 
 | Script | Comando | Uso |
 | --- | --- | --- |
-| Seed | `powershell -ExecutionPolicy Bypass -File scripts\seed.ps1` | Aplica migraciones y carga datos demo idempotentes. |
+| Seed | `powershell -ExecutionPolicy Bypass -File scripts\seed.ps1` | Aplica migraciones y prepara una base limpia de piloto. |
 | Dev | `powershell -ExecutionPolicy Bypass -File scripts\dev.ps1` | Levanta FastAPI en `127.0.0.1:8010` con reload. |
 | Test | `powershell -ExecutionPolicy Bypass -File scripts\test.ps1` | Ejecuta pytest sin cache. |
 

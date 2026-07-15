@@ -1,0 +1,17 @@
+backend/
+mobile/
+firmware/
+docs/
+landing/
+output/
+tmp/
+dist/
+scripts/
+.git/
+.github/
+*.pdf
+*.apk
+frontend/node_modules/
+frontend/.next/
+frontend/.env
+frontend/.env.local

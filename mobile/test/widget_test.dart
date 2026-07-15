@@ -16,6 +16,6 @@ void main() {
     expect(find.text('AgroEscudo'), findsOneWidget);
     expect(find.text('Acceso seguro'), findsOneWidget);
     expect(find.text('Ingresar'), findsOneWidget);
-    expect(find.text('CUENTAS DE PILOTO'), findsOneWidget);
+    expect(find.text('CUENTAS DE PILOTO'), findsNothing);
   });
 }

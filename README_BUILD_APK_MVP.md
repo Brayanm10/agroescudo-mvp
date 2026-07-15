@@ -46,23 +46,7 @@ Si Android bloquea la instalacion, habilita permisos para instalar apps externas
 
 ## Cuentas Demo
 
-Admin:
-
-```text
-admin@agroescudo.local / admin123
-```
-
-Tecnico:
-
-```text
-tecnico@agroescudo.local / tecnico123
-```
-
-Cliente:
-
-```text
-cliente@silo-demo.local / cliente123
-```
+Usa las cuentas internas creadas por el seed y cambia las contrasenas iniciales desde administracion antes de entregar el piloto a terceros.
 
 ## Checklist de Prueba
 

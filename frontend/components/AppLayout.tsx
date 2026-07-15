@@ -1,19 +1,29 @@
-import { LogOut, RefreshCw } from "lucide-react";
+import { RefreshCw } from "lucide-react";
 import type { ReactNode } from "react";
 import { Sidebar } from "./Sidebar";
+import { AccountMenu } from "./account/AccountMenu";
 import type { User, ViewKey } from "@/lib/types";
 
 const pageCopy: Record<ViewKey, { eyebrow: string; title: string }> = {
-  dashboard: { eyebrow: "Centro operativo", title: "Monitoreo industrial AgroEscudo" },
-  demo: { eyebrow: "Demo comercial", title: "Modo presentacion" },
-  pilots: { eyebrow: "Implementacion comercial", title: "Alta y seguimiento de pilotos" },
-  sites: { eyebrow: "Red monitoreada", title: "Sitios y unidades de almacenamiento" },
-  alerts: { eyebrow: "Gestion de riesgo", title: "Alertas operativas" },
+  dashboard: { eyebrow: "Inicio", title: "Prioridades operativas" },
+  demo: { eyebrow: "Demo separada", title: "Presentacion ejecutiva" },
+  pilots: { eyebrow: "Operacion", title: "Alta y seguimiento de pilotos" },
+  companies: { eyebrow: "Operacion", title: "Empresas, sitios y silos" },
+  storage: { eyebrow: "Operacion", title: "Silos y galpones" },
+  sensors: { eyebrow: "Operacion", title: "Dispositivos y sensores" },
+  sites: { eyebrow: "Operacion", title: "Sitios y silos asignados" },
+  alerts: { eyebrow: "Operacion", title: "Alertas e incidentes" },
   logs: { eyebrow: "Trazabilidad", title: "Bitacora operativa" },
-  thresholds: { eyebrow: "Configuracion", title: "Umbrales por dispositivo" },
-  reports: { eyebrow: "Reporte", title: "Resumen semanal" },
+  maintenance: { eyebrow: "Operacion tecnica", title: "Mantenimiento" },
+  history: { eyebrow: "Analisis", title: "Historial y tendencias" },
+  thresholds: { eyebrow: "Administracion", title: "Umbrales por dispositivo" },
+  reports: { eyebrow: "Analisis", title: "Reportes" },
   users: { eyebrow: "Administracion", title: "Usuarios y accesos" },
-  notifications: { eyebrow: "Canales externos", title: "Notificaciones dry-run" }
+  notifications: { eyebrow: "Administracion", title: "Configuracion" },
+  support: { eyebrow: "Soporte", title: "Soporte operativo" },
+  profile: { eyebrow: "Cuenta", title: "Mi perfil" },
+  changePassword: { eyebrow: "Cuenta", title: "Cambiar contrasena" },
+  preferences: { eyebrow: "Cuenta", title: "Preferencias" }
 };
 
 export function AppLayout({
@@ -34,11 +44,10 @@ export function AppLayout({
   children: ReactNode;
 }) {
   const copy = pageCopy[current];
-  const roleLabel = user.role === "admin" ? "Admin AgroEscudo" : user.role === "technician" ? "Tecnico AgroEscudo" : "Cliente silo";
 
   return (
     <div className="min-h-screen bg-field lg:flex">
-      <Sidebar current={current} onChange={onChange} allowedViews={allowedViews} />
+      <Sidebar current={current} onChange={onChange} allowedViews={allowedViews} role={user.role} />
       <div className="min-w-0 flex-1">
         <header className="sticky top-0 z-10 border-b border-slate-200/80 bg-white/90 px-4 py-4 backdrop-blur-xl lg:px-8">
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -47,11 +56,7 @@ export function AppLayout({
               <h1 className="text-xl font-black tracking-tight text-slate-950">{copy.title}</h1>
             </div>
             <div className="flex items-center gap-2">
-              <div className="hidden rounded-xl border border-slate-200 bg-white px-3 py-2 text-right shadow-soft sm:block">
-                <p className="text-sm font-semibold text-slate-900">{user.full_name}</p>
-                <p className="text-xs text-slate-500">{user.company?.name || user.email}</p>
-                <p className="mt-1 text-[10px] font-black uppercase tracking-[0.13em] text-emerald-700">{roleLabel}</p>
-              </div>
+              <AccountMenu user={user} onNavigate={onChange} onLogout={onLogout} />
               <button
                 type="button"
                 onClick={onRefresh}
@@ -59,14 +64,6 @@ export function AppLayout({
                 title="Actualizar datos"
               >
                 <RefreshCw size={18} aria-hidden="true" />
-              </button>
-              <button
-                type="button"
-                onClick={onLogout}
-                className="rounded-lg border border-slate-200 bg-white p-2.5 text-slate-600 shadow-soft transition hover:border-red-200 hover:bg-red-50 hover:text-red-700"
-                title="Cerrar sesion"
-              >
-                <LogOut size={18} aria-hidden="true" />
               </button>
             </div>
           </div>

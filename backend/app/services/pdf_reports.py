@@ -133,7 +133,7 @@ def _cover(styles, report: WeeklyReportOut, status: str):
         ["Cliente / institucion", report.company_name, "Sitio", report.site_name],
         ["Silo / galpon", report.storage_unit_name, "Periodo", f"{_date(report.date_from)} - {_date(report.date_to)}"],
         ["Preparado por", "AgroEscudo", "Estado general", status],
-        ["Estado del piloto", report.pilot_status.capitalize(), "Version", "Piloto 1.0"],
+        ["Estado del piloto", report.pilot_status.capitalize(), "Version", "Piloto Comercial 1.0"],
     ]
     return [
         Spacer(1, 1 * mm),

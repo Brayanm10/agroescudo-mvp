@@ -5,7 +5,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from starlette.requests import Request
 
-from app.api.routes import admin, ai, alerts, auth, companies, demo, devices, notifications, operational_logs, pilots, readings, reports, sites, storage_units, users
+from app.api.routes import admin, agro_assistant, ai, alerts, auth, companies, control_center, demo, devices, education, insights, iot, notifications, operational_logs, pilots, readings, reports, service_cases, sites, storage_units, users
 from app.core.config import settings
 from app.db.session import SessionLocal
 
@@ -25,6 +25,7 @@ app.include_router(companies.router, prefix="/api", tags=["companies"])
 app.include_router(sites.router, prefix="/api", tags=["sites"])
 app.include_router(storage_units.router, prefix="/api", tags=["storage-units"])
 app.include_router(devices.router, prefix="/api", tags=["devices"])
+app.include_router(iot.router, prefix="/api", tags=["iot"])
 app.include_router(readings.router, prefix="/api", tags=["readings"])
 app.include_router(alerts.router, prefix="/api", tags=["alerts"])
 app.include_router(operational_logs.router, prefix="/api", tags=["operational-logs"])
@@ -34,6 +35,11 @@ app.include_router(users.router, prefix="/api", tags=["users"])
 app.include_router(demo.router, prefix="/api", tags=["demo"])
 app.include_router(notifications.router, prefix="/api", tags=["notifications"])
 app.include_router(ai.router, prefix="/api", tags=["ai"])
+app.include_router(insights.router, prefix="/api", tags=["insights"])
+app.include_router(control_center.router, prefix="/api", tags=["control-center"])
+app.include_router(service_cases.router, prefix="/api", tags=["service-cases"])
+app.include_router(agro_assistant.router, prefix="/api", tags=["agro-assistant"])
+app.include_router(education.router, prefix="/api", tags=["education"])
 
 
 @app.get("/health")

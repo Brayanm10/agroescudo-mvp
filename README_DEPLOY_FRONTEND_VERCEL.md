@@ -41,7 +41,6 @@ En Vercel, agrega:
 
 ```env
 NEXT_PUBLIC_API_URL=https://agroescudo-api.onrender.com
-NEXT_PUBLIC_SHOW_DEMO_CREDENTIALS=false
 ```
 
 Debe estar disponible para Production, Preview y Development si quieres probar previews.
@@ -54,23 +53,7 @@ Debe estar disponible para Production, Preview y Development si quieres probar p
 
 ## Probar Login
 
-Admin:
-
-```text
-admin@agroescudo.local / admin123
-```
-
-Tecnico:
-
-```text
-tecnico@agroescudo.local / tecnico123
-```
-
-Cliente:
-
-```text
-cliente@silo-demo.local / cliente123
-```
+Usa las cuentas internas creadas por el seed y cambia las contrasenas iniciales desde administracion antes de entregar el piloto a terceros.
 
 ## Checklist Web
 

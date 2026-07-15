@@ -49,14 +49,14 @@ flutter run --dart-define=API_BASE_URL=http://192.168.1.50:8010
 
 ## Validar Roles
 
-- [ ] Ingresar con admin: `admin@agroescudo.local` / `admin123`.
+- [ ] Ingresar con la cuenta admin interna del piloto.
 - [ ] Confirmar resumen, alertas, resolver alerta, bitacora y PDF.
 - [ ] Cerrar sesion.
-- [ ] Ingresar con tecnico: `tecnico@agroescudo.local` / `tecnico123`.
+- [ ] Ingresar con la cuenta tecnica asignada.
 - [ ] Confirmar checklist de instalacion, mantenimiento, reconocer alerta y PDF.
 - [ ] Confirmar que no aparece resolucion administrativa.
 - [ ] Cerrar sesion.
-- [ ] Ingresar con cliente: `cliente@silo-demo.local` / `cliente123`.
+- [ ] Ingresar con la cuenta cliente asignada.
 - [ ] Confirmar unidades propias, lecturas, alertas, bitacora y PDF.
 - [ ] Confirmar que no aparecen acciones tecnicas.
 

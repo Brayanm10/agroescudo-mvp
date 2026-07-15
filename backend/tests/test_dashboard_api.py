@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, select
 
@@ -74,9 +74,117 @@ def test_me_returns_admin_role(client):
     assert response.json()["email"] == "admin@agroescudo.local"
     assert response.json()["role"] == "admin"
     assert response.json()["is_active"] is True
+    assert "created_at" in response.json()
+    assert "last_login_at" in response.json()
 
 
-def test_seed_is_idempotent_and_refreshes_demo_users(client, db_session, monkeypatch):
+def test_login_updates_last_login_at(client, db_session):
+    user = db_session.scalar(select(User).where(User.email == "admin@agroescudo.local"))
+    assert user.last_login_at is None
+
+    response = client.post(
+        "/api/auth/login",
+        json={"email": "admin@agroescudo.local", "password": "admin123"},
+    )
+
+    assert response.status_code == 200
+    db_session.refresh(user)
+    assert user.last_login_at is not None
+
+
+def test_update_me_allows_only_profile_fields(client):
+    headers = auth_headers(client)
+    response = client.patch(
+        "/api/me",
+        headers=headers,
+        json={
+            "full_name": "Administrador Operativo",
+            "phone_whatsapp": "+59170000001",
+            "telegram_chat_id": "12345",
+            "receives_alerts": False,
+            "timezone": "America/La_Paz",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["full_name"] == "Administrador Operativo"
+    assert body["phone_whatsapp"] == "+59170000001"
+    assert body["receives_alerts"] is False
+    assert body["role"] == "admin"
+
+
+def test_update_me_rejects_role_change(client):
+    response = client.patch(
+        "/api/me",
+        headers=auth_headers(client),
+        json={"role": "client"},
+    )
+
+    assert response.status_code == 422
+
+
+def test_change_password_wrong_current_password(client):
+    response = client.post(
+        "/api/auth/change-password",
+        headers=auth_headers(client),
+        json={
+            "current_password": "incorrecta",
+            "new_password": "Nueva123",
+            "confirm_password": "Nueva123",
+        },
+    )
+
+    assert response.status_code == 400
+
+
+def test_change_password_rejects_weak_password(client):
+    response = client.post(
+        "/api/auth/change-password",
+        headers=auth_headers(client),
+        json={
+            "current_password": "admin123",
+            "new_password": "debil",
+            "confirm_password": "debil",
+        },
+    )
+
+    assert response.status_code == 422
+
+
+def test_change_password_rejects_confirmation_mismatch(client):
+    response = client.post(
+        "/api/auth/change-password",
+        headers=auth_headers(client),
+        json={
+            "current_password": "admin123",
+            "new_password": "Nueva123",
+            "confirm_password": "Otra1234",
+        },
+    )
+
+    assert response.status_code == 400
+
+
+def test_change_password_success(client):
+    response = client.post(
+        "/api/auth/change-password",
+        headers=auth_headers(client),
+        json={
+            "current_password": "admin123",
+            "new_password": "Nueva123",
+            "confirm_password": "Nueva123",
+        },
+    )
+    assert response.status_code == 200
+
+    old_login = client.post("/api/auth/login", json={"email": "admin@agroescudo.local", "password": "admin123"})
+    new_login = client.post("/api/auth/login", json={"email": "admin@agroescudo.local", "password": "Nueva123"})
+    assert old_login.status_code == 401
+    assert new_login.status_code == 200
+
+
+def test_seed_is_idempotent_and_leaves_pilot_operational_data_clean(client, db_session, monkeypatch):
     admin = db_session.scalar(select(User).where(User.email == "admin@agroescudo.local"))
     admin.hashed_password = hash_password("old-password")
     admin.role = "client"
@@ -99,33 +207,33 @@ def test_seed_is_idempotent_and_refreshes_demo_users(client, db_session, monkeyp
         db_session.scalar(select(func.count(OperationalLog.id))),
     )
 
-    demo_users = db_session.scalars(
+    pilot_users = db_session.scalars(
         select(User).where(
             User.email.in_(
                 [
                     "admin@agroescudo.local",
                     "tecnico@agroescudo.local",
-                    "cliente@silo-demo.local",
+                    "operaciones@vallebajo.bo",
                 ]
             )
         )
     ).all()
-    users = {user.email: user for user in demo_users}
+    users = {user.email: user for user in pilot_users}
 
-    assert len(demo_users) == 3
+    assert len(pilot_users) == 3
     assert len(users) == 3
     assert users["admin@agroescudo.local"].role == "admin"
     assert users["tecnico@agroescudo.local"].role == "technician"
-    assert users["cliente@silo-demo.local"].role == "client"
+    assert users["operaciones@vallebajo.bo"].role == "client"
     assert users["admin@agroescudo.local"].is_active is True
     assert verify_password("admin123", users["admin@agroescudo.local"].hashed_password)
     assert verify_password("tecnico123", users["tecnico@agroescudo.local"].hashed_password)
-    assert verify_password("cliente123", users["cliente@silo-demo.local"].hashed_password)
+    assert verify_password("cliente123", users["operaciones@vallebajo.bo"].hashed_password)
     assert counts_after_first_seed == counts_after_second_seed
     assert counts_after_second_seed[0] == 3
     assert counts_after_second_seed[1] == 3
-    assert counts_after_second_seed[2] == 87
-    assert counts_after_second_seed[3] == 12
+    assert counts_after_second_seed[2] == 0
+    assert counts_after_second_seed[3] == 0
 
 
 def test_login_works_with_sqlite_test_database(client):
@@ -193,6 +301,66 @@ def test_query_readings(client):
 
     assert response.status_code == 200
     assert len(response.json()) == 1
+
+
+def test_storage_unit_readings_support_period_filters(client):
+    now = datetime.now(timezone.utc)
+    client.post("/api/readings", json=valid_payload(timestamp=(now - timedelta(hours=2)).isoformat()))
+    client.post("/api/readings", json=valid_payload(timestamp=(now - timedelta(days=3)).isoformat(), grain_temperature=29.1))
+
+    response = client.get(
+        "/api/storage-units/1/readings",
+        headers=auth_headers(client),
+        params={"from": (now - timedelta(hours=6)).isoformat(), "to": now.isoformat()},
+    )
+
+    assert response.status_code == 200
+    assert len(response.json()) == 1
+
+
+def test_insights_use_real_readings_and_rbac(client):
+    client.post(
+        "/api/readings",
+        json=valid_payload(
+            grain_temperature=31.2,
+            ambient_humidity=72.5,
+            timestamp=datetime.now(timezone.utc).isoformat(),
+        ),
+    )
+
+    response = client.get("/api/insights?period=24h", headers=auth_headers(client, "cliente@silo-demo.local", "cliente123"))
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["period"] == "24h"
+    assert len(body["insights"]) == 1
+    assert body["insights"][0]["data_points"] == 1
+    assert body["insights"][0]["status"] in {"critical", "attention"}
+    assert body["insights"][0]["recommendations"]
+
+
+def test_storage_unit_insight_forbidden_for_unassigned_client(client, db_session):
+    company = db_session.scalar(select(Company).where(Company.name == "AgroEscudo Demo"))
+    site = db_session.scalar(select(Site).where(Site.company_id == company.id))
+    other = StorageUnit(company_id=company.id, site_id=site.id, name="Silo No Asignado", unit_type="silo")
+    db_session.add(other)
+    db_session.commit()
+    db_session.refresh(other)
+
+    response = client.get(
+        f"/api/storage-units/{other.id}/insights",
+        headers=auth_headers(client, "cliente@silo-demo.local", "cliente123"),
+    )
+
+    assert response.status_code == 403
+
+
+def test_insights_return_insufficient_data_without_readings(client):
+    response = client.get("/api/storage-units/1/insights?period=24h", headers=auth_headers(client))
+
+    assert response.status_code == 200
+    assert response.json()["status"] in {"insufficient_data", "offline"}
+    assert response.json()["recommendations"] == ["No hay suficientes lecturas recientes para emitir una recomendacion confiable."]
 
 
 def test_list_active_alerts(client):
@@ -684,6 +852,7 @@ def test_admin_user_management_and_assignments(client, db_session):
             "full_name": "Tecnico Dos",
             "password": "tecnico222",
             "role": "technician",
+            "storage_unit_ids": [storage_unit.id],
         },
     )
     assert created.status_code == 201
@@ -695,8 +864,9 @@ def test_admin_user_management_and_assignments(client, db_session):
         json={"storage_unit_ids": [storage_unit.id]},
     )
     assert assigned.status_code == 200
-    db_session.refresh(storage_unit)
-    assert storage_unit.assigned_technician_id == user_id
+    db_session.expire_all()
+    assigned_unit = db_session.get(StorageUnit, storage_unit.id)
+    assert assigned_unit.assigned_technician_id == user_id
 
     deactivated = client.post(f"/api/admin/users/{user_id}/deactivate", headers=headers)
     assert deactivated.status_code == 200
@@ -710,6 +880,75 @@ def test_admin_user_management_and_assignments(client, db_session):
     assert reset.status_code == 200
     user = db_session.get(User, user_id)
     assert verify_password("nuevo123", user.hashed_password)
+
+
+def test_admin_company_storage_and_device_flow(client, db_session):
+    headers = auth_headers(client)
+    company_response = client.post(
+        "/api/admin/companies",
+        headers=headers,
+        json={
+            "name": "Cooperativa Norte Demo",
+            "tax_id": "NORTE-DEMO",
+            "type": "cooperativa",
+            "city": "Sacaba, Cochabamba",
+            "contact_name": "Operaciones",
+            "contact_email": "ops@norte.demo",
+            "contact_phone": "+59170000009",
+        },
+    )
+    assert company_response.status_code == 201
+    company_id = company_response.json()["id"]
+
+    site = Site(company_id=company_id, name="Planta Norte", location="Sacaba")
+    db_session.add(site)
+    db_session.commit()
+    db_session.refresh(site)
+
+    unit_response = client.post(
+        "/api/admin/storage-units",
+        headers=headers,
+        json={
+            "company_id": company_id,
+            "site_id": site.id,
+            "name": "Silo Piloto API",
+            "unit_type": "silo",
+            "capacity_tons": 220,
+            "location": "Sector prueba",
+            "crop_type": "Maiz",
+        },
+    )
+    assert unit_response.status_code == 201
+    storage_unit_id = unit_response.json()["id"]
+
+    device_response = client.post(
+        "/api/admin/devices",
+        headers=headers,
+        json={
+            "storage_unit_id": storage_unit_id,
+            "external_id": "SILO-API-001",
+            "name": "Nodo API 001",
+            "device_type": "esp32_lora_wifi_node",
+        },
+    )
+    assert device_response.status_code == 201
+    assert device_response.json()["api_key"].startswith("agro_")
+    device_id = device_response.json()["id"]
+
+    reset_response = client.post(f"/api/admin/devices/{device_id}/reset-api-key", headers=headers)
+    assert reset_response.status_code == 200
+    assert reset_response.json()["api_key"].startswith("agro_")
+
+
+def test_inactive_device_rejects_reading(client, db_session):
+    device = db_session.scalar(select(Device).where(Device.external_id == "SILO-001"))
+    device.is_active = False
+    db_session.commit()
+
+    response = client.post("/api/readings", json=valid_payload())
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Sensor inactivo. Contacta al administrador."
 
 
 def test_admin_notification_test_creates_dry_run_delivery(client):
@@ -727,7 +966,8 @@ def test_admin_notification_test_creates_dry_run_delivery(client):
 
     deliveries = client.get("/api/admin/notifications/deliveries", headers=auth_headers(client))
     assert deliveries.status_code == 200
-    assert deliveries.json()[0]["payload_preview"] == "Prueba controlada AgroEscudo."
+    assert "Prueba controlada AgroEscudo." in deliveries.json()[0]["payload_preview"]
+    assert "Nivel: TEST" in deliveries.json()[0]["payload_preview"]
 
 
 def test_alert_notification_creates_delivery_without_duplicate(client, db_session):

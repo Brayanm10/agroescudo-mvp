@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -45,6 +47,8 @@ def create_storage_unit(
         name=payload.name,
         unit_type=payload.unit_type,
         capacity_tons=payload.capacity_tons,
+        location=payload.location,
+        crop_type=payload.crop_type,
         assigned_technician_id=payload.assigned_technician_id,
         assigned_client_id=payload.assigned_client_id,
     )
@@ -84,18 +88,29 @@ def update_storage_unit_assignments(
 def list_storage_unit_readings(
     storage_unit_id: int,
     limit: int = Query(default=100, ge=1, le=1000),
+    from_: datetime | None = Query(default=None, alias="from"),
+    to: datetime | None = None,
+    device_id: int | None = None,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    from app.models import SensorReading
+    from app.models import Device, SensorReading
 
     require_storage_unit_access(db, current_user, storage_unit_id)
     stmt = (
         select(SensorReading)
         .where(SensorReading.storage_unit_id == storage_unit_id)
-        .order_by(SensorReading.timestamp.desc())
-        .limit(limit)
     )
+    if device_id is not None:
+        device = db.get(Device, device_id)
+        if device is None or device.storage_unit_id != storage_unit_id:
+            return []
+        stmt = stmt.where(SensorReading.device_id == device_id)
+    if from_ is not None:
+        stmt = stmt.where(SensorReading.timestamp >= from_)
+    if to is not None:
+        stmt = stmt.where(SensorReading.timestamp <= to)
+    stmt = stmt.order_by(SensorReading.timestamp.desc()).limit(limit)
     return list(db.scalars(stmt).all())
 
 

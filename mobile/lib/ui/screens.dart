@@ -24,9 +24,16 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  final email = TextEditingController(text: 'admin@agroescudo.local');
-  final password = TextEditingController(text: 'admin123');
+  final email = TextEditingController();
+  final password = TextEditingController();
   bool hidePassword = true;
+
+  @override
+  void dispose() {
+    email.dispose();
+    password.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -143,7 +150,6 @@ class _LoginScreenState extends State<LoginScreen> {
               label: Text(store.loading ? 'Ingresando...' : 'Ingresar'),
             ),
             const SizedBox(height: 22),
-            const _DemoAccounts(),
           ],
         ),
       ),
@@ -1277,49 +1283,6 @@ class _Notice extends StatelessWidget {
   }
 
   Color get dangerColor => const Color(0xff9d2018);
-}
-
-class _DemoAccounts extends StatelessWidget {
-  const _DemoAccounts();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: const Color(0xffedf5f1),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: const Color(0xffd7e6df)),
-      ),
-      child: const Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'CUENTAS DE PILOTO',
-            style: TextStyle(
-              color: emerald,
-              fontSize: 10,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 1,
-            ),
-          ),
-          SizedBox(height: 8),
-          Text(
-            'Admin: admin@agroescudo.local / admin123',
-            style: TextStyle(fontSize: 12),
-          ),
-          Text(
-            'Tecnico: tecnico@agroescudo.local / tecnico123',
-            style: TextStyle(fontSize: 12),
-          ),
-          Text(
-            'Cliente: cliente@silo-demo.local / cliente123',
-            style: TextStyle(fontSize: 12),
-          ),
-        ],
-      ),
-    );
-  }
 }
 
 Future<void> _showLogForm(
