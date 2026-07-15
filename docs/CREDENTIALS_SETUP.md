@@ -126,3 +126,30 @@ py -3.13 scripts/check_env.py --environment production --env-file backend/.env
 ```
 
 El script solo informa si una clave existe; no imprime su valor.
+
+## Activacion automatizada en Render
+
+Completar el archivo local ignorado por Git:
+
+```text
+tmp/AGROESCUDO_CREDENCIALES_PENDIENTES.txt
+```
+
+Primero ejecutar la validacion sin realizar llamadas externas:
+
+```powershell
+py -3.13 scripts/configure_render_integrations.py
+```
+
+La salida muestra unicamente nombres de variables y estados. Nunca imprime valores.
+Si todos los proveedores seleccionados aparecen como `LISTO`, aplicar y desplegar:
+
+```powershell
+py -3.13 scripts/configure_render_integrations.py --apply
+```
+
+El configurador actualiza cada variable mediante la API oficial de Render. No elimina
+ni reemplaza otras variables del servicio, por lo que conserva `DATABASE_URL`,
+`JWT_SECRET`, CORS y cualquier secreto no incluido en el formulario. Si Firebase esta
+configurado, tambien valida ambos JSON e instala `google-services.json` en la ruta
+Android ignorada por Git. Luego se debe recompilar la APK con `ENABLE_FCM=true`.
