@@ -64,7 +64,6 @@ def main() -> int:
     ]
 
     conditional = {
-        "EMAIL_ENABLED": [("EMAIL_FROM", False), ("EMAIL_API_KEY", True)],
         "TELEGRAM_ENABLED": [("TELEGRAM_BOT_TOKEN", True)],
         "WHATSAPP_ENABLED": [
             ("WHATSAPP_ACCESS_TOKEN", True),
@@ -79,6 +78,16 @@ def main() -> int:
         print(f"{flag:<38} {'ENABLED' if active else 'DISABLED'}")
         for key, secret in variables:
             checks.append((key, active, secret))
+
+    email_active = enabled(values, "EMAIL_ENABLED")
+    email_provider = values.get("EMAIL_PROVIDER", "resend").lower()
+    print(f"{'EMAIL_ENABLED':<38} {'ENABLED' if email_active else 'DISABLED'} ({email_provider})")
+    checks.append(("EMAIL_FROM", email_active, False))
+    if email_provider == "resend":
+        checks.append(("EMAIL_API_KEY", email_active, True))
+    elif email_provider in {"gmail", "smtp"}:
+        checks.append(("SMTP_USERNAME", email_active, True))
+        checks.append(("SMTP_PASSWORD", email_active, True))
 
     ai_active = enabled(values, "AI_ENABLED") and enabled(values, "AGRO_ASSISTANT_LLM_ENABLED")
     provider = values.get("AI_PROVIDER", "rules").lower()

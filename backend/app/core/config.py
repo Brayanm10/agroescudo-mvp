@@ -42,6 +42,11 @@ class Settings(BaseSettings):
     email_from: str | None = None
     email_api_key: str | None = None
     email_reply_to: str | None = None
+    smtp_host: str = "smtp.gmail.com"
+    smtp_port: int = 587
+    smtp_username: str | None = None
+    smtp_password: str | None = None
+    smtp_use_tls: bool = True
     public_app_url: str = "http://localhost:3000"
     storage_provider: str = "local"
     s3_endpoint_url: str | None = None

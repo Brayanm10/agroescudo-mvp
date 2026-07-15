@@ -56,7 +56,13 @@ def integration_status() -> dict[str, object]:
             },
             "email": {
                 "enabled": settings.email_enabled,
-                "configured": bool(settings.email_from and settings.email_api_key),
+                "configured": bool(
+                    settings.email_from
+                    and (
+                        (settings.email_provider == "resend" and settings.email_api_key)
+                        or (settings.email_provider in {"gmail", "smtp"} and settings.smtp_username and settings.smtp_password)
+                    )
+                ),
                 "provider": settings.email_provider,
             },
             "fcm": {

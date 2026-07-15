@@ -66,6 +66,19 @@ EMAIL_REPLY_TO=soporte@dominio-validado.com
 EMAIL_API_KEY=<re_...>
 ```
 
+Como alternativa para piloto se puede usar Gmail con verificacion en dos pasos y una contrasena de aplicacion:
+
+```env
+EMAIL_ENABLED=true
+EMAIL_PROVIDER=gmail
+EMAIL_FROM=AgroEscudo <tu-cuenta@gmail.com>
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USERNAME=tu-cuenta@gmail.com
+SMTP_PASSWORD=<contrasena-de-aplicacion-de-16-caracteres>
+SMTP_USE_TLS=true
+```
+
 ### Firebase Cloud Messaging
 
 Crear la app Android `com.agroescudo.mobile`, descargar `google-services.json` para la app y un service account para el backend. En Render es preferible cargar el JSON completo o base64 en un secreto.
