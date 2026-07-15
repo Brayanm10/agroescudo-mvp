@@ -225,7 +225,7 @@ export type StorageUnitInsight = {
   storage_unit_name: string;
   period: string;
   status: InsightStatus;
-  confidence: number;
+  confidence: "high" | "medium" | "low" | number;
   data_points: number;
   summary: string;
   recommendations: string[];

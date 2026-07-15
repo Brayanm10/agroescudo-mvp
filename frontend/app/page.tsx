@@ -97,7 +97,7 @@ import {
   verifyEmail
 } from "@/lib/api";
 import { formatDateTime, formatNumber, statusFromAlerts } from "@/lib/format";
-import type { Alert, AppData, Company, Device, DeviceWithApiKey, NotificationDelivery, OperationalLog, Pilot, Reading, StorageUnit, Thresholds, User, UserRole, ViewKey, WeeklyReport } from "@/lib/types";
+import type { Alert, AppData, Company, Device, DeviceWithApiKey, NotificationDelivery, OperationalLog, Pilot, Reading, StorageUnit, StorageUnitInsight, Thresholds, User, UserRole, ViewKey, WeeklyReport } from "@/lib/types";
 
 const TOKEN_KEY = "agroescudo_token";
 
@@ -1039,7 +1039,7 @@ function InsightsPanel({ data, onNavigate }: { data: AppData; onNavigate: (view:
                 <h3 className="mt-2 text-lg font-black tracking-tight">{insightLabel(insight.status)}</h3>
               </div>
               <span className="rounded-full bg-white/70 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em]">
-                {Math.round(insight.confidence * 100)}%
+                {insightConfidenceLabel(insight.confidence)}
               </span>
             </div>
             <p className="mt-3 text-sm leading-6 opacity-85">{insight.summary}</p>
@@ -1057,6 +1057,15 @@ function insightLabel(status: string) {
   if (status === "offline") return "Sensor sin continuidad";
   if (status === "insufficient_data") return "Datos insuficientes";
   return "Operacion estable";
+}
+
+function insightConfidenceLabel(confidence: StorageUnitInsight["confidence"]) {
+  if (typeof confidence === "number" && Number.isFinite(confidence)) {
+    return `${Math.round(Math.max(0, Math.min(1, confidence)) * 100)}%`;
+  }
+  if (confidence === "high") return "Confianza alta";
+  if (confidence === "medium") return "Confianza media";
+  return "Confianza baja";
 }
 
 function insightStyles(status: string) {
