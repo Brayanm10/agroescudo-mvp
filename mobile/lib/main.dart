@@ -3,10 +3,12 @@ import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 
 import 'core/app_store.dart';
+import 'core/push_notifications.dart';
 import 'ui/screens.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await PushNotifications.initialize();
   final store = AppStore();
   await store.restore();
   runApp(AgroEscudoApp(store: store));

@@ -77,6 +77,19 @@ def register_push_token(db: Session, user: User, *, token: str, platform: str) -
     return record
 
 
+def deactivate_push_token(db: Session, user: User, *, token: str) -> None:
+    record = db.scalar(
+        select(PushDeviceToken).where(
+            PushDeviceToken.token == token,
+            PushDeviceToken.user_id == user.id,
+        )
+    )
+    if record is not None:
+        record.is_active = False
+        record.last_seen_at = datetime.now(timezone.utc)
+        db.commit()
+
+
 def dispatch_alert_notifications(db: Session, alert: Alert, reading: SensorReading | None = None) -> list[NotificationEvent]:
     preferences = list(
         db.scalars(

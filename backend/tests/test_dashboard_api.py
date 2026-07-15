@@ -812,9 +812,10 @@ def test_update_notification_preference(client):
 
 
 def test_register_push_token(client, db_session):
+    headers = auth_headers(client, "cliente@silo-demo.local", "cliente123")
     response = client.post(
         "/api/notifications/push-tokens",
-        headers=auth_headers(client, "cliente@silo-demo.local", "cliente123"),
+        headers=headers,
         json={"token": "fcm-token-demo-123456", "platform": "android"},
     )
 
@@ -822,6 +823,17 @@ def test_register_push_token(client, db_session):
     assert response.json()["platform"] == "android"
     assert db_session.scalar(select(PushDeviceToken).where(PushDeviceToken.token == "fcm-token-demo-123456")) is not None
     assert db_session.scalar(select(NotificationPreference).where(NotificationPreference.channel == "push")) is not None
+
+    deleted = client.request(
+        "DELETE",
+        "/api/notifications/push-tokens/current",
+        headers=headers,
+        json={"token": "fcm-token-demo-123456", "platform": "android"},
+    )
+    assert deleted.status_code == 204
+    record = db_session.scalar(select(PushDeviceToken).where(PushDeviceToken.token == "fcm-token-demo-123456"))
+    assert record is not None
+    assert record.is_active is False
 
 
 def test_test_notification_records_skipped_event_when_channel_unconfigured(client):

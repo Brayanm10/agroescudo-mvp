@@ -13,7 +13,7 @@ from app.schemas import (
     PushDeviceTokenIn,
     PushDeviceTokenOut,
 )
-from app.services.notifications import CHANNELS, register_push_token, send_test_notification, upsert_preference
+from app.services.notifications import CHANNELS, deactivate_push_token, register_push_token, send_test_notification, upsert_preference
 
 router = APIRouter(prefix="/notifications", dependencies=[Depends(get_current_user)])
 
@@ -61,6 +61,15 @@ def create_push_token(
     db: Session = Depends(get_db),
 ) -> PushDeviceToken:
     return register_push_token(db, current_user, token=payload.token, platform=payload.platform)
+
+
+@router.delete("/push-tokens/current", status_code=status.HTTP_204_NO_CONTENT)
+def delete_current_push_token(
+    payload: PushDeviceTokenIn,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> None:
+    deactivate_push_token(db, current_user, token=payload.token)
 
 
 @router.get("/events", response_model=list[NotificationEventOut])

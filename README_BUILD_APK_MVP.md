@@ -21,6 +21,12 @@ flutter pub get
 flutter build apk --release --dart-define=API_BASE_URL=https://agroescudo-api.onrender.com
 ```
 
+Para una APK con push Firebase, después de colocar `mobile/android/app/google-services.json`:
+
+```powershell
+flutter build apk --release --dart-define=API_BASE_URL=https://agroescudo-api.onrender.com --dart-define=ENABLE_FCM=true
+```
+
 ## Ruta del APK
 
 ```text

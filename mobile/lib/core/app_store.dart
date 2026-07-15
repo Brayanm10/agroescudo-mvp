@@ -9,6 +9,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'api_client.dart';
+import 'push_notifications.dart';
 
 class AppStore extends ChangeNotifier {
   AppStore({ApiClient? api, FlutterSecureStorage? secureStorage})
@@ -135,6 +136,7 @@ class AppStore extends ChangeNotifier {
       };
       cached = false;
       await _saveCache();
+      await PushNotifications.registerForSession(_api, authToken);
     } on ApiException catch (exception) {
       if (exception.statusCode == 401) {
         await logout();
@@ -149,6 +151,10 @@ class AppStore extends ChangeNotifier {
   }
 
   Future<void> logout() async {
+    final authToken = token;
+    if (authToken != null) {
+      await PushNotifications.unregisterSession(_api, authToken);
+    }
     token = null;
     me = null;
     data = {};

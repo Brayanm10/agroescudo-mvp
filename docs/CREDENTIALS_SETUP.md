@@ -89,6 +89,14 @@ FIREBASE_PROJECT_ID=<project-id>
 FIREBASE_SERVICE_ACCOUNT_JSON=<json-o-base64>
 ```
 
+Colocar el archivo Android únicamente en `mobile/android/app/google-services.json` y compilar:
+
+```powershell
+flutter build apk --release --dart-define=API_BASE_URL=https://agroescudo-api.onrender.com --dart-define=ENABLE_FCM=true
+```
+
+La app solicita permiso, registra el token en `/api/notifications/push-tokens`, renueva tokens y lo desactiva al cerrar sesión. Sin `ENABLE_FCM=true` la APK funciona normalmente sin Firebase.
+
 ### Archivos S3/R2
 
 ```env

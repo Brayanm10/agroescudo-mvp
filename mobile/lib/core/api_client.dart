@@ -48,6 +48,10 @@ class ApiClient {
     return _requestJson(path, method: 'PUT', token: token, body: body);
   }
 
+  Future<dynamic> deleteJson(String path, Object body, {String? token}) {
+    return _requestJson(path, method: 'DELETE', token: token, body: body);
+  }
+
   Future<Uint8List> getBytes(String path, {required String token}) async {
     final target = _targetUri(path);
     final response = await _requestWithRetry(
@@ -77,6 +81,8 @@ class ApiClient {
         return _client.patch(uri, headers: headers).timeout(timeout);
       } else if (method == 'PUT') {
         return _client.put(uri, headers: headers, body: jsonEncode(body)).timeout(timeout);
+      } else if (method == 'DELETE') {
+        return _client.delete(uri, headers: headers, body: jsonEncode(body)).timeout(timeout);
       }
       return _client.get(uri, headers: headers).timeout(timeout);
     });
