@@ -47,7 +47,8 @@ El core ESP32 ya incluye:
 Nodo:
 
 - ESP32 LoRa, por ejemplo LILYGO TTGO LoRa32/T3.
-- Sensor de temperatura/humedad. El sketch trae datos simulados para primera prueba.
+- Sensor de temperatura/humedad.
+- JSN-SR04T para distancia de nivel en perfil SiloSensor.
 
 Gateway:
 
@@ -80,6 +81,28 @@ static const int LORA_DIO0 = 26;
 ```
 
 Si tu placa no inicia LoRa, revisa el pinout exacto.
+
+### 2.1 JSN-SR04T
+
+El sketch de nodo usa por defecto:
+
+```cpp
+static const int ULTRASONIC_TRIG_PIN = 32;
+static const int ULTRASONIC_ECHO_PIN = 33;
+```
+
+Cableado:
+
+```text
+TRIG -> GPIO 32
+ECHO -> divisor de tension -> GPIO 33
+GND  -> GND comun
+VCC  -> segun la version del JSN-SR04T
+```
+
+ADVERTENCIA: ECHO puede entregar 5 V. No lo conectes directamente al ESP32. El divisor o acondicionador a 3.3 V es obligatorio.
+
+El nodo toma cinco muestras, descarta timeouts y envia la mediana. Si ninguna muestra es valida, el paquete no marca la metrica de nivel. El backend calcula el porcentaje despues de configurar distancia de silo vacio y lleno.
 
 ### 3. IDs de dispositivos
 
@@ -171,6 +194,9 @@ Payload:
   "readings": [
     {
       "device_id": 1001,
+      "protocol_version": 2,
+      "sensor_profile": "silo_sensor",
+      "metric_flags": 79,
       "boot_id": 12345,
       "sequence": 1,
       "sample_counter": 1,
@@ -179,6 +205,7 @@ Payload:
       "grain_temp_c_x100": 3150,
       "air_temp_c_x100": 2820,
       "rh_x100": 7210,
+      "level_distance_cm": 120.5,
       "battery_mv": 3910,
       "sensor_status": 0,
       "firmware_version": 100,
@@ -241,8 +268,8 @@ Eso es correcto: evita duplicados.
 - El nodo solo manda mediciones tecnicas.
 - El gateway firma contra backend con HMAC.
 - Para piloto real, cambia todas las claves de ejemplo.
-- Para que puedas probar rapido, el gateway Arduino viene con `USE_INSECURE_TLS_FOR_DEMO = true`.
-- Para piloto real, cambia `USE_INSECURE_TLS_FOR_DEMO = false` y pega el certificado CA real en `ROOT_CA`.
+- El gateway Arduino viene con `USE_INSECURE_TLS_FOR_DEMO = false`.
+- Pega el certificado CA real en `ROOT_CA`. Solo usa `true` durante una prueba local controlada, nunca en piloto.
 
 ## Limitaciones de esta version Arduino IDE
 
@@ -258,6 +285,8 @@ Pendiente para campo real avanzado:
 
 Para el piloto comercial inicial, este flujo sirve para demostrar la comunicacion completa con datos reales y alertas reales si se configuran claves y sensores correctamente.
 
+La compilacion del codigo no sustituye la prueba fisica. La distancia real, ecos del techo y paredes, polvo, condensacion, alcance LoRa y consumo permanecen `NO VERIFICADO` hasta completar una prueba de banco y una prueba dentro del silo.
+
 ## Resumen de que editar antes de subir
 
 Nodo:
@@ -267,6 +296,7 @@ NODE_ID
 NODE_SECRET
 LORA_BAND
 LORA_SCK / LORA_MISO / LORA_MOSI / LORA_SS / LORA_RST / LORA_DIO0
+ULTRASONIC_TRIG_PIN / ULTRASONIC_ECHO_PIN
 ```
 
 Gateway:

@@ -10,6 +10,7 @@ from app.db.session import get_db
 from app.models import Alert, Company, Device, SensorReading, Site, StorageUnit, User, UserSession, utc_now
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
+optional_oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
 
 
 def _as_utc_aware(value):
@@ -19,6 +20,19 @@ def _as_utc_aware(value):
 
 
 def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> User:
+    return _resolve_user_from_token(token, db)
+
+
+def get_optional_current_user(
+    token: str | None = Depends(optional_oauth2_scheme),
+    db: Session = Depends(get_db),
+) -> User | None:
+    if token is None:
+        return None
+    return _resolve_user_from_token(token, db)
+
+
+def _resolve_user_from_token(token: str, db: Session) -> User:
     credentials_error = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",

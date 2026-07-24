@@ -44,6 +44,11 @@ class AppStore extends ChangeNotifier {
   List<Map<String, dynamic>> get activeAlerts => _list('active_alerts');
   List<Map<String, dynamic>> get logs => _list('logs');
   List<Map<String, dynamic>> get pilots => _list('pilots');
+  List<Map<String, dynamic>> get maintenanceRecords =>
+      _list('maintenance_records');
+  List<Map<String, dynamic>> get installationChecklists =>
+      _list('installation_checklists');
+  List<Map<String, dynamic>> get evidenceFiles => _list('evidence_files');
 
   Future<void> restore() async {
     token = await _secureStorage.read(key: _tokenKey);
@@ -224,6 +229,131 @@ class AppStore extends ChangeNotifier {
     await refresh();
   }
 
+  Future<void> loadPilotOperations() async {
+    final authToken = token;
+    if (authToken == null) throw ApiException('Sesion no disponible.', 401);
+    final results = await Future.wait([
+      _api.getJson('/api/maintenance', token: authToken),
+      _api.getJson('/api/installations', token: authToken),
+      _api.getJson('/api/evidence', token: authToken),
+    ]);
+    data = {
+      ...data,
+      'maintenance_records': results[0],
+      'installation_checklists': results[1],
+      'evidence_files': results[2],
+    };
+    await _saveCache();
+    notifyListeners();
+  }
+
+  Future<void> startMaintenance(int maintenanceId) async {
+    await _ensureOnline();
+    await _api.postJson('/api/maintenance/$maintenanceId/start', {
+      'note': 'Intervencion iniciada desde la aplicacion tecnica.',
+    }, token: token);
+    await loadPilotOperations();
+  }
+
+  Future<void> completeMaintenance({
+    required int maintenanceId,
+    required String diagnosis,
+    required String actionTaken,
+    required String observations,
+    required String deviceStatusAfter,
+  }) async {
+    await _ensureOnline();
+    await _api.postJson('/api/maintenance/$maintenanceId/complete', {
+      'observations': observations,
+      'diagnosis': diagnosis,
+      'action_taken': actionTaken,
+      'device_status_after': deviceStatusAfter,
+      'parts_replaced': <String>[],
+      'battery_replaced': false,
+      'sensor_replaced': false,
+      'calibration_required': false,
+      'firmware_updated': false,
+    }, token: token);
+    await refresh();
+    await loadPilotOperations();
+  }
+
+  Future<void> updateInstallationChecklist({
+    required int checklistId,
+    required Map<String, dynamic> responses,
+    int? firstReadingId,
+    int? testAlertId,
+    String? notes,
+  }) async {
+    await _ensureOnline();
+    await _api.patchJson(
+      '/api/installations/$checklistId',
+      token: token,
+      body: {
+        'responses': responses,
+        'first_reading_id': firstReadingId,
+        'test_alert_id': testAlertId,
+        'notes': notes,
+      },
+    );
+    await loadPilotOperations();
+  }
+
+  Future<void> validateInstallationChecklist(
+    int checklistId,
+    String finalStatus,
+  ) async {
+    await _ensureOnline();
+    await _api.postJson('/api/installations/$checklistId/validate', {
+      'final_status': finalStatus,
+    }, token: token);
+    await refresh();
+    await loadPilotOperations();
+  }
+
+  Future<Map<String, dynamic>> scanDeviceQr(String value) async {
+    final authToken = token;
+    if (authToken == null) throw ApiException('Sesion no disponible.', 401);
+    final tokenValue = extractDeviceQrToken(value);
+    if (tokenValue.length < 16) {
+      throw ApiException('El codigo QR no contiene un token valido.', 422);
+    }
+    final result = await _api.getJson(
+      '/api/devices/scan/${Uri.encodeComponent(tokenValue)}',
+      token: authToken,
+    );
+    return Map<String, dynamic>.from(result as Map);
+  }
+
+  Future<void> uploadEvidence({
+    required int storageUnitId,
+    required String entityType,
+    required int entityId,
+    required String filePath,
+    required String contentType,
+    required String description,
+  }) async {
+    await _ensureOnline();
+    final authToken = token;
+    if (authToken == null) throw ApiException('Sesion no disponible.', 401);
+    await _api.postMultipart(
+      '/api/evidence',
+      token: authToken,
+      fields: {
+        'storage_unit_id': '$storageUnitId',
+        'entity_type': entityType,
+        'entity_id': '$entityId',
+        'file_type': 'PHOTO',
+        'description': description,
+        'captured_at': DateTime.now().toUtc().toIso8601String(),
+        'is_sensitive': 'false',
+      },
+      filePath: filePath,
+      contentType: contentType,
+    );
+    await loadPilotOperations();
+  }
+
   Future<String> downloadWeeklyPdf(Map<String, dynamic> unit) async {
     await _ensureOnline();
     final bytes = await _api.getBytes(
@@ -289,6 +419,48 @@ class AppStore extends ChangeNotifier {
           (a, b) => _date(a['timestamp']).compareTo(_date(b['timestamp'])),
         );
 
+  List<Map<String, dynamic>> devicesFor(int storageUnitId) => devices
+      .where((device) => device['storage_unit_id'] == storageUnitId)
+      .toList();
+
+  List<Map<String, dynamic>> readingsForDevice(int deviceId) =>
+      readings.where((reading) => reading['device_id'] == deviceId).toList()
+        ..sort(
+          (a, b) => _date(a['timestamp']).compareTo(_date(b['timestamp'])),
+        );
+
+  Future<Map<String, dynamic>> loadDeviceTelemetry(int deviceId) async {
+    final authToken = token;
+    if (authToken == null) throw ApiException('Sesion no disponible.', 401);
+    try {
+      final results = await Future.wait([
+        _api.getJson(
+          '/api/devices/$deviceId/readings?limit=500&order=asc',
+          token: authToken,
+        ),
+        _api.getJson('/api/devices/$deviceId/summary', token: authToken),
+      ]);
+      return {
+        'readings': (results[0] as List)
+            .map((item) => Map<String, dynamic>.from(item as Map))
+            .toList(),
+        'summary': Map<String, dynamic>.from(results[1] as Map),
+        'cached': false,
+      };
+    } on ApiException {
+      final localReadings = readingsForDevice(deviceId);
+      if (localReadings.isEmpty) rethrow;
+      return {
+        'readings': localReadings,
+        'summary': {
+          'latest_reading': localReadings.last,
+          'calibration_statuses': const [],
+        },
+        'cached': true,
+      };
+    }
+  }
+
   Map<String, dynamic>? deviceFor(int storageUnitId) {
     return devices.cast<Map<String, dynamic>?>().firstWhere(
       (device) => device?['storage_unit_id'] == storageUnitId,
@@ -344,4 +516,12 @@ class AppStore extends ChangeNotifier {
         .replaceAll(RegExp(r'[^a-z0-9]+'), '-')
         .replaceAll(RegExp(r'^-|-$'), '');
   }
+}
+
+String extractDeviceQrToken(String value) {
+  final normalized = value.trim();
+  final uri = Uri.tryParse(normalized);
+  return uri != null && uri.pathSegments.isNotEmpty
+      ? uri.pathSegments.last
+      : normalized;
 }

@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     telegram_enabled: bool = False
     telegram_bot_token: str | None = None
     notifications_dry_run: bool = Field(default=True, validation_alias=AliasChoices("NOTIFICATIONS_DRY_RUN", "notifications_dry_run"))
+    notification_max_retries: int = 3
     fcm_enabled: bool = False
     firebase_project_id: str | None = None
     firebase_service_account_file: str | None = None
@@ -54,6 +55,7 @@ class Settings(BaseSettings):
     s3_access_key_id: str | None = None
     s3_secret_access_key: str | None = None
     s3_public_base_url: str | None = None
+    max_upload_bytes: int = 10 * 1024 * 1024
     device_offline_after_minutes: int = 120
     public_landing_url: str | None = None
     demo_lead_url: str | None = None

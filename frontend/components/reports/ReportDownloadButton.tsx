@@ -61,7 +61,7 @@ export function ReportDownloadButton({
     setLoading(true);
     setError(null);
     try {
-      const blob = await getWeeklyReportPdf(token, storageUnit.id);
+      const blob = await getWeeklyReportPdf(token, storageUnit.id, device?.id);
       triggerDownload(blob, `agroescudo-reporte-${safeFilePart(storageUnit.name)}-${fileDate()}.pdf`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudo generar el PDF.");

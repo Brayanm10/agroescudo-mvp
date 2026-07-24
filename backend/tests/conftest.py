@@ -90,7 +90,16 @@ def seed_test_data(db: Session) -> None:
             is_active=True,
         )
     )
-    db.add(IotDevice(node_id=1001, device_id=device.id, key_version=1, firmware_version="1.0.0", is_active=True))
+    db.add(
+        IotDevice(
+            node_id=1001,
+            device_id=device.id,
+            gateway_id=gateway.id,
+            key_version=1,
+            firmware_version="1.0.0",
+            is_active=True,
+        )
+    )
 
     admin = User(
         company_id=company.id,

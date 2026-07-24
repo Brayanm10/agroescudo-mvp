@@ -446,10 +446,10 @@ function sensorConsultation(data: AgroReportPdfData) {
   if (!latest) {
     return "Asistente operativo basado en reglas del sistema: no hay lecturas recientes disponibles para emitir una recomendación técnica.";
   }
-  if (latest.battery_voltage < 3.5) {
+  if (latest.battery_voltage !== null && latest.battery_voltage < 3.5) {
     return "Asistente operativo basado en reglas del sistema: el nodo reporta batería baja. Programar revisión técnica antes de depender del monitoreo continuo.";
   }
-  if (latest.ambient_humidity > 75 || latest.grain_temperature > 32) {
+  if ((latest.ambient_humidity !== null && latest.ambient_humidity > 75) || (latest.grain_temperature !== null && latest.grain_temperature > 32)) {
     return "Asistente operativo basado en reglas del sistema: existen condiciones preventivas. Revisar humedad, temperatura y evolución del silo durante las próximas horas.";
   }
   return "Asistente operativo basado en reglas del sistema: el sensor se mantiene estable con la información disponible. Mantener rutina de revisión y bitácora.";
@@ -570,7 +570,8 @@ function MiniTrendChart({ readings, metric, color, label }: { readings: Reading[
     .slice()
     .reverse()
     .slice(-16)
-    .map((reading) => reading[metric]);
+    .map((reading) => reading[metric])
+    .filter((value): value is number => value !== null);
 
   if (!series.length) {
     return (

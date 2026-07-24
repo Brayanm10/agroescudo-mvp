@@ -32,6 +32,7 @@ agroescudo_dev.db
 # Node / Next
 frontend/node_modules/
 frontend/.next/
+frontend/tsconfig.tsbuildinfo
 frontend/out/
 frontend/.vercel/
 .vercel/
@@ -59,6 +60,8 @@ backend/*.log
 frontend/*.log
 tmp/
 output/
+var/
+backend/var/
 
 # Existing landing project handled separately
 landing/

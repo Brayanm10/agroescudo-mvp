@@ -1,13 +1,23 @@
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, require_role, require_storage_unit_access, scope_storage_units_query
 from app.db.session import get_db
-from app.models import Site, StorageUnit, User
-from app.schemas import OperationalLogOut, ReadingOut, StorageUnitAssignmentsIn, StorageUnitCreate, StorageUnitOut
+from app.models import Alert, Device, SensorCalibration, SensorReading, Site, StorageUnit, User
+from app.schemas import (
+    CalibrationStatusOut,
+    DeviceOut,
+    OperationalLogOut,
+    ProductSummaryOut,
+    ReadingOut,
+    StorageUnitAssignmentsIn,
+    StorageUnitCreate,
+    StorageUnitOut,
+)
+from app.services.telemetry import reading_out_for_user
 
 router = APIRouter(prefix="/storage-units", dependencies=[Depends(get_current_user)])
 
@@ -46,7 +56,9 @@ def create_storage_unit(
         site_id=payload.site_id,
         name=payload.name,
         unit_type=payload.unit_type,
+        operation_type=payload.operation_type,
         capacity_tons=payload.capacity_tons,
+        surface_hectares=payload.surface_hectares,
         location=payload.location,
         crop_type=payload.crop_type,
         assigned_technician_id=payload.assigned_technician_id,
@@ -111,7 +123,23 @@ def list_storage_unit_readings(
     if to is not None:
         stmt = stmt.where(SensorReading.timestamp <= to)
     stmt = stmt.order_by(SensorReading.timestamp.desc()).limit(limit)
-    return list(db.scalars(stmt).all())
+    return [reading_out_for_user(reading, current_user) for reading in db.scalars(stmt).all()]
+
+
+@router.get("/{storage_unit_id}/devices", response_model=list[DeviceOut])
+def list_storage_unit_devices(
+    storage_unit_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> list[Device]:
+    require_storage_unit_access(db, current_user, storage_unit_id)
+    return list(
+        db.scalars(
+            select(Device)
+            .where(Device.storage_unit_id == storage_unit_id)
+            .order_by(Device.name, Device.id)
+        ).all()
+    )
 
 
 @router.get("/{storage_unit_id}/operational-logs", response_model=list[OperationalLogOut])
@@ -129,3 +157,51 @@ def list_storage_unit_operational_logs(
         .order_by(OperationalLog.timestamp.desc())
     )
     return list(db.scalars(stmt).all())
+
+
+@router.get("/{storage_unit_id}/product-summary", response_model=ProductSummaryOut)
+def get_storage_unit_product_summary(
+    storage_unit_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> ProductSummaryOut:
+    unit = require_storage_unit_access(db, current_user, storage_unit_id)
+    devices = list(db.scalars(select(Device).where(Device.storage_unit_id == unit.id)).all())
+    latest = db.scalar(
+        select(SensorReading)
+        .where(SensorReading.storage_unit_id == unit.id)
+        .order_by(SensorReading.timestamp.desc())
+    )
+    active_alerts = db.scalar(
+        select(func.count(Alert.id)).where(
+            Alert.storage_unit_id == unit.id,
+            Alert.is_active.is_(True),
+        )
+    ) or 0
+    calibration_rows = db.scalars(
+        select(SensorCalibration).where(
+            SensorCalibration.device_id.in_([device.id for device in devices] or [-1]),
+            SensorCalibration.is_active.is_(True),
+        )
+    ).all()
+    statuses = []
+    for calibration in calibration_rows:
+        calibrated_by = db.get(User, calibration.calibrated_by_user_id) if calibration.calibrated_by_user_id else None
+        statuses.append(
+            CalibrationStatusOut(
+                variable_type=calibration.variable_type,
+                status="calibrated",
+                calibration_version=calibration.calibration_version,
+                calibrated_at=calibration.calibrated_at,
+                calibrated_by_name=calibrated_by.full_name if calibrated_by else None,
+            )
+        )
+    return ProductSummaryOut(
+        storage_unit=unit,
+        product_type="field_sensor" if unit.operation_type == "field" else "silo_sensor",
+        device_count=len(devices),
+        active_device_count=sum(1 for device in devices if device.is_active),
+        active_alerts=active_alerts,
+        latest_reading=reading_out_for_user(latest, current_user) if latest else None,
+        calibration_statuses=statuses,
+    )

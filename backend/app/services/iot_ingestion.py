@@ -27,7 +27,9 @@ from app.models import (
 )
 from app.schemas import IotBatchIn, IotBatchOut, IotBatchReadingIn, IotBatchResultOut
 from app.services.alert_engine import evaluate_alerts
+from app.services.calibration import CalibrationResult, apply_active_calibration, persist_metric
 from app.services.notifications import dispatch_alert_notifications
+from app.services.telemetry import calculate_level_percent, sensor_profile
 
 ALLOWED_RESULT_STATUSES = {
     "accepted",
@@ -197,21 +199,117 @@ def _process_reading(
     if storage_unit is None or company is None or not storage_unit.is_active or not company.is_active:
         return _record_event(db, gateway, batch, reading, "rejected_unauthorized", "Linked company or storage unit is inactive"), []
 
+    profile = sensor_profile(device)
+    if reading.sensor_profile is not None and reading.sensor_profile != profile:
+        return _record_event(db, gateway, batch, reading, "rejected_invalid", "Sensor profile does not match device"), []
+    if profile == "field_sensor" and (reading.grain_temp_c_x100 is not None or reading.level_distance_cm is not None):
+        return _record_event(db, gateway, batch, reading, "rejected_invalid", "Field sensor contains silo metrics"), []
+    if profile == "silo_sensor" and (
+        reading.soil_moisture_x100 is not None
+        or reading.soil_moisture_raw is not None
+        or reading.soil_temp_c_x100 is not None
+    ):
+        return _record_event(db, gateway, batch, reading, "rejected_invalid", "Silo sensor contains soil metrics"), []
+    if reading.soil_moisture_x100 is not None and reading.soil_moisture_raw is not None:
+        return _record_event(db, gateway, batch, reading, "rejected_invalid", "Soil moisture raw and legacy percent cannot coexist"), []
+
+    try:
+        raw_metrics = {
+            "grain_temperature": reading.grain_temp_c_x100 / 100 if reading.grain_temp_c_x100 is not None else None,
+            "ambient_temperature": reading.air_temp_c_x100 / 100 if reading.air_temp_c_x100 is not None else None,
+            "ambient_humidity": reading.rh_x100 / 100 if reading.rh_x100 is not None else None,
+            "battery_voltage": reading.battery_mv / 1000 if reading.battery_mv is not None else None,
+            "soil_temperature_c": reading.soil_temp_c_x100 / 100 if reading.soil_temp_c_x100 is not None else None,
+        }
+        calibrated = {
+            variable: apply_active_calibration(db, device, variable, raw)
+            for variable, raw in raw_metrics.items()
+            if raw is not None
+        }
+        soil_result = None
+        if reading.soil_moisture_raw is not None:
+            soil_result = apply_active_calibration(
+                db,
+                device,
+                "soil_moisture_percent",
+                float(reading.soil_moisture_raw),
+            )
+        elif reading.soil_moisture_x100 is not None:
+            legacy_soil = reading.soil_moisture_x100 / 100
+            soil_result = CalibrationResult(
+                raw_value=legacy_soil,
+                value=legacy_soil,
+                calibrated_value=None,
+                calibration=None,
+                unit="%",
+                quality_status="legacy_reported",
+            )
+        level_result = None
+        level_percent = None
+        if reading.level_distance_cm is not None:
+            level_result = apply_active_calibration(db, device, "level_percent", reading.level_distance_cm)
+            level_percent = (
+                level_result.calibrated_value
+                if level_result.calibration is not None
+                else calculate_level_percent(device, reading.level_distance_cm)
+            )
+    except ValueError as exc:
+        return _record_event(db, gateway, batch, reading, "rejected_invalid", str(exc)), []
+
     timestamp = datetime.fromtimestamp(reading.timestamp_utc, tz=timezone.utc)
     sensor_reading = SensorReading(
         company_id=device.company_id,
         site_id=device.site_id,
         storage_unit_id=device.storage_unit_id,
         device_id=device.id,
-        grain_temperature=reading.grain_temp_c_x100 / 100,
-        ambient_temperature=reading.air_temp_c_x100 / 100,
-        ambient_humidity=reading.rh_x100 / 100,
-        battery_voltage=reading.battery_mv / 1000,
-        signal_quality=reading.rssi_dbm if reading.rssi_dbm is not None else 0,
+        grain_temperature=calibrated["grain_temperature"].value if "grain_temperature" in calibrated else None,
+        ambient_temperature=calibrated["ambient_temperature"].value if "ambient_temperature" in calibrated else None,
+        ambient_humidity=calibrated["ambient_humidity"].value if "ambient_humidity" in calibrated else None,
+        battery_voltage=calibrated["battery_voltage"].value if "battery_voltage" in calibrated else None,
+        signal_quality=reading.rssi_dbm,
+        level_distance_cm=reading.level_distance_cm,
+        level_percent=level_percent,
+        soil_moisture_percent=(
+            soil_result.value
+            if soil_result is not None and (soil_result.calibration is not None or soil_result.quality_status == "legacy_reported")
+            else None
+        ),
+        soil_temperature_c=calibrated["soil_temperature_c"].value if "soil_temperature_c" in calibrated else None,
+        sensor_status=reading.sensor_status,
         timestamp=timestamp,
     )
     db.add(sensor_reading)
     db.flush()
+    for variable, result in calibrated.items():
+        persist_metric(db, sensor_reading, device, variable, result)
+    if soil_result is not None:
+        persist_metric(db, sensor_reading, device, "soil_moisture_percent", soil_result)
+    if reading.level_distance_cm is not None:
+        persist_metric(
+            db,
+            sensor_reading,
+            device,
+            "level_distance_cm",
+            CalibrationResult(
+                raw_value=reading.level_distance_cm,
+                value=reading.level_distance_cm,
+                calibrated_value=None,
+                calibration=None,
+                unit="cm",
+                quality_status="raw",
+            ),
+        )
+        if level_result is not None and level_percent is not None:
+            if level_result.calibration is None:
+                level_result = CalibrationResult(
+                    raw_value=reading.level_distance_cm,
+                    value=level_percent,
+                    calibrated_value=level_percent,
+                    calibration=None,
+                    unit="%",
+                    quality_status="legacy_calibrated",
+                )
+            persist_metric(db, sensor_reading, device, "level_percent", level_result)
 
     iot_reading = IotReading(
         iot_device_id=iot_device.id,
@@ -231,6 +329,11 @@ def _process_reading(
         air_temp_c_x100=reading.air_temp_c_x100,
         rh_x100=reading.rh_x100,
         battery_mv=reading.battery_mv,
+        soil_moisture_x100=reading.soil_moisture_x100,
+        soil_moisture_raw=reading.soil_moisture_raw,
+        soil_temp_c_x100=reading.soil_temp_c_x100,
+        level_distance_mm=round(reading.level_distance_cm * 10) if reading.level_distance_cm is not None else None,
+        level_percent_x100=round(level_percent * 100) if level_percent is not None else None,
         sensor_status=reading.sensor_status,
         firmware_version=reading.firmware_version,
         rssi_dbm=reading.rssi_dbm,
@@ -248,14 +351,34 @@ def _process_reading(
 def _validate_reading_ranges(reading: IotBatchReadingIn) -> str | None:
     if reading.sequence < 0 or reading.boot_id < 0 or reading.sample_counter < 0:
         return "Sequence, boot_id and sample_counter must be non-negative"
-    if not -4000 <= reading.grain_temp_c_x100 <= 10000:
+    if reading.grain_temp_c_x100 is not None and not -4000 <= reading.grain_temp_c_x100 <= 10000:
         return "Grain temperature outside physical range"
-    if not -4000 <= reading.air_temp_c_x100 <= 8000:
+    if reading.air_temp_c_x100 is not None and not -4000 <= reading.air_temp_c_x100 <= 8000:
         return "Air temperature outside physical range"
-    if not 0 <= reading.rh_x100 <= 10000:
+    if reading.rh_x100 is not None and not 0 <= reading.rh_x100 <= 10000:
         return "Humidity outside physical range"
-    if not 0 <= reading.battery_mv <= 6000:
+    if reading.battery_mv is not None and not 0 <= reading.battery_mv <= 6000:
         return "Battery voltage outside physical range"
+    if reading.soil_moisture_x100 is not None and not 0 <= reading.soil_moisture_x100 <= 10000:
+        return "Soil moisture outside physical range"
+    if reading.soil_moisture_raw is not None and not 0 <= reading.soil_moisture_raw <= 4095:
+        return "Soil moisture raw outside ADC range"
+    if reading.soil_temp_c_x100 is not None and not -4000 <= reading.soil_temp_c_x100 <= 8000:
+        return "Soil temperature outside physical range"
+    if reading.level_distance_cm is not None and not 0 < reading.level_distance_cm <= 2000:
+        return "Ultrasonic distance outside physical range"
+    metrics = (
+        reading.grain_temp_c_x100,
+        reading.air_temp_c_x100,
+        reading.rh_x100,
+        reading.battery_mv,
+        reading.soil_moisture_x100,
+        reading.soil_moisture_raw,
+        reading.soil_temp_c_x100,
+        reading.level_distance_cm,
+    )
+    if all(value is None for value in metrics):
+        return "Reading contains no metrics"
     return None
 
 

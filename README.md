@@ -10,6 +10,7 @@ El repositorio incluye:
 - Frontend Next.js con dashboard industrial para operar pilotos comerciales con datos reales del backend.
 - App Flutter Android para pilotos de campo con roles, cache local de solo lectura y descarga de PDF.
 - Flujo de pilotos comerciales con alta guiada, asignacion de responsables y checklist de instalacion.
+- Operacion P1 de primeros pilotos: mantenimiento trazable, QR seguro, evidencias, salud, gateways, notificaciones auditadas, comparaciones y firmware manual.
 
 ## Stack
 
@@ -35,9 +36,12 @@ Backend (`backend/.env`, copiar desde `backend/.env.example`):
 | `API_URL` | URL publica de referencia para operadores y scripts externos. | `http://127.0.0.1:8010` |
 | `ENVIRONMENT` | `local` y `demo` habilitan la simulacion comercial admin; `production` la bloquea. | `local` |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | Duracion de sesion JWT. | `480` |
+| `RUN_SEED_ON_START` | Ejecuta el seed al arrancar el contenedor. Mantener desactivado en una base productiva existente. | `false` |
+| `RESET_OPERATIONAL_DATA_ON_SEED` | Limpieza destructiva y explicita de lecturas, alertas y bitacora de la empresa seed. Solo desarrollo. | `false` |
 | `WHATSAPP_ENABLED` / `WHATSAPP_ACCESS_TOKEN` / `WHATSAPP_PHONE_NUMBER_ID` / `WHATSAPP_TEMPLATE_ALERT_NAME` | Activa envio por WhatsApp Cloud API. | `false` hasta tener credenciales Meta |
 | `TELEGRAM_ENABLED` / `TELEGRAM_BOT_TOKEN` | Activa envio por bot de Telegram. | `false` hasta crear bot |
 | `NOTIFICATIONS_DRY_RUN` | Registra entregas WhatsApp/Telegram sin enviar mensajes reales. | `true` |
+| `NOTIFICATION_MAX_RETRIES` | Limite de reintentos auditados por delivery. | `3` |
 | `FCM_ENABLED` / `FIREBASE_PROJECT_ID` / `FIREBASE_SERVICE_ACCOUNT_FILE` | Activa push notification para Android. | `false` hasta configurar Firebase |
 | `AI_ENABLED` / `OPENAI_API_KEY` / `OPENAI_MODEL` | Activa recomendaciones IA; sin API key usa reglas internas. | `false` |
 | `IOT_SIGNATURE_WINDOW_SECONDS` | Ventana maxima para firmas HMAC de gateways IoT. | `300` |
@@ -56,6 +60,11 @@ Frontend (`frontend/.env.local`, copiar desde `frontend/.env.example`):
 - [Arquitectura del sistema](docs/ARQUITECTURA_SISTEMA.md)
 - [Arquitectura IoT](docs/ARQUITECTURA_IOT.md)
 - [Protocolo LoRa](docs/PROTOCOLO_LORA.md)
+- [Telemetria por nodo y nivel ultrasonico](docs/TELEMETRIA_POR_NODO_Y_NIVEL.md)
+- [Calibracion versionada y productos](docs/CALIBRACION_VERSIONADA_Y_PRODUCTOS.md)
+- [Operacion P1 de primeros pilotos](docs/P1_OPERACION_PRIMEROS_PILOTOS.md)
+- [Manual de usuario, operacion y servicio](docs/MANUAL_USUARIO_Y_SERVICIO_PILOTO.md)
+- [Estado inicial P0 antes de P1](docs/P1_ESTADO_INICIAL_P0.md)
 - [Seguridad y privacidad](docs/SEGURIDAD_Y_PRIVACIDAD.md)
 - [API ingestion IoT](docs/API_INGESTION_IOT.md)
 - [Despliegue completo](docs/DESPLIEGUE_COMPLETO.md)
@@ -287,7 +296,7 @@ El seed crea:
 - Token principal del dispositivo `SILO-001`: `secret-token`
 - Umbrales operativos de temperatura, humedad y bateria
 
-El seed es idempotente y deja la operacion limpia: no carga lecturas, alertas, bitacoras ni entregas de notificacion de prueba. Si ya existian datos operativos del piloto base, los purga para iniciar con una base limpia.
+El seed es idempotente y preserva las lecturas, alertas, bitacoras y entregas existentes. Para una limpieza destructiva exclusivamente de desarrollo, ejecutarlo con `RESET_OPERATIONAL_DATA_ON_SEED=true`. En despliegues compartidos o productivos, mantener `RUN_SEED_ON_START=false`.
 
 Desde la seccion `Pilotos`, el admin puede usar `Borrar datos operativos` para limpiar lecturas, alertas y bitacora de una unidad sin eliminar el cliente, el sitio ni el dispositivo. Los datos vuelven a aparecer cuando ingresan lecturas reales por `POST /api/readings` o cuando el admin usa la simulacion controlada de presentacion.
 
@@ -516,7 +525,7 @@ Backend Windows:
 
 | Script | Comando | Uso |
 | --- | --- | --- |
-| Seed | `powershell -ExecutionPolicy Bypass -File scripts\seed.ps1` | Aplica migraciones y prepara una base limpia de piloto. |
+| Seed | `powershell -ExecutionPolicy Bypass -File scripts\seed.ps1` | Aplica migraciones y prepara o actualiza los datos maestros sin borrar la operacion existente. |
 | Dev | `powershell -ExecutionPolicy Bypass -File scripts\dev.ps1` | Levanta FastAPI en `127.0.0.1:8010` con reload. |
 | Test | `powershell -ExecutionPolicy Bypass -File scripts\test.ps1` | Ejecuta pytest sin cache. |
 

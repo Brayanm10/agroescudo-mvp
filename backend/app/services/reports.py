@@ -3,11 +3,11 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models import Alert, Company, OperationalLog, SensorReading, Site, StorageUnit, ThresholdConfig
-from app.schemas import WeeklyReportOut
+from app.models import Alert, Company, Device, OperationalLog, SensorReading, Site, StorageUnit, ThresholdConfig
+from app.schemas import WeeklyNodeReportOut, WeeklyReportOut
 
 
-def build_weekly_report(db: Session, storage_unit_id: int) -> WeeklyReportOut | None:
+def build_weekly_report(db: Session, storage_unit_id: int, device_id: int | None = None) -> WeeklyReportOut | None:
     storage_unit = db.get(StorageUnit, storage_unit_id)
     if storage_unit is None:
         return None
@@ -17,52 +17,60 @@ def build_weekly_report(db: Session, storage_unit_id: int) -> WeeklyReportOut | 
     date_to = datetime.now(timezone.utc)
     date_from = date_to - timedelta(days=7)
 
+    reading_stmt = (
+        select(SensorReading)
+        .where(
+            SensorReading.storage_unit_id == storage_unit_id,
+            SensorReading.timestamp >= date_from,
+            SensorReading.timestamp <= date_to,
+        )
+    )
+    if device_id is not None:
+        reading_stmt = reading_stmt.where(SensorReading.device_id == device_id)
     readings = list(
         db.scalars(
-            select(SensorReading)
-            .where(
-                SensorReading.storage_unit_id == storage_unit_id,
-                SensorReading.timestamp >= date_from,
-                SensorReading.timestamp <= date_to,
-            )
-            .order_by(SensorReading.timestamp.asc())
+            reading_stmt.order_by(SensorReading.timestamp.asc())
         ).all()
     )
 
-    alerts_generated = db.scalar(
-        select(func.count(Alert.id)).where(
+    alert_filters = [
             Alert.storage_unit_id == storage_unit_id,
             Alert.created_at >= date_from,
             Alert.created_at <= date_to,
-        )
-    ) or 0
+    ]
+    if device_id is not None:
+        alert_filters.append(Alert.device_id == device_id)
+    alerts_generated = db.scalar(select(func.count(Alert.id)).where(*alert_filters)) or 0
     alerts_resolved = db.scalar(
         select(func.count(Alert.id)).where(
-            Alert.storage_unit_id == storage_unit_id,
+            *alert_filters,
             Alert.resolved_at >= date_from,
             Alert.resolved_at <= date_to,
         )
     ) or 0
 
+    log_stmt = select(OperationalLog).where(
+        OperationalLog.storage_unit_id == storage_unit_id,
+        OperationalLog.timestamp >= date_from,
+        OperationalLog.timestamp <= date_to,
+    )
+    if device_id is not None:
+        log_stmt = log_stmt.where(OperationalLog.device_id == device_id)
     actions = list(
         db.scalars(
-            select(OperationalLog)
-            .where(
-                OperationalLog.storage_unit_id == storage_unit_id,
-                OperationalLog.timestamp >= date_from,
-                OperationalLog.timestamp <= date_to,
-            )
-            .order_by(OperationalLog.timestamp.desc())
+            log_stmt.order_by(OperationalLog.timestamp.desc())
         ).all()
     )
 
-    max_grain = max((reading.grain_temperature for reading in readings), default=None)
-    max_humidity = max((reading.ambient_humidity for reading in readings), default=None)
+    max_grain = _max_value(reading.grain_temperature for reading in readings)
+    max_humidity = _max_value(reading.ambient_humidity for reading in readings)
     hours_out_of_range = estimate_hours_out_of_range(db, storage_unit, readings)
     installation_count = _log_count(db, storage_unit_id, "installation", date_from, date_to)
     maintenance_count = _log_count(db, storage_unit_id, "maintenance", date_from, date_to)
     from app.services.pilots import calculate_pilot_status
 
+    selected_device = db.get(Device, device_id) if device_id is not None else None
+    nodes = _node_reports(db, storage_unit_id, date_from, date_to, device_id)
     return WeeklyReportOut(
         company_name=company.name if company else "",
         site_name=site.name if site else "",
@@ -80,7 +88,53 @@ def build_weekly_report(db: Session, storage_unit_id: int) -> WeeklyReportOut | 
         maintenance_count=maintenance_count,
         last_report_generated_at=storage_unit.last_report_generated_at,
         operational_actions=actions,
+        device_id=selected_device.id if selected_device else None,
+        device_external_id=selected_device.external_id if selected_device else None,
+        nodes=nodes,
     )
+
+
+def _node_reports(
+    db: Session,
+    storage_unit_id: int,
+    date_from: datetime,
+    date_to: datetime,
+    device_id: int | None,
+) -> list[WeeklyNodeReportOut]:
+    device_stmt = select(Device).where(Device.storage_unit_id == storage_unit_id)
+    if device_id is not None:
+        device_stmt = device_stmt.where(Device.id == device_id)
+    nodes: list[WeeklyNodeReportOut] = []
+    for device in db.scalars(device_stmt.order_by(Device.name)).all():
+        readings = list(db.scalars(select(SensorReading).where(
+            SensorReading.device_id == device.id,
+            SensorReading.timestamp >= date_from,
+            SensorReading.timestamp <= date_to,
+        )).all())
+        alert_count = db.scalar(select(func.count(Alert.id)).where(
+            Alert.device_id == device.id,
+            Alert.created_at >= date_from,
+            Alert.created_at <= date_to,
+        )) or 0
+        levels = [reading.level_percent for reading in readings if reading.level_percent is not None]
+        nodes.append(WeeklyNodeReportOut(
+            device_id=device.id,
+            device_external_id=device.external_id,
+            device_name=device.name,
+            device_type=device.device_type,
+            reading_count=len(readings),
+            max_grain_temperature=_max_value(reading.grain_temperature for reading in readings),
+            max_ambient_humidity=_max_value(reading.ambient_humidity for reading in readings),
+            min_level_percent=min(levels) if levels else None,
+            max_level_percent=max(levels) if levels else None,
+            alerts_generated=alert_count,
+        ))
+    return nodes
+
+
+def _max_value(values) -> float | None:
+    present = [value for value in values if value is not None]
+    return max(present) if present else None
 
 
 def estimate_hours_out_of_range(
@@ -101,10 +155,12 @@ def estimate_hours_out_of_range(
         for reading in readings
         if (
             grain_threshold is not None
+            and reading.grain_temperature is not None
             and reading.grain_temperature > grain_threshold
         )
         or (
             humidity_threshold is not None
+            and reading.ambient_humidity is not None
             and reading.ambient_humidity > humidity_threshold
         )
     )

@@ -9,16 +9,19 @@ from app.api.deps import require_role
 from app.core.config import settings
 from app.core.security import hash_password, hash_secret
 from app.db.session import get_db
-from app.models import Company, Device, NotificationDelivery, NotificationPreference, Site, StorageUnit, User, utc_now
+from app.models import Company, Device, DeviceChannel, NotificationDelivery, NotificationPreference, Site, StorageUnit, User, utc_now
 from app.schemas import (
     AdminDeviceCreate,
     AdminDeviceSecretOut,
     AdminDeviceUpdate,
+    AdminDeviceOut,
     AdminNotificationTestIn,
     CompanyCreate,
     CompanyOut,
     CompanyUpdate,
     DeviceOut,
+    DeviceCalibrationIn,
+    CalibrationCreateIn,
     NotificationDeliveryOut,
     PasswordResetIn,
     StorageUnitCreate,
@@ -30,8 +33,48 @@ from app.schemas import (
     UserUpdate,
 )
 from app.services.notifications import create_admin_test_delivery, upsert_preference
+from app.services.audit import record_audit_event
+from app.services.calibration import create_calibration
+from app.services.telemetry import validate_device_unit_compatibility
 
 router = APIRouter(prefix="/admin", dependencies=[Depends(require_role("admin"))])
+
+_CAPABILITY_UNITS = {
+    "grain_temperature": "C",
+    "ambient_temperature": "C",
+    "ambient_humidity": "%",
+    "battery_voltage": "V",
+    "level_percent": "%",
+    "soil_moisture_percent": "%",
+    "soil_temperature_c": "C",
+    "signal_quality": "dBm",
+}
+
+
+def _sync_device_channels(db: Session, device: Device, capabilities: list[str]) -> None:
+    existing = {
+        item.code: item
+        for item in db.scalars(select(DeviceChannel).where(DeviceChannel.device_id == device.id)).all()
+    }
+    requested = {item.strip().lower() for item in capabilities if item.strip()}
+    for code, channel in existing.items():
+        channel.is_active = code in requested
+    for code in requested:
+        if code in existing:
+            existing[code].is_active = True
+            continue
+        db.add(
+            DeviceChannel(
+                device_id=device.id,
+                name=code.replace("_", " ").title(),
+                code=code,
+                metric_type=code,
+                unit=_CAPABILITY_UNITS.get(code),
+                adc_min=0 if code == "soil_moisture_percent" else None,
+                adc_max=4095 if code == "soil_moisture_percent" else None,
+                is_active=True,
+            )
+        )
 
 
 @router.get("/integrations/status")
@@ -204,7 +247,7 @@ def deactivate_admin_storage_unit(storage_unit_id: int, db: Session = Depends(ge
     return unit
 
 
-@router.get("/devices", response_model=list[DeviceOut])
+@router.get("/devices", response_model=list[AdminDeviceOut])
 def list_admin_devices(storage_unit_id: int | None = None, db: Session = Depends(get_db)) -> list[Device]:
     stmt = select(Device)
     if storage_unit_id is not None:
@@ -216,6 +259,10 @@ def list_admin_devices(storage_unit_id: int | None = None, db: Session = Depends
 def create_admin_device(payload: AdminDeviceCreate, db: Session = Depends(get_db)) -> Device:
     unit = _get_storage_unit(db, payload.storage_unit_id)
     _require_active_storage_unit(unit)
+    try:
+        validate_device_unit_compatibility(payload.device_type, unit.operation_type)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
     if db.scalar(select(Device).where(Device.external_id == payload.external_id)) is not None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Ya existe un sensor con ese device_id.")
     api_key = _new_sensor_api_key()
@@ -226,23 +273,37 @@ def create_admin_device(payload: AdminDeviceCreate, db: Session = Depends(get_db
         external_id=payload.external_id,
         name=payload.name,
         device_type=payload.device_type,
+        model_version=payload.model_version,
+        physical_location=payload.physical_location,
+        installed_at=payload.installed_at,
         token_hash=hash_secret(api_key),
         is_active=payload.is_active,
     )
     db.add(device)
+    db.flush()
+    _sync_device_channels(db, device, payload.capabilities)
     db.commit()
     db.refresh(device)
     setattr(device, "api_key", api_key)
     return device
 
 
-@router.patch("/devices/{device_id}", response_model=DeviceOut)
+@router.patch("/devices/{device_id}", response_model=AdminDeviceOut)
 def update_admin_device(device_id: int, payload: AdminDeviceUpdate, db: Session = Depends(get_db)) -> Device:
     device = _get_device(db, device_id)
     values = payload.model_dump(exclude_unset=True)
     if "external_id" in values and values["external_id"] != device.external_id:
         if db.scalar(select(Device).where(Device.external_id == values["external_id"], Device.id != device.id)) is not None:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Ya existe un sensor con ese device_id.")
+    capabilities = values.pop("capabilities", None)
+    target_unit = db.get(StorageUnit, values.get("storage_unit_id", device.storage_unit_id))
+    target_type = values.get("device_type", device.device_type)
+    if target_unit is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unidad no encontrada.")
+    try:
+        validate_device_unit_compatibility(target_type, target_unit.operation_type)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
     if "storage_unit_id" in values:
         unit = _get_storage_unit(db, values["storage_unit_id"])
         device.company_id = unit.company_id
@@ -250,6 +311,52 @@ def update_admin_device(device_id: int, payload: AdminDeviceUpdate, db: Session 
         device.storage_unit_id = unit.id
         values.pop("storage_unit_id")
     _apply_values(device, values)
+    if capabilities is not None:
+        _sync_device_channels(db, device, capabilities)
+    db.commit()
+    db.refresh(device)
+    return device
+
+
+@router.patch("/devices/{device_id}/calibration", response_model=AdminDeviceOut)
+def calibrate_admin_device(
+    device_id: int,
+    payload: DeviceCalibrationIn,
+    current_user: User = Depends(require_role("admin")),
+    db: Session = Depends(get_db),
+) -> Device:
+    device = _get_device(db, device_id)
+    if payload.empty_distance_cm <= payload.full_distance_cm:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="La distancia de silo vacio debe ser mayor que la distancia de silo lleno.",
+        )
+    calibration = create_calibration(
+        db,
+        device,
+        CalibrationCreateIn(
+            variable_type="level_percent",
+            method="LEVEL_GEOMETRY",
+            parameters={
+                "mode": "two_distance",
+                "empty_distance_cm": payload.empty_distance_cm,
+                "full_distance_cm": payload.full_distance_cm,
+                "mounting_offset_cm": 0,
+            },
+            notes="Actualizada desde el endpoint administrativo compatible.",
+        ),
+        current_user,
+    )
+    db.flush()
+    record_audit_event(
+        db,
+        action="sensor.calibration.create",
+        summary="Calibracion ultrasónica actualizada",
+        user=current_user,
+        resource_type="sensor_calibration",
+        resource_id=calibration.id,
+        metadata={"device_id": device.id, "version": calibration.calibration_version},
+    )
     db.commit()
     db.refresh(device)
     return device
@@ -267,7 +374,7 @@ def reset_admin_device_api_key(device_id: int, db: Session = Depends(get_db)) ->
     return device
 
 
-@router.post("/devices/{device_id}/activate", response_model=DeviceOut)
+@router.post("/devices/{device_id}/activate", response_model=AdminDeviceOut)
 def activate_admin_device(device_id: int, db: Session = Depends(get_db)) -> Device:
     device = _get_device(db, device_id)
     device.is_active = True
@@ -276,7 +383,7 @@ def activate_admin_device(device_id: int, db: Session = Depends(get_db)) -> Devi
     return device
 
 
-@router.post("/devices/{device_id}/deactivate", response_model=DeviceOut)
+@router.post("/devices/{device_id}/deactivate", response_model=AdminDeviceOut)
 def deactivate_admin_device(device_id: int, db: Session = Depends(get_db)) -> Device:
     device = _get_device(db, device_id)
     device.is_active = False

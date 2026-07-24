@@ -10,6 +10,10 @@ METRIC_MAP = {
     "min_battery_voltage": ("battery_voltage", "<", "technical"),
     "critical_temperature": ("critical_temperature", ">", "critical"),
     "critical_humidity": ("critical_humidity", ">", "critical"),
+    "min_level_percent": ("level_percent_low", "<", "warning"),
+    "max_level_percent": ("level_percent_high", ">", "warning"),
+    "min_soil_moisture_percent": ("soil_moisture_low", "<", "warning"),
+    "max_soil_moisture_percent": ("soil_moisture_high", ">", "warning"),
 }
 
 DEFAULT_THRESHOLDS = {
@@ -18,6 +22,10 @@ DEFAULT_THRESHOLDS = {
     "min_battery_voltage": 3.5,
     "critical_temperature": 30.0,
     "critical_humidity": 70.0,
+    "min_level_percent": None,
+    "max_level_percent": None,
+    "min_soil_moisture_percent": None,
+    "max_soil_moisture_percent": None,
 }
 
 
@@ -34,6 +42,9 @@ def get_device_thresholds(db: Session, device: Device) -> ThresholdsOut:
 
 def upsert_device_thresholds(db: Session, device: Device, payload: ThresholdsIn) -> ThresholdsOut:
     for field_name, (metric, operator, severity) in METRIC_MAP.items():
+        value = getattr(payload, field_name)
+        if value is None:
+            continue
         config = db.scalar(
             select(ThresholdConfig).where(
                 ThresholdConfig.company_id == device.company_id,
@@ -48,13 +59,13 @@ def upsert_device_thresholds(db: Session, device: Device, payload: ThresholdsIn)
                 storage_unit_id=device.storage_unit_id,
                 metric=metric,
                 operator=operator,
-                value=getattr(payload, field_name),
+                value=value,
                 severity=severity,
             )
             db.add(config)
         else:
             config.operator = operator
-            config.value = getattr(payload, field_name)
+            config.value = value
             config.severity = severity
             config.is_active = True
 

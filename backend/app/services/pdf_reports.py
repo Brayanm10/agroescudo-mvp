@@ -37,40 +37,44 @@ RED = colors.HexColor("#B91C1C")
 LOGO_PATH = Path(__file__).resolve().parents[1] / "assets" / "brand" / "logo-horizontal-transparent.png"
 
 
-def build_weekly_pdf(db: Session, storage_unit: StorageUnit, report: WeeklyReportOut) -> bytes:
-    device = db.scalar(select(Device).where(Device.storage_unit_id == storage_unit.id).order_by(Device.id))
+def build_weekly_pdf(
+    db: Session,
+    storage_unit: StorageUnit,
+    report: WeeklyReportOut,
+    device_id: int | None = None,
+) -> bytes:
+    device = db.get(Device, device_id) if device_id is not None else None
+    devices = list(db.scalars(select(Device).where(Device.storage_unit_id == storage_unit.id)).all())
+    device_names = {item.id: item.external_id for item in devices}
+    reading_stmt = select(SensorReading).where(
+        SensorReading.storage_unit_id == storage_unit.id,
+        SensorReading.timestamp >= report.date_from,
+        SensorReading.timestamp <= report.date_to,
+    )
+    if device_id is not None:
+        reading_stmt = reading_stmt.where(SensorReading.device_id == device_id)
     readings = list(
-        db.scalars(
-            select(SensorReading)
-            .where(
-                SensorReading.storage_unit_id == storage_unit.id,
-                SensorReading.timestamp >= report.date_from,
-                SensorReading.timestamp <= report.date_to,
-            )
-            .order_by(SensorReading.timestamp.desc())
-        ).all()
+        db.scalars(reading_stmt.order_by(SensorReading.timestamp.desc())).all()
     )
+    alert_stmt = select(Alert).where(
+        Alert.storage_unit_id == storage_unit.id,
+        Alert.created_at >= report.date_from,
+        Alert.created_at <= report.date_to,
+    )
+    if device_id is not None:
+        alert_stmt = alert_stmt.where(Alert.device_id == device_id)
     alerts = list(
-        db.scalars(
-            select(Alert)
-            .where(
-                Alert.storage_unit_id == storage_unit.id,
-                Alert.created_at >= report.date_from,
-                Alert.created_at <= report.date_to,
-            )
-            .order_by(Alert.created_at.desc())
-        ).all()
+        db.scalars(alert_stmt.order_by(Alert.created_at.desc())).all()
     )
+    log_stmt = select(OperationalLog).where(
+        OperationalLog.storage_unit_id == storage_unit.id,
+        OperationalLog.timestamp >= report.date_from,
+        OperationalLog.timestamp <= report.date_to,
+    )
+    if device_id is not None:
+        log_stmt = log_stmt.where(OperationalLog.device_id == device_id)
     logs = list(
-        db.scalars(
-            select(OperationalLog)
-            .where(
-                OperationalLog.storage_unit_id == storage_unit.id,
-                OperationalLog.timestamp >= report.date_from,
-                OperationalLog.timestamp <= report.date_to,
-            )
-            .order_by(OperationalLog.timestamp.desc())
-        ).all()
+        db.scalars(log_stmt.order_by(OperationalLog.timestamp.desc())).all()
     )
 
     output = BytesIO()
@@ -94,9 +98,9 @@ def build_weekly_pdf(db: Session, storage_unit: StorageUnit, report: WeeklyRepor
     story.append(PageBreak())
     story.extend(_metrics(styles, report, storage_unit, device))
     story.append(PageBreak())
-    story.extend(_alerts(styles, alerts))
+    story.extend(_alerts(styles, alerts, device_names))
     story.append(PageBreak())
-    story.extend(_logs_and_recommendations(styles, logs, alerts, report))
+    story.extend(_logs_and_recommendations(styles, logs, alerts, report, device_names))
 
     doc.build(
         story,
@@ -205,7 +209,7 @@ def _metrics(styles, report, storage_unit, device):
         ["Dispositivo", device.external_id if device else "Dato no disponible"],
         ["Estado nodo", "Activo" if device and device.is_active else "Dato no disponible"],
     ]
-    return [
+    elements = [
         Paragraph("METRICAS PRINCIPALES", styles["eyebrow"]),
         Paragraph("Indicadores tecnicos del periodo", styles["section"]),
         _table(styles, rows, [53 * mm, 25 * mm, 24 * mm, 64 * mm], header=True),
@@ -213,14 +217,37 @@ def _metrics(styles, report, storage_unit, device):
         Paragraph("ACTIVO MONITOREADO", styles["eyebrow"]),
         _table(styles, asset, [42 * mm, 124 * mm], header=False, large=True),
     ]
+    if report.nodes:
+        node_rows = [["Nodo", "Tipo", "Lecturas", "Temp. max.", "Humedad max.", "Nivel"]]
+        for node in report.nodes:
+            level = (
+                f"{_number(node.min_level_percent)} - {_number(node.max_level_percent)} %"
+                if node.min_level_percent is not None and node.max_level_percent is not None
+                else "Sin dato"
+            )
+            node_rows.append([
+                node.device_external_id,
+                node.device_type,
+                str(node.reading_count),
+                _number(node.max_grain_temperature, " C"),
+                _number(node.max_ambient_humidity, "%"),
+                level,
+            ])
+        elements.extend([
+            Spacer(1, 8 * mm),
+            Paragraph("DESGLOSE POR NODO", styles["eyebrow"]),
+            _table(styles, node_rows, [31 * mm, 30 * mm, 22 * mm, 28 * mm, 28 * mm, 27 * mm], header=True),
+        ])
+    return elements
 
 
-def _alerts(styles, alerts):
-    rows = [["Fecha", "Evento", "Nivel", "Estado", "Recomendacion"]]
+def _alerts(styles, alerts, device_names):
+    rows = [["Fecha", "Nodo", "Evento", "Nivel", "Estado", "Recomendacion"]]
     rows.extend(
         [
             [
                 _datetime(alert.created_at),
+                device_names.get(alert.device_id, f"#{alert.device_id}"),
                 alert.title,
                 _severity(alert.severity),
                 "Activa" if alert.is_active else "Resuelta",
@@ -232,16 +259,17 @@ def _alerts(styles, alerts):
     return [
         Paragraph("ALERTAS Y EVENTOS", styles["eyebrow"]),
         Paragraph("Riesgos detectados por AgroEscudo", styles["section"]),
-        _table(styles, rows, [24 * mm, 43 * mm, 20 * mm, 18 * mm, 61 * mm], header=True),
+        _table(styles, rows, [22 * mm, 24 * mm, 36 * mm, 17 * mm, 17 * mm, 50 * mm], header=True),
     ]
 
 
-def _logs_and_recommendations(styles, logs, alerts, report):
-    rows = [["Fecha", "Operador", "Registro operativo", "Alerta"]]
+def _logs_and_recommendations(styles, logs, alerts, report, device_names):
+    rows = [["Fecha", "Nodo", "Operador", "Registro operativo", "Alerta"]]
     rows.extend(
         [
             [
                 _datetime(log.timestamp),
+                device_names.get(log.device_id, "Unidad completa") if log.device_id else "Unidad completa",
                 log.operator_name,
                 f"{log.action_taken}. {shorten(log.notes or 'Sin notas adicionales.', width=190, placeholder='...')}",
                 f"#{log.alert_id}" if log.alert_id else "Sin alerta",
@@ -253,7 +281,7 @@ def _logs_and_recommendations(styles, logs, alerts, report):
     return [
         Paragraph("BITACORA OPERATIVA", styles["eyebrow"]),
         Paragraph("Acciones registradas durante el periodo", styles["section"]),
-        _table(styles, rows, [24 * mm, 28 * mm, 96 * mm, 18 * mm], header=True),
+        _table(styles, rows, [22 * mm, 24 * mm, 25 * mm, 78 * mm, 17 * mm], header=True),
         Spacer(1, 7 * mm),
         Paragraph("CONCLUSIONES Y RECOMENDACIONES", styles["eyebrow"]),
         *[_card(styles, f"Recomendacion {index + 1}", text) for index, text in enumerate(recommendations)],

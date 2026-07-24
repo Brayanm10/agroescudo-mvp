@@ -237,7 +237,7 @@ function answerQuestion(question: string, data: AppData, context: ReturnType<typ
   }
 
   if (matches(normalized, ["bateria", "voltaje", "nodo"])) {
-    const lowBattery = data.readings.find((reading) => reading.battery_voltage < 3.5);
+    const lowBattery = data.readings.find((reading) => reading.battery_voltage !== null && reading.battery_voltage < 3.5);
     if (lowBattery) {
       const unit = data.storageUnits.find((item) => item.id === lowBattery.storage_unit_id);
       return `Bateria baja detectada en ${unit?.name || "un sensor"}: ${formatNumber(lowBattery.battery_voltage, " V", 2)}. Programa revision tecnica del nodo y registra mantenimiento.`;
@@ -246,14 +246,16 @@ function answerQuestion(question: string, data: AppData, context: ReturnType<typ
   }
 
   if (matches(normalized, ["humedad", "condensacion", "aireacion", "ventilacion"])) {
-    const maxHumidity = data.readings.length ? Math.max(...data.readings.map((reading) => reading.ambient_humidity)) : null;
+    const humidityValues = data.readings.map((reading) => reading.ambient_humidity).filter((value): value is number => value !== null);
+    const maxHumidity = humidityValues.length ? Math.max(...humidityValues) : null;
     if (maxHumidity === null) return "No hay datos de humedad suficientes para emitir una recomendacion.";
     if (maxHumidity >= 75) return `Humedad maxima reciente: ${formatNumber(maxHumidity, "%")}. Revisa ventilacion, aireacion y posibles puntos de condensacion.`;
     return `Humedad maxima reciente: ${formatNumber(maxHumidity, "%")}. No se observa humedad alta en los datos cargados.`;
   }
 
   if (matches(normalized, ["temperatura", "calor", "termica", "grano"])) {
-    const maxTemperature = data.readings.length ? Math.max(...data.readings.map((reading) => reading.grain_temperature)) : null;
+    const temperatureValues = data.readings.map((reading) => reading.grain_temperature).filter((value): value is number => value !== null);
+    const maxTemperature = temperatureValues.length ? Math.max(...temperatureValues) : null;
     if (maxTemperature === null) return "No hay datos de temperatura suficientes para emitir una recomendacion.";
     if (maxTemperature >= 32) return `Temperatura maxima de grano: ${formatNumber(maxTemperature, " C")}. Inspecciona el punto monitoreado y verifica acumulacion termica.`;
     return `Temperatura maxima de grano: ${formatNumber(maxTemperature, " C")}. No se observa temperatura alta en los datos cargados.`;

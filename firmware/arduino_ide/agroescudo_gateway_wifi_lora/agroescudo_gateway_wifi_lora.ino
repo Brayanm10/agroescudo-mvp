@@ -33,9 +33,8 @@ static const char* GATEWAY_ID = "GW-CBBA-001";
 static const char* GATEWAY_SECRET = "pon-aqui-el-mismo-secreto-del-backend";
 static const char* GATEWAY_FIRMWARE = "arduino-gateway-1.0.0";
 
-// Para que puedas probar rapido en laboratorio queda en true.
-// Para piloto real cambia a false y pega el certificado CA real en ROOT_CA.
-static const bool USE_INSECURE_TLS_FOR_DEMO = true;
+// Solo cambia a true durante una prueba local controlada. Piloto usa CA real.
+static const bool USE_INSECURE_TLS_FOR_DEMO = false;
 
 static const char* ROOT_CA = R"EOF(
 -----BEGIN CERTIFICATE-----
@@ -62,9 +61,14 @@ struct Reading {
   uint32_t bootId;
   uint32_t sequence;
   uint32_t timestampUtc;
+  int protocolVersion;
+  int sensorProfile;
+  int metricFlags;
   int grainTempX100;
   int airTempX100;
   int rhX100;
+  int soilMoistureRaw;
+  long levelDistanceMm;
   int batteryMv;
   int sensorStatus;
   int firmwareVersion;
@@ -132,27 +136,31 @@ uint32_t unixNow() {
 }
 
 bool parsePacket(const String& packet, Reading& out) {
-  int positions[12];
+  int positions[17];
   int found = 0;
-  for (int i = 0; i < packet.length() && found < 12; i++) {
+  for (int i = 0; i < packet.length() && found < 17; i++) {
     if (packet.charAt(i) == '|') {
       positions[found++] = i;
     }
   }
 
-  if (found != 11) {
-    Serial.println("Paquete rechazado: formato invalido.");
+  if (found == 0) {
+    Serial.println("Paquete rechazado: sin separadores.");
     return false;
   }
 
   String prefix = packet.substring(0, positions[0]);
-  if (prefix != "AGRO1") {
-    Serial.println("Paquete rechazado: prefijo invalido.");
+  bool isV1 = prefix == "AGRO1" && found == 11;
+  bool isV2 = prefix == "AGRO2" && found == 14;
+  bool isV3 = prefix == "AGRO3" && found == 15;
+  if (!isV1 && !isV2 && !isV3) {
+    Serial.println("Paquete rechazado: formato invalido.");
     return false;
   }
 
-  String signedBody = packet.substring(0, positions[10]);
-  String receivedHmac = packet.substring(positions[10] + 1);
+  int signaturePosition = positions[found - 1];
+  String signedBody = packet.substring(0, signaturePosition);
+  String receivedHmac = packet.substring(signaturePosition + 1);
 
   uint16_t nodeId = packet.substring(positions[0] + 1, positions[1]).toInt();
   const char* secret = nodeSecretFor(nodeId);
@@ -171,12 +179,43 @@ bool parsePacket(const String& packet, Reading& out) {
   out.bootId = packet.substring(positions[1] + 1, positions[2]).toInt();
   out.sequence = packet.substring(positions[2] + 1, positions[3]).toInt();
   out.timestampUtc = packet.substring(positions[3] + 1, positions[4]).toInt();
-  out.grainTempX100 = packet.substring(positions[4] + 1, positions[5]).toInt();
-  out.airTempX100 = packet.substring(positions[5] + 1, positions[6]).toInt();
-  out.rhX100 = packet.substring(positions[6] + 1, positions[7]).toInt();
-  out.batteryMv = packet.substring(positions[7] + 1, positions[8]).toInt();
-  out.sensorStatus = packet.substring(positions[8] + 1, positions[9]).toInt();
-  out.firmwareVersion = packet.substring(positions[9] + 1, positions[10]).toInt();
+  if (isV1) {
+    out.protocolVersion = 1;
+    out.sensorProfile = 1;
+    out.metricFlags = 1 | 2 | 4 | 8;
+    out.grainTempX100 = packet.substring(positions[4] + 1, positions[5]).toInt();
+    out.airTempX100 = packet.substring(positions[5] + 1, positions[6]).toInt();
+    out.rhX100 = packet.substring(positions[6] + 1, positions[7]).toInt();
+    out.soilMoistureRaw = 0;
+    out.levelDistanceMm = 0;
+    out.batteryMv = packet.substring(positions[7] + 1, positions[8]).toInt();
+    out.sensorStatus = packet.substring(positions[8] + 1, positions[9]).toInt();
+    out.firmwareVersion = packet.substring(positions[9] + 1, positions[10]).toInt();
+  } else if (isV2) {
+    out.protocolVersion = 2;
+    out.sensorProfile = packet.substring(positions[4] + 1, positions[5]).toInt();
+    out.metricFlags = packet.substring(positions[5] + 1, positions[6]).toInt();
+    out.grainTempX100 = packet.substring(positions[6] + 1, positions[7]).toInt();
+    out.airTempX100 = packet.substring(positions[7] + 1, positions[8]).toInt();
+    out.rhX100 = packet.substring(positions[8] + 1, positions[9]).toInt();
+    out.soilMoistureRaw = 0;
+    out.levelDistanceMm = packet.substring(positions[9] + 1, positions[10]).toInt();
+    out.batteryMv = packet.substring(positions[10] + 1, positions[11]).toInt();
+    out.sensorStatus = packet.substring(positions[11] + 1, positions[12]).toInt();
+    out.firmwareVersion = packet.substring(positions[12] + 1, positions[13]).toInt();
+  } else {
+    out.protocolVersion = 3;
+    out.sensorProfile = packet.substring(positions[4] + 1, positions[5]).toInt();
+    out.metricFlags = packet.substring(positions[5] + 1, positions[6]).toInt();
+    out.grainTempX100 = packet.substring(positions[6] + 1, positions[7]).toInt();
+    out.airTempX100 = packet.substring(positions[7] + 1, positions[8]).toInt();
+    out.rhX100 = packet.substring(positions[8] + 1, positions[9]).toInt();
+    out.soilMoistureRaw = packet.substring(positions[9] + 1, positions[10]).toInt();
+    out.levelDistanceMm = packet.substring(positions[10] + 1, positions[11]).toInt();
+    out.batteryMv = packet.substring(positions[11] + 1, positions[12]).toInt();
+    out.sensorStatus = packet.substring(positions[12] + 1, positions[13]).toInt();
+    out.firmwareVersion = packet.substring(positions[13] + 1, positions[14]).toInt();
+  }
   out.rssiDbm = LoRa.packetRssi();
   out.snrDbX10 = (int)(LoRa.packetSnr() * 10);
 
@@ -202,10 +241,15 @@ String buildJsonBatch(const Reading& reading, const String& timestampIso, const 
   r["sample_counter"] = reading.sequence;
   r["timestamp_utc"] = reading.timestampUtc;
   r["time_quality"] = 1;
-  r["grain_temp_c_x100"] = reading.grainTempX100;
-  r["air_temp_c_x100"] = reading.airTempX100;
-  r["rh_x100"] = reading.rhX100;
-  r["battery_mv"] = reading.batteryMv;
+  r["protocol_version"] = reading.protocolVersion;
+  r["sensor_profile"] = reading.sensorProfile == 2 ? "field_sensor" : "silo_sensor";
+  r["metric_flags"] = reading.metricFlags;
+  if (reading.metricFlags & 1) r["grain_temp_c_x100"] = reading.grainTempX100;
+  if (reading.metricFlags & 2) r["air_temp_c_x100"] = reading.airTempX100;
+  if (reading.metricFlags & 4) r["rh_x100"] = reading.rhX100;
+  if (reading.metricFlags & 8) r["battery_mv"] = reading.batteryMv;
+  if (reading.metricFlags & 64) r["level_distance_cm"] = reading.levelDistanceMm / 10.0f;
+  if (reading.metricFlags & 128) r["soil_moisture_raw"] = reading.soilMoistureRaw;
   r["sensor_status"] = reading.sensorStatus;
   r["firmware_version"] = reading.firmwareVersion;
   r["rssi_dbm"] = reading.rssiDbm;

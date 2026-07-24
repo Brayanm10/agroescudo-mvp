@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 
 import '../core/api_client.dart';
 import '../core/app_store.dart';
+import 'pilot_operations_screen.dart';
 
 const darkGreen = Color(0xff053f31);
 const emerald = Color(0xff075b44);
@@ -251,8 +252,8 @@ class _MobileShellState extends State<MobileShell> {
             label: 'Inicio',
           ),
           NavigationDestination(
-            icon: Icon(Icons.warehouse_outlined),
-            label: 'Unidades',
+            icon: Icon(Icons.sensors_outlined),
+            label: 'Silos/Campo',
           ),
           NavigationDestination(
             icon: Icon(Icons.warning_amber),
@@ -339,7 +340,7 @@ class DashboardScreen extends StatelessWidget {
         if (latest == null)
           const _Empty('Todavia no hay lecturas disponibles.')
         else
-          _ReadingSummary(reading: latest),
+          _ReadingSummary(reading: latest, showSignal: store.role != 'client'),
         const SizedBox(height: 20),
         const _BlockTitle('Atencion prioritaria'),
         if (store.activeAlerts.isEmpty)
@@ -350,10 +351,10 @@ class DashboardScreen extends StatelessWidget {
           const SizedBox(height: 20),
           const _BlockTitle('Operacion tecnica'),
           _ActionCard(
-            icon: Icons.install_mobile_outlined,
-            title: 'Checklist de instalacion',
+            icon: Icons.engineering_outlined,
+            title: 'Centro tecnico del piloto',
             text:
-                'Documenta instalacion, conectividad, lectura inicial y bateria.',
+                'Gestiona mantenimiento, checklist, QR y evidencia desde campo.',
             onTap: () => _showInstallation(context),
           ),
         ],
@@ -368,186 +369,326 @@ class UnitsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final store = context.watch<AppStore>();
+    final storageUnits = store.units
+        .where((unit) => _operationType(unit) == 'storage')
+        .toList();
+    final fieldUnits = store.units
+        .where((unit) => _operationType(unit) == 'field')
+        .toList();
     return _Page(
       children: [
         const _SectionTitle(
           eyebrow: 'ACTIVOS MONITOREADOS',
-          title: 'Silos y galpones',
-          subtitle: 'Lectura tecnica rapida por unidad de almacenamiento.',
+          title: 'Silos y campo',
+          subtitle:
+              'Productos separados, telemetria por nodo y valores calibrados.',
         ),
         if (store.units.isEmpty)
           const _Empty('No hay unidades asignadas a este usuario.')
-        else
-          ...store.units.map((unit) {
-            final latest = store.latestReadingFor(unit['id'] as int);
-            return Card(
-              margin: const EdgeInsets.only(bottom: 10),
-              child: InkWell(
-                borderRadius: BorderRadius.circular(12),
-                onTap: () => Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => UnitDetailScreen(unit: unit),
-                  ),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(15),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          const Icon(Icons.warehouse_outlined, color: emerald),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Text(
-                              unit['name']?.toString() ?? 'Unidad',
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w800,
-                                fontSize: 17,
-                              ),
-                            ),
-                          ),
-                          const Icon(Icons.chevron_right, color: muted),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-                      Text(
-                        '${unit['unit_type']}  |  ${_capacity(unit)}',
-                        style: const TextStyle(color: muted),
-                      ),
-                      const Divider(height: 22),
-                      Text(
-                        latest == null
-                            ? 'Sin lectura reciente'
-                            : '${_num(latest['grain_temperature'])} C grano  |  ${_num(latest['ambient_humidity'])}% humedad',
-                        style: const TextStyle(
-                          color: ink,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            );
-          }),
+        else ...[
+          if (storageUnits.isNotEmpty) const _BlockTitle('SiloSensor'),
+          ...storageUnits.map((unit) => _unitCard(context, store, unit)),
+          if (fieldUnits.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            const _BlockTitle('CampoSensor'),
+          ],
+          ...fieldUnits.map((unit) => _unitCard(context, store, unit)),
+        ],
       ],
+    );
+  }
+
+  Widget _unitCard(
+    BuildContext context,
+    AppStore store,
+    Map<String, dynamic> unit,
+  ) {
+    final latest = store.latestReadingFor(unit['id'] as int);
+    final field = _operationType(unit) == 'field';
+    return Card(
+      margin: const EdgeInsets.only(bottom: 10),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () => Navigator.of(
+          context,
+        ).push(MaterialPageRoute(builder: (_) => UnitDetailScreen(unit: unit))),
+        child: Padding(
+          padding: const EdgeInsets.all(15),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(
+                    field ? Icons.grass_outlined : Icons.warehouse_outlined,
+                    color: emerald,
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      unit['name']?.toString() ?? 'Unidad',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 17,
+                      ),
+                    ),
+                  ),
+                  const Icon(Icons.chevron_right, color: muted),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Text(
+                field
+                    ? '${unit['unit_type']}  |  ${_surface(unit)}'
+                    : '${unit['unit_type']}  |  ${_capacity(unit)}',
+                style: const TextStyle(color: muted),
+              ),
+              const Divider(height: 22),
+              Text(
+                latest == null
+                    ? 'Sin lectura reciente'
+                    : field
+                    ? '${_num(latest['soil_moisture_percent'])}% suelo  |  ${_num(latest['ambient_humidity'])}% ambiente'
+                    : '${_num(latest['grain_temperature'])} C grano  |  ${_num(latest['ambient_humidity'])}% humedad',
+                style: const TextStyle(color: ink, fontWeight: FontWeight.w700),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
 
-class UnitDetailScreen extends StatelessWidget {
+class UnitDetailScreen extends StatefulWidget {
   const UnitDetailScreen({super.key, required this.unit});
 
   final Map<String, dynamic> unit;
 
   @override
+  State<UnitDetailScreen> createState() => _UnitDetailScreenState();
+}
+
+class _UnitDetailScreenState extends State<UnitDetailScreen> {
+  int? deviceId;
+  Future<Map<String, dynamic>>? telemetry;
+
+  void _selectDevice(AppStore store, int id) {
+    setState(() {
+      deviceId = id;
+      telemetry = store.loadDeviceTelemetry(id);
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
     final store = context.watch<AppStore>();
+    final unit = widget.unit;
     final id = unit['id'] as int;
-    final latest = store.latestReadingFor(id);
-    final readings = store.readingsFor(id);
-    final unitAlerts = store.activeAlerts.where(
-      (item) => item['storage_unit_id'] == id,
+    final devices = store.devicesFor(id);
+    if (deviceId == null && devices.isNotEmpty) {
+      deviceId = devices.first['id'] as int;
+      telemetry = store.loadDeviceTelemetry(deviceId!);
+    }
+    final selectedDevice = devices.cast<Map<String, dynamic>?>().firstWhere(
+      (device) => device?['id'] == deviceId,
+      orElse: () => null,
     );
-    final unitLogs = store.logs.where((item) => item['storage_unit_id'] == id);
+    final unitAlerts = store.activeAlerts.where(
+      (item) =>
+          item['storage_unit_id'] == id &&
+          (deviceId == null || item['device_id'] == deviceId),
+    );
+    final unitLogs = store.logs.where(
+      (item) =>
+          item['storage_unit_id'] == id &&
+          (deviceId == null ||
+              item['device_id'] == null ||
+              item['device_id'] == deviceId),
+    );
+    final field = _deviceProfile(selectedDevice) == 'field_sensor';
+
     return Scaffold(
       appBar: AppBar(title: Text(unit['name']?.toString() ?? 'Unidad')),
-      body: _Page(
-        children: [
-          _SectionTitle(
-            eyebrow: unit['unit_type']?.toString().toUpperCase() ?? 'UNIDAD',
-            title: unit['name']?.toString() ?? 'Unidad monitoreada',
-            subtitle: '${_capacity(unit)} de capacidad instalada.',
-          ),
-          _RiskPanel(
-            title: unitAlerts.any((item) => item['severity'] == 'critical')
-                ? 'Riesgo critico'
-                : unitAlerts.isNotEmpty
-                ? 'Seguimiento requerido'
-                : 'Condicion estable',
-            critical: unitAlerts.any((item) => item['severity'] == 'critical'),
-            subtitle: unitAlerts.isEmpty
-                ? 'No se observan alertas activas para esta unidad.'
-                : '${unitAlerts.length} alerta(s) activas requieren revision.',
-          ),
-          const SizedBox(height: 14),
-          if (latest == null)
-            const _Empty('No hay lecturas para esta unidad.')
-          else
-            GridView.count(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              crossAxisCount: 2,
-              childAspectRatio: 1.42,
-              mainAxisSpacing: 10,
-              crossAxisSpacing: 10,
-              children: [
-                _Metric(
-                  label: 'GRANO',
-                  value: '${_num(latest['grain_temperature'])} C',
-                  icon: Icons.device_thermostat,
+      body: FutureBuilder<Map<String, dynamic>>(
+        future: telemetry,
+        builder: (context, snapshot) {
+          final payload = snapshot.data;
+          final readings =
+              (payload?['readings'] as List<Map<String, dynamic>>?) ?? const [];
+          final summary =
+              (payload?['summary'] as Map<String, dynamic>?) ?? const {};
+          final latest =
+              summary['latest_reading'] as Map<String, dynamic>? ??
+              (readings.isEmpty ? null : readings.last);
+          final calibrations =
+              (summary['calibration_statuses'] as List?) ?? const [];
+
+          return _Page(
+            children: [
+              _SectionTitle(
+                eyebrow: field ? 'CAMPOSENSOR' : 'SILOSENSOR',
+                title: unit['name']?.toString() ?? 'Unidad monitoreada',
+                subtitle: field
+                    ? '${_surface(unit)} monitoreadas. Datos calibrados por nodo.'
+                    : '${_capacity(unit)} de capacidad instalada. Datos calibrados por nodo.',
+              ),
+              if (devices.length > 1)
+                DropdownButtonFormField<int>(
+                  initialValue: deviceId,
+                  decoration: const InputDecoration(
+                    labelText: 'Nodo monitoreado',
+                  ),
+                  items: devices
+                      .map(
+                        (device) => DropdownMenuItem<int>(
+                          value: device['id'] as int,
+                          child: Text(
+                            '${device['name']} / ${device['external_id']}',
+                          ),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (value) {
+                    if (value != null) _selectDevice(store, value);
+                  },
                 ),
-                _Metric(
-                  label: 'HUMEDAD',
-                  value: '${_num(latest['ambient_humidity'])}%',
-                  icon: Icons.water_drop_outlined,
+              if (devices.length > 1) const SizedBox(height: 14),
+              _RiskPanel(
+                title: unitAlerts.any((item) => item['severity'] == 'critical')
+                    ? 'Riesgo critico'
+                    : unitAlerts.isNotEmpty
+                    ? 'Seguimiento requerido'
+                    : 'Condicion estable',
+                critical: unitAlerts.any(
+                  (item) => item['severity'] == 'critical',
                 ),
-                _Metric(
-                  label: 'BATERIA',
-                  value: '${_num(latest['battery_voltage'])} V',
-                  icon: Icons.battery_4_bar,
+                subtitle: unitAlerts.isEmpty
+                    ? 'No se observan alertas activas para este nodo.'
+                    : '${unitAlerts.length} alerta(s) activas requieren revision.',
+              ),
+              const SizedBox(height: 14),
+              if (devices.isEmpty)
+                const _Empty('Esta unidad no tiene nodos asignados.')
+              else if (snapshot.connectionState == ConnectionState.waiting &&
+                  payload == null)
+                const Center(child: CircularProgressIndicator())
+              else if (snapshot.hasError && payload == null)
+                _Empty('No se pudo cargar el nodo. Desliza para reintentar.')
+              else if (latest == null)
+                const _Empty('No hay lecturas para este nodo.')
+              else
+                GridView.count(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  crossAxisCount: 2,
+                  childAspectRatio: 1.42,
+                  mainAxisSpacing: 10,
+                  crossAxisSpacing: 10,
+                  children: [
+                    if (!field)
+                      _Metric(
+                        label: 'GRANO',
+                        value: '${_num(latest['grain_temperature'])} C',
+                        icon: Icons.device_thermostat,
+                      ),
+                    if (field)
+                      _Metric(
+                        label: 'HUMEDAD SUELO',
+                        value: '${_num(latest['soil_moisture_percent'])}%',
+                        icon: Icons.grass_outlined,
+                      ),
+                    _Metric(
+                      label: 'HUMEDAD AMB.',
+                      value: '${_num(latest['ambient_humidity'])}%',
+                      icon: Icons.water_drop_outlined,
+                    ),
+                    if (field)
+                      _Metric(
+                        label: 'TEMP. SUELO',
+                        value: '${_num(latest['soil_temperature_c'])} C',
+                        icon: Icons.thermostat_outlined,
+                      ),
+                    if (!field)
+                      _Metric(
+                        label: 'NIVEL',
+                        value: '${_num(latest['level_percent'])}%',
+                        icon: Icons.straighten_outlined,
+                      ),
+                    _Metric(
+                      label: 'BATERIA',
+                      value: store.role == 'client'
+                          ? _batteryState(latest['battery_voltage'])
+                          : '${_num(latest['battery_voltage'])} V',
+                      icon: Icons.battery_4_bar,
+                    ),
+                    if (store.role != 'client')
+                      _Metric(
+                        label: 'SENAL',
+                        value: latest['signal_quality'] == null
+                            ? 'Sin dato'
+                            : '${latest['signal_quality']} dBm',
+                        icon: Icons.network_cell,
+                      ),
+                  ],
                 ),
-                _Metric(
-                  label: 'SENAL',
-                  value: '${latest['signal_quality']} dBm',
-                  icon: Icons.network_cell,
+              const SizedBox(height: 18),
+              const _BlockTitle('Estado de calibracion'),
+              if (calibrations.isEmpty)
+                const _Empty(
+                  'Calibracion pendiente o lectura legacy sin version.',
+                )
+              else
+                ...calibrations.map(
+                  (item) => _CalibrationStatus(
+                    calibration: Map<String, dynamic>.from(item as Map),
+                  ),
+                ),
+              if (readings.isNotEmpty) ...[
+                const SizedBox(height: 20),
+                _ReadingChart(
+                  readings: readings,
+                  keyName: field
+                      ? 'soil_moisture_percent'
+                      : 'grain_temperature',
+                  suffix: field ? '%' : ' C',
+                ),
+                const SizedBox(height: 20),
+                _ReadingChart(
+                  readings: readings,
+                  keyName: 'ambient_humidity',
+                  suffix: '%',
                 ),
               ],
-            ),
-          if (readings.isNotEmpty) ...[
-            const SizedBox(height: 20),
-            const _BlockTitle('Tendencia de temperatura'),
-            _ReadingChart(
-              readings: readings,
-              keyName: 'grain_temperature',
-              suffix: ' C',
-            ),
-            const SizedBox(height: 20),
-            const _BlockTitle('Tendencia de humedad'),
-            _ReadingChart(
-              readings: readings,
-              keyName: 'ambient_humidity',
-              suffix: '%',
-            ),
-          ],
-          const SizedBox(height: 20),
-          const _BlockTitle('Alertas activas'),
-          if (unitAlerts.isEmpty)
-            const _Empty('Sin alertas activas.')
-          else
-            ...unitAlerts.map((alert) => _AlertTile(alert: alert)),
-          const SizedBox(height: 20),
-          const _BlockTitle('Bitacora reciente'),
-          if (unitLogs.isEmpty)
-            const _Empty('Sin acciones registradas.')
-          else
-            ...unitLogs.take(4).map((log) => _LogTile(log: log)),
-          const SizedBox(height: 18),
-          ElevatedButton.icon(
-            onPressed: () => _downloadPdf(context, unit),
-            icon: const Icon(Icons.picture_as_pdf_outlined),
-            label: const Text('Descargar reporte PDF'),
-          ),
-          if (store.canOperate) ...[
-            const SizedBox(height: 10),
-            OutlinedButton.icon(
-              onPressed: () => _showLogForm(context, initialUnit: unit),
-              icon: const Icon(Icons.add_task_outlined),
-              label: const Text('Registrar accion correctiva'),
-            ),
-          ],
-        ],
+              const SizedBox(height: 20),
+              const _BlockTitle('Alertas activas'),
+              if (unitAlerts.isEmpty)
+                const _Empty('Sin alertas activas.')
+              else
+                ...unitAlerts.map((alert) => _AlertTile(alert: alert)),
+              const SizedBox(height: 20),
+              const _BlockTitle('Bitacora reciente'),
+              if (unitLogs.isEmpty)
+                const _Empty('Sin acciones registradas.')
+              else
+                ...unitLogs.take(4).map((log) => _LogTile(log: log)),
+              const SizedBox(height: 18),
+              ElevatedButton.icon(
+                onPressed: () => _downloadPdf(context, unit),
+                icon: const Icon(Icons.picture_as_pdf_outlined),
+                label: const Text('Descargar reporte PDF'),
+              ),
+              if (store.canOperate) ...[
+                const SizedBox(height: 10),
+                OutlinedButton.icon(
+                  onPressed: () => _showLogForm(context, initialUnit: unit),
+                  icon: const Icon(Icons.add_task_outlined),
+                  label: const Text('Registrar accion correctiva'),
+                ),
+              ],
+            ],
+          );
+        },
       ),
     );
   }
@@ -859,9 +1000,10 @@ class _Metric extends StatelessWidget {
 }
 
 class _ReadingSummary extends StatelessWidget {
-  const _ReadingSummary({required this.reading});
+  const _ReadingSummary({required this.reading, required this.showSignal});
 
   final Map<String, dynamic> reading;
+  final bool showSignal;
 
   @override
   Widget build(BuildContext context) {
@@ -892,7 +1034,13 @@ class _ReadingSummary extends StatelessWidget {
                   'Bateria',
                   '${_num(reading['battery_voltage'])} V',
                 ),
-                _InlineValue('Senal', '${reading['signal_quality']} dBm'),
+                if (showSignal)
+                  _InlineValue(
+                    'Senal',
+                    reading['signal_quality'] == null
+                        ? 'Sin dato'
+                        : '${reading['signal_quality']} dBm',
+                  ),
               ],
             ),
           ],
@@ -1061,9 +1209,15 @@ class _ReadingChart extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final values = readings.length > 28
-        ? readings.sublist(readings.length - 28)
-        : readings;
+    final available = readings
+        .where((reading) => reading[keyName] is num)
+        .toList();
+    if (available.isEmpty) {
+      return const _Empty('No hay datos de esta variable en el periodo.');
+    }
+    final values = available.length > 28
+        ? available.sublist(available.length - 28)
+        : available;
     final spots = values.asMap().entries.map((entry) {
       return FlSpot(
         entry.key.toDouble(),
@@ -1117,6 +1271,34 @@ class _ReadingChart extends StatelessWidget {
               ],
             ),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CalibrationStatus extends StatelessWidget {
+  const _CalibrationStatus({required this.calibration});
+
+  final Map<String, dynamic> calibration;
+
+  @override
+  Widget build(BuildContext context) {
+    final version = calibration['calibration_version'];
+    final responsible =
+        calibration['calibrated_by_name']?.toString() ??
+        'Responsable no registrado';
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: ListTile(
+        leading: const Icon(Icons.verified_outlined, color: emerald),
+        title: Text(
+          calibration['variable_type']?.toString() ?? 'Variable calibrada',
+          style: const TextStyle(fontWeight: FontWeight.w800),
+        ),
+        subtitle: Text(
+          'Version ${version ?? '--'} | $responsible\n'
+          '${_date(calibration['calibrated_at'])}',
         ),
       ),
     );
@@ -1394,121 +1576,9 @@ Future<void> _showLogForm(
 }
 
 Future<void> _showInstallation(BuildContext context) async {
-  final store = context.read<AppStore>();
-  if (store.units.isEmpty || store.devices.isEmpty) return;
-  var selected = store.units.firstWhere(
-    (unit) => store.deviceFor(unit['id'] as int) != null,
-    orElse: () => store.units.first,
-  );
-  var sensor = true;
-  var connectivity = true;
-  var reading = true;
-  var battery = true;
-  final location = TextEditingController(text: 'Punto de monitoreo principal');
-  final notes = TextEditingController();
-  final technician = TextEditingController(
-    text: store.me?['full_name']?.toString() ?? '',
-  );
-  await showModalBottomSheet<void>(
-    context: context,
-    isScrollControlled: true,
-    builder: (sheetContext) => StatefulBuilder(
-      builder: (context, setSheetState) {
-        final device = store.deviceFor(selected['id'] as int);
-        return Padding(
-          padding: EdgeInsets.only(
-            left: 18,
-            right: 18,
-            top: 18,
-            bottom: MediaQuery.of(context).viewInsets.bottom + 18,
-          ),
-          child: ListView(
-            shrinkWrap: true,
-            children: [
-              const _BlockTitle('Checklist de instalacion'),
-              DropdownButtonFormField<Map<String, dynamic>>(
-                initialValue: selected,
-                decoration: const InputDecoration(labelText: 'Unidad'),
-                items: store.units
-                    .where((unit) => store.deviceFor(unit['id'] as int) != null)
-                    .map(
-                      (unit) => DropdownMenuItem(
-                        value: unit,
-                        child: Text(unit['name']),
-                      ),
-                    )
-                    .toList(),
-                onChanged: (value) =>
-                    setSheetState(() => selected = value ?? selected),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: location,
-                decoration: const InputDecoration(
-                  labelText: 'Ubicacion fisica',
-                ),
-              ),
-              CheckboxListTile(
-                value: sensor,
-                onChanged: (v) => setSheetState(() => sensor = v ?? sensor),
-                title: const Text('Sensor instalado correctamente'),
-              ),
-              CheckboxListTile(
-                value: connectivity,
-                onChanged: (v) =>
-                    setSheetState(() => connectivity = v ?? connectivity),
-                title: const Text('Conectividad verificada'),
-              ),
-              CheckboxListTile(
-                value: reading,
-                onChanged: (v) => setSheetState(() => reading = v ?? reading),
-                title: const Text('Lectura inicial registrada'),
-              ),
-              CheckboxListTile(
-                value: battery,
-                onChanged: (v) => setSheetState(() => battery = v ?? battery),
-                title: const Text('Bateria verificada'),
-              ),
-              TextField(
-                controller: technician,
-                decoration: const InputDecoration(
-                  labelText: 'Tecnico responsable',
-                ),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                controller: notes,
-                decoration: const InputDecoration(labelText: 'Observaciones'),
-                maxLines: 2,
-              ),
-              const SizedBox(height: 14),
-              ElevatedButton(
-                onPressed: device == null
-                    ? null
-                    : () async {
-                        Navigator.pop(sheetContext);
-                        await _run(
-                          context,
-                          () => store.createInstallation(
-                            storageUnitId: selected['id'] as int,
-                            deviceId: device['id'] as int,
-                            location: location.text,
-                            technicianName: technician.text,
-                            notes: notes.text,
-                            sensorOk: sensor,
-                            connectivityOk: connectivity,
-                            readingOk: reading,
-                            batteryOk: battery,
-                          ),
-                          'Instalacion registrada.',
-                        );
-                      },
-                child: const Text('Registrar instalacion'),
-              ),
-            ],
-          ),
-        );
-      },
+  await Navigator.of(context).push(
+    MaterialPageRoute(
+      builder: (_) => const PilotOperationsScreen(initialTab: 1),
     ),
   );
 }
@@ -1554,6 +1624,29 @@ String _num(dynamic value) => value is num ? value.toStringAsFixed(1) : '--';
 String _capacity(Map<String, dynamic> unit) => unit['capacity_tons'] == null
     ? 'Capacidad no registrada'
     : '${_num(unit['capacity_tons'])} t';
+String _surface(Map<String, dynamic> unit) => unit['surface_hectares'] == null
+    ? 'Superficie no registrada'
+    : '${_num(unit['surface_hectares'])} ha';
+String _operationType(Map<String, dynamic> unit) {
+  final explicit = unit['operation_type']?.toString().toLowerCase();
+  final legacy = unit['unit_type']?.toString().toLowerCase();
+  return explicit == 'field' ||
+          const {'field', 'campo', 'parcela', 'lote'}.contains(legacy)
+      ? 'field'
+      : 'storage';
+}
+
+String _deviceProfile(Map<String, dynamic>? device) =>
+    device?['device_type']?.toString().toLowerCase() == 'field_sensor'
+    ? 'field_sensor'
+    : 'silo_sensor';
+
+String _batteryState(dynamic value) {
+  if (value is! num) return 'Sin dato';
+  if (value < 3.5) return 'Baja';
+  if (value < 3.75) return 'Atencion';
+  return 'Adecuada';
+}
 
 String _roleLabel(String role) {
   return switch (role) {

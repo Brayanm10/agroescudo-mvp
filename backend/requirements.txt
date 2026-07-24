@@ -9,6 +9,7 @@ pytest==8.3.3
 python-jose[cryptography]==3.3.0
 python-multipart==0.0.9
 reportlab==4.2.5
+pypdf==6.14.2
 google-auth==2.35.0
 boto3==1.35.54
 SQLAlchemy==2.0.35

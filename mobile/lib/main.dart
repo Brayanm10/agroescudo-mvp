@@ -16,19 +16,19 @@ Future<void> main() async {
 
 class AgroEscudoApp extends StatelessWidget {
   AgroEscudoApp({super.key, required this.store})
-      : router = GoRouter(
-          refreshListenable: store,
-          initialLocation: '/app',
-          redirect: (_, state) {
-            final loggingIn = state.matchedLocation == '/login';
-            if (!store.authenticated) return loggingIn ? null : '/login';
-            return loggingIn ? '/app' : null;
-          },
-          routes: [
-            GoRoute(path: '/login', builder: (_, _) => const LoginScreen()),
-            GoRoute(path: '/app', builder: (_, _) => const MobileShell()),
-          ],
-        );
+    : router = GoRouter(
+        refreshListenable: store,
+        initialLocation: '/app',
+        redirect: (_, state) {
+          final loggingIn = state.matchedLocation == '/login';
+          if (!store.authenticated) return loggingIn ? null : '/login';
+          return loggingIn ? '/app' : null;
+        },
+        routes: [
+          GoRoute(path: '/login', builder: (_, _) => const LoginScreen()),
+          GoRoute(path: '/app', builder: (_, _) => const MobileShell()),
+        ],
+      );
 
   final AppStore store;
   final GoRouter router;

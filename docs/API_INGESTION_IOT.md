@@ -1,5 +1,22 @@
 # API De Ingestion IoT
 
+## Compatibilidad
+
+- V1: telemetria original de silo.
+- V2: perfiles SiloSensor/CampoSensor y nivel ultrasonico.
+- V3: agrega `soil_moisture_raw` para calibracion versionada.
+
+```json
+{
+  "protocol_version": 3,
+  "sensor_profile": "field_sensor",
+  "metric_flags": 142,
+  "soil_moisture_raw": 2050
+}
+```
+
+El ADC predeterminado es `0..4095`. No se permite enviar simultaneamente `soil_moisture_raw` y `soil_moisture_percent`; las metricas ausentes se omiten.
+
 Endpoint:
 
 ```http
@@ -36,6 +53,9 @@ Payload:
   "readings": [
     {
       "device_id": 1001,
+      "protocol_version": 2,
+      "sensor_profile": "silo_sensor",
+      "metric_flags": 79,
       "boot_id": 843221,
       "sequence": 2048,
       "sample_counter": 2048,
@@ -44,6 +64,7 @@ Payload:
       "grain_temp_c_x100": 2540,
       "air_temp_c_x100": 2380,
       "rh_x100": 6320,
+      "level_distance_cm": 120.5,
       "battery_mv": 3910,
       "sensor_status": 15,
       "firmware_version": 256,
@@ -53,6 +74,12 @@ Payload:
   ]
 }
 ```
+
+Los campos V2 son opcionales para conservar compatibilidad con V1. Metricas ausentes se omiten o se envian como `null`; no deben enviarse como cero ficticio.
+
+Para un `field_sensor` se admiten `soil_moisture_x100` y `soil_temp_c_x100`. No se admite nivel o temperatura de grano. Para un `silo_sensor` no se admiten metricas de suelo.
+
+La plataforma calcula `level_percent` con `empty_distance_cm` y `full_distance_cm` configurados para ese dispositivo. El gateway solo transmite la distancia observada.
 
 Respuesta:
 

@@ -3,8 +3,23 @@ import type {
   AiAlertRecommendation,
   AppData,
   Company,
+  Calibration,
+  CalibrationInput,
+  CalibrationPreview,
+  CalibrationStatus,
+  DeviceComparison,
+  DeviceFirmwareStatus,
+  DeviceQr,
+  EvidenceFile,
+  FirmwareRelease,
+  GatewayStatus,
+  InstallationChecklistRecord,
+  MaintenanceRecord,
+  PilotMetrics,
+  SystemHealth,
   ControlCenterSummary,
   Device,
+  DeviceSummary,
   DeviceWithApiKey,
   DemoSimulation,
   InsightsResponse,
@@ -13,6 +28,7 @@ import type {
   NotificationPreference,
   OperationalLog,
   Pilot,
+  ProductSummary,
   Reading,
   Site,
   StorageUnitInsight,
@@ -56,6 +72,7 @@ type RequestOptions = {
   token?: string;
   method?: string;
   body?: unknown;
+  signal?: AbortSignal;
 };
 
 export class ApiError extends Error {
@@ -85,9 +102,11 @@ async function request<T>(path: string, options: RequestOptions = {}): Promise<T
     response = await fetch(`${apiUrl}${path}`, {
       method: options.method || "GET",
       headers,
-      body: options.body ? JSON.stringify(options.body) : undefined
+      body: options.body ? JSON.stringify(options.body) : undefined,
+      signal: options.signal
     });
   } catch (err) {
+    if (err instanceof DOMException && err.name === "AbortError") throw err;
     throw new ApiError(connectionMessage(apiUrl, path, err), 0, path, apiUrl);
   }
 
@@ -360,12 +379,132 @@ export function updateThresholds(token: string, deviceId: number, payload: Omit<
   });
 }
 
-export function getWeeklyReport(token: string, storageUnitId: number) {
-  return request<WeeklyReport>(`/api/reports/weekly?storage_unit_id=${storageUnitId}`, { token });
+export async function getDeviceReadings(
+  token: string,
+  deviceId: number,
+  signal?: AbortSignal,
+  options: { limit?: number; from?: string; to?: string; variable?: string; order?: "asc" | "desc" } = {}
+) {
+  const params = new URLSearchParams({
+    limit: String(options.limit ?? 500),
+    order: options.order ?? "desc"
+  });
+  if (options.from) params.set("from", options.from);
+  if (options.to) params.set("to", options.to);
+  if (options.variable) params.set("variable", options.variable);
+  try {
+    return await request<Reading[]>(`/api/devices/${deviceId}/readings?${params}`, { token, signal });
+  } catch (error) {
+    if (!(error instanceof ApiError) || error.status !== 404) throw error;
+    return request<Reading[]>(`/api/readings?device_id=${deviceId}&${params}`, { token, signal });
+  }
 }
 
-export async function getWeeklyReportPdf(token: string, storageUnitId: number) {
-  const path = `/api/reports/weekly/pdf?storage_unit_id=${storageUnitId}`;
+export async function getDeviceSummary(token: string, deviceId: number, signal?: AbortSignal) {
+  try {
+    return await request<DeviceSummary>(`/api/devices/${deviceId}/summary`, { token, signal });
+  } catch (error) {
+    if (!(error instanceof ApiError) || error.status !== 404) throw error;
+
+    const [devices, readings, activeAlerts] = await Promise.all([
+      request<Device[]>("/api/devices", { token, signal }),
+      request<Reading[]>(`/api/readings?device_id=${deviceId}&limit=1`, { token, signal }),
+      request<Alert[]>("/api/alerts/active", { token, signal })
+    ]);
+    const device = devices.find((item) => item.id === deviceId);
+    if (!device) {
+      throw new ApiError("El nodo solicitado no esta disponible para este usuario.", 404);
+    }
+    const latestReading = readings[0] || null;
+    const isFieldSensor = device.device_type === "field_sensor";
+    return {
+      device,
+      latest_reading: latestReading,
+      active_alerts: activeAlerts.filter((alert) => alert.device_id === deviceId).length,
+      calibration_status: isFieldSensor
+        ? "not_applicable"
+        : device.empty_distance_cm && device.full_distance_cm
+          ? "configured"
+          : "pending",
+      diagnostics: latestReading
+        ? {
+            signal_quality: latestReading.signal_quality,
+            snr_db: null,
+            sensor_status: latestReading.sensor_status,
+            firmware_version: null
+          }
+        : null,
+      calibration: isFieldSensor
+        ? null
+        : {
+            empty_distance_cm: device.empty_distance_cm ?? null,
+            full_distance_cm: device.full_distance_cm ?? null
+          },
+      calibration_statuses: []
+    } satisfies DeviceSummary;
+  }
+}
+
+export function updateDeviceCalibration(token: string, deviceId: number, emptyDistanceCm: number, fullDistanceCm: number) {
+  return request<Device>(`/api/admin/devices/${deviceId}/calibration`, {
+    token,
+    method: "PATCH",
+    body: { empty_distance_cm: emptyDistanceCm, full_distance_cm: fullDistanceCm }
+  });
+}
+
+export function getDeviceCalibrations(token: string, deviceId: number, signal?: AbortSignal) {
+  return request<Calibration[]>(`/api/devices/${deviceId}/calibrations`, { token, signal });
+}
+
+export function getActiveDeviceCalibrations(token: string, deviceId: number, signal?: AbortSignal) {
+  return request<CalibrationStatus[]>(`/api/devices/${deviceId}/calibrations/active`, { token, signal });
+}
+
+export function previewDeviceCalibration(token: string, deviceId: number, payload: CalibrationInput) {
+  return request<CalibrationPreview>(`/api/devices/${deviceId}/calibrations/preview`, {
+    token,
+    method: "POST",
+    body: payload
+  });
+}
+
+export function createDeviceCalibration(token: string, deviceId: number, payload: CalibrationInput) {
+  return request<Calibration>(`/api/devices/${deviceId}/calibrations`, {
+    token,
+    method: "POST",
+    body: payload
+  });
+}
+
+export function activateDeviceCalibration(token: string, deviceId: number, calibrationId: number) {
+  return request<Calibration>(`/api/devices/${deviceId}/calibrations/${calibrationId}/activate`, {
+    token,
+    method: "POST",
+    body: {}
+  });
+}
+
+export function deactivateDeviceCalibration(token: string, deviceId: number, calibrationId: number) {
+  return request<Calibration>(`/api/devices/${deviceId}/calibrations/${calibrationId}/deactivate`, {
+    token,
+    method: "POST",
+    body: {}
+  });
+}
+
+export function getProductSummary(token: string, storageUnitId: number, signal?: AbortSignal) {
+  return request<ProductSummary>(`/api/storage-units/${storageUnitId}/product-summary`, { token, signal });
+}
+
+export function getWeeklyReport(token: string, storageUnitId: number, deviceId?: number) {
+  const node = deviceId ? `&device_id=${deviceId}` : "";
+  return request<WeeklyReport>(`/api/reports/weekly?storage_unit_id=${storageUnitId}${node}`, { token });
+}
+
+export async function getWeeklyReportPdf(token: string, storageUnitId: number, deviceId?: number) {
+  const node = deviceId ? `&device_id=${deviceId}` : "";
+  const path = `/api/reports/weekly/pdf?storage_unit_id=${storageUnitId}${node}`;
   const apiUrl = apiUrlFor(path);
   let response: Response;
   try {
@@ -538,7 +677,9 @@ export function createAdminStorageUnit(
     site_id: number;
     name: string;
     unit_type: string;
+    operation_type: "storage" | "field";
     capacity_tons: number | null;
+    surface_hectares?: number | null;
     location?: string | null;
     crop_type?: string | null;
     assigned_technician_id?: number | null;
@@ -567,6 +708,10 @@ export function createAdminDevice(
     external_id: string;
     name: string;
     device_type: string;
+    model_version?: string | null;
+    physical_location?: string | null;
+    installed_at?: string | null;
+    capabilities?: string[];
     is_active?: boolean;
   }
 ) {
@@ -639,7 +784,7 @@ export function assignAdminUserStorageUnits(token: string, userId: number, stora
 }
 
 export function getNotificationDeliveries(token: string) {
-  return request<NotificationDelivery[]>("/api/admin/notifications/deliveries", { token });
+  return request<NotificationDelivery[]>("/api/notifications/deliveries", { token });
 }
 
 export function getIntegrationStatus(token: string) {
@@ -659,4 +804,291 @@ export function testAdminNotification(
     method: "POST",
     body: payload
   });
+}
+
+export function retryNotificationDelivery(token: string, deliveryId: number) {
+  return request<NotificationDelivery>(`/api/notifications/${deliveryId}/retry`, {
+    token,
+    method: "POST"
+  });
+}
+
+export function getMaintenanceRecords(token: string, deviceId?: number) {
+  const query = deviceId ? `?device_id=${deviceId}` : "";
+  return request<MaintenanceRecord[]>(`/api/maintenance${query}`, { token });
+}
+
+export function createMaintenanceRecord(
+  token: string,
+  payload: {
+    device_id: number;
+    maintenance_type: string;
+    priority: string;
+    scheduled_at?: string | null;
+    technician_id?: number | null;
+    observations?: string | null;
+  }
+) {
+  return request<MaintenanceRecord>("/api/maintenance", { token, method: "POST", body: payload });
+}
+
+export function startMaintenanceRecord(token: string, maintenanceId: number, note: string) {
+  return request<MaintenanceRecord>(`/api/maintenance/${maintenanceId}/start`, {
+    token,
+    method: "POST",
+    body: { note }
+  });
+}
+
+export function completeMaintenanceRecord(
+  token: string,
+  maintenanceId: number,
+  payload: {
+    observations: string;
+    diagnosis: string;
+    action_taken: string;
+    device_status_after: string;
+    parts_replaced: string[];
+    battery_replaced: boolean;
+    sensor_replaced: boolean;
+    calibration_required: boolean;
+    firmware_updated: boolean;
+    previous_firmware_version?: string | null;
+    new_firmware_version?: string | null;
+    next_maintenance_at?: string | null;
+  }
+) {
+  return request<MaintenanceRecord>(`/api/maintenance/${maintenanceId}/complete`, {
+    token,
+    method: "POST",
+    body: payload
+  });
+}
+
+export function getInstallationChecklists(token: string, deviceId?: number) {
+  const query = deviceId ? `?device_id=${deviceId}` : "";
+  return request<InstallationChecklistRecord[]>(`/api/installations${query}`, { token });
+}
+
+export function createDeviceInstallationChecklist(token: string, deviceId: number, technicianId?: number | null) {
+  return request<InstallationChecklistRecord>("/api/installations", {
+    token,
+    method: "POST",
+    body: { device_id: deviceId, technician_id: technicianId ?? null }
+  });
+}
+
+export function updateInstallationChecklist(
+  token: string,
+  checklistId: number,
+  payload: {
+    responses?: Record<string, unknown>;
+    first_reading_id?: number | null;
+    test_alert_id?: number | null;
+    notes?: string | null;
+    next_review_at?: string | null;
+  }
+) {
+  return request<InstallationChecklistRecord>(`/api/installations/${checklistId}`, {
+    token,
+    method: "PATCH",
+    body: payload
+  });
+}
+
+export function validateInstallationChecklist(
+  token: string,
+  checklistId: number,
+  finalStatus: "PASSED" | "PASSED_WITH_OBSERVATIONS" | "FAILED" = "PASSED"
+) {
+  return request<InstallationChecklistRecord>(`/api/installations/${checklistId}/validate`, {
+    token,
+    method: "POST",
+    body: { final_status: finalStatus }
+  });
+}
+
+export function createDeviceQr(token: string, deviceId: number) {
+  return request<DeviceQr>(`/api/devices/${deviceId}/qr`, { token, method: "POST" });
+}
+
+export function revokeDeviceQr(token: string, deviceId: number) {
+  return request<{ status: string }>(`/api/devices/${deviceId}/qr/revoke`, { token, method: "POST" });
+}
+
+export function getEvidence(
+  token: string,
+  filters: { storageUnitId?: number; entityType?: string; entityId?: number } = {}
+) {
+  const params = new URLSearchParams();
+  if (filters.storageUnitId) params.set("storage_unit_id", String(filters.storageUnitId));
+  if (filters.entityType) params.set("entity_type", filters.entityType);
+  if (filters.entityId) params.set("entity_id", String(filters.entityId));
+  return request<EvidenceFile[]>(`/api/evidence?${params.toString()}`, { token });
+}
+
+export async function uploadEvidence(
+  token: string,
+  payload: {
+    storageUnitId: number;
+    entityType: string;
+    entityId: number;
+    fileType: string;
+    file: File;
+    description?: string;
+    sensitive?: boolean;
+  }
+) {
+  const path = "/api/evidence";
+  const apiUrl = apiUrlFor(path);
+  const form = new FormData();
+  form.set("storage_unit_id", String(payload.storageUnitId));
+  form.set("entity_type", payload.entityType);
+  form.set("entity_id", String(payload.entityId));
+  form.set("file_type", payload.fileType);
+  form.set("description", payload.description || "");
+  form.set("is_sensitive", String(Boolean(payload.sensitive)));
+  form.set("file", payload.file);
+  let response: Response;
+  try {
+    response = await fetch(`${apiUrl}${path}`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      body: form
+    });
+  } catch (err) {
+    throw new ApiError(connectionMessage(apiUrl, path, err), 0, path, apiUrl);
+  }
+  if (!response.ok) {
+    const detail = await response.json().catch(() => ({ detail: response.statusText }));
+    throw new ApiError(httpMessage(apiUrl, path, response.status, formatApiDetail(detail.detail) || "Carga rechazada."), response.status, path, apiUrl);
+  }
+  return response.json() as Promise<EvidenceFile>;
+}
+
+export async function downloadEvidence(token: string, evidenceId: number) {
+  return requestBlob(`/api/evidence/${evidenceId}/download`, token);
+}
+
+export function getSystemHealth(token: string) {
+  return request<SystemHealth>("/api/admin/system-health", { token });
+}
+
+export function getGateways(token: string) {
+  return request<GatewayStatus[]>("/api/admin/gateways", { token });
+}
+
+export function updateGateway(token: string, gatewayId: number, payload: { status?: string; internet_status?: string }) {
+  return request<GatewayStatus>(`/api/admin/gateways/${gatewayId}`, { token, method: "PATCH", body: payload });
+}
+
+export function getPilotMetrics(token: string, storageUnitId?: number, dateFrom?: string, dateTo?: string) {
+  const params = new URLSearchParams();
+  if (storageUnitId) params.set("storage_unit_id", String(storageUnitId));
+  if (dateFrom) params.set("date_from", dateFrom);
+  if (dateTo) params.set("date_to", dateTo);
+  return request<PilotMetrics>(`/api/admin/pilot-metrics?${params.toString()}`, { token });
+}
+
+export function compareDevicePeriods(
+  token: string,
+  deviceId: number,
+  payload: {
+    variable: string;
+    periodAFrom: string;
+    periodATo: string;
+    periodBFrom: string;
+    periodBTo: string;
+  }
+) {
+  const params = new URLSearchParams({
+    variable: payload.variable,
+    period_a_from: payload.periodAFrom,
+    period_a_to: payload.periodATo,
+    period_b_from: payload.periodBFrom,
+    period_b_to: payload.periodBTo
+  });
+  return request<DeviceComparison>(`/api/devices/${deviceId}/compare?${params.toString()}`, { token });
+}
+
+export function getFirmwareReleases(token: string) {
+  return request<FirmwareRelease[]>("/api/firmware/releases", { token });
+}
+
+export function createFirmwareRelease(
+  token: string,
+  payload: {
+    device_type: string;
+    version: string;
+    status: string;
+    release_notes?: string | null;
+    checksum?: string | null;
+    is_recommended?: boolean;
+    is_mandatory?: boolean;
+  }
+) {
+  return request<FirmwareRelease>("/api/firmware/releases", { token, method: "POST", body: payload });
+}
+
+export function getDeviceFirmwareStatuses(token: string) {
+  return request<DeviceFirmwareStatus[]>("/api/firmware/devices/status", { token });
+}
+
+export function recordFirmwareUpdate(
+  token: string,
+  deviceId: number,
+  payload: {
+    firmware_release_id?: number | null;
+    maintenance_id?: number | null;
+    new_version: string;
+    result: string;
+    notes?: string | null;
+  }
+) {
+  return request(`/api/devices/${deviceId}/firmware-update-record`, { token, method: "POST", body: payload });
+}
+
+export function getExecutiveReportPdf(token: string, storageUnitId?: number, dateFrom?: string, dateTo?: string) {
+  return requestBlob(reportPath("/api/reports/executive", storageUnitId, dateFrom, dateTo), token);
+}
+
+export function getTechnicalReportPdf(token: string, storageUnitId?: number, dateFrom?: string, dateTo?: string) {
+  return requestBlob(reportPath("/api/reports/technical", storageUnitId, dateFrom, dateTo), token);
+}
+
+export function getCsvExport(
+  token: string,
+  kind: "readings" | "alerts" | "incidents" | "maintenance",
+  storageUnitId?: number,
+  dateFrom?: string,
+  dateTo?: string
+) {
+  const params = new URLSearchParams();
+  if (storageUnitId) params.set("storage_unit_id", String(storageUnitId));
+  if (dateFrom) params.set("from", dateFrom);
+  if (dateTo) params.set("to", dateTo);
+  return requestBlob(`/api/exports/${kind}.csv?${params.toString()}`, token);
+}
+
+async function requestBlob(path: string, token: string) {
+  const apiUrl = apiUrlFor(path);
+  let response: Response;
+  try {
+    response = await fetch(`${apiUrl}${path}`, { headers: { Authorization: `Bearer ${token}` } });
+  } catch (err) {
+    throw new ApiError(connectionMessage(apiUrl, path, err), 0, path, apiUrl);
+  }
+  if (!response.ok) {
+    const detail = await response.json().catch(() => ({ detail: response.statusText }));
+    throw new ApiError(httpMessage(apiUrl, path, response.status, formatApiDetail(detail.detail) || "Descarga rechazada."), response.status, path, apiUrl);
+  }
+  return response.blob();
+}
+
+function reportPath(base: string, storageUnitId?: number, dateFrom?: string, dateTo?: string) {
+  const params = new URLSearchParams();
+  if (storageUnitId) params.set("storage_unit_id", String(storageUnitId));
+  if (dateFrom) params.set("date_from", dateFrom);
+  if (dateTo) params.set("date_to", dateTo);
+  return `${base}?${params.toString()}`;
 }

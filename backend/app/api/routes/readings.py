@@ -10,6 +10,7 @@ from app.db.session import get_db
 from app.models import Device, SensorReading, User
 from app.schemas import ReadingIngestResponse, ReadingOut, SensorReadingCreate
 from app.services.reading_ingest import ingest_authenticated_reading
+from app.services.telemetry import reading_out_for_user
 
 router = APIRouter()
 
@@ -27,7 +28,7 @@ def list_readings(
     to: datetime | None = None,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
-) -> list[SensorReading]:
+) -> list[ReadingOut]:
     stmt = scope_storage_unit_records_query(select(SensorReading), SensorReading, current_user, db)
     if device_id is not None:
         device = db.scalar(select(Device).where(Device.external_id == device_id))
@@ -46,4 +47,4 @@ def list_readings(
         stmt = stmt.where(SensorReading.timestamp <= to)
 
     stmt = stmt.order_by(SensorReading.timestamp.desc()).limit(limit)
-    return list(db.scalars(stmt).all())
+    return [reading_out_for_user(reading, current_user) for reading in db.scalars(stmt).all()]

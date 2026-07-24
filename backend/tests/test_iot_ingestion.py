@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy import select
 
-from app.models import IotGateway, IotReading, SensorReading
+from app.models import Device, IotGateway, IotReading, SensorCalibration, SensorMetricValue, SensorReading, StorageUnit
 
 GATEWAY_ID = "GW-CBBA-001"
 GATEWAY_SECRET = "gateway-secret-001"
@@ -71,6 +71,83 @@ def test_iot_batch_accepts_signed_reading(client, db_session):
     assert sensor_reading is not None
     assert sensor_reading.grain_temperature == 25.4
     assert sensor_reading.ambient_humidity == 63.2
+
+
+def test_iot_batch_v2_stores_ultrasonic_level(client, db_session):
+    from app.models import Device
+
+    device = db_session.scalar(select(Device).where(Device.external_id == "SILO-001"))
+    device.device_type = "silo_sensor"
+    device.empty_distance_cm = 600
+    device.full_distance_cm = 50
+    db_session.commit()
+    response = post_batch(
+        client,
+        batch_payload(
+            protocol_version=2,
+            sensor_profile="silo_sensor",
+            metric_flags=79,
+            level_distance_cm=325,
+            sequence=2090,
+        ),
+        nonce="nonce-v2-level",
+    )
+    assert response.status_code == 200
+    assert response.json()["results"][0]["status"] == "accepted"
+    sensor_reading = db_session.scalar(select(SensorReading))
+    iot_reading = db_session.scalar(select(IotReading))
+    assert sensor_reading.level_percent == 50
+    assert iot_reading.level_distance_mm == 3250
+
+
+def test_iot_batch_v3_calibrates_field_sensor_raw_without_losing_adc(client, db_session):
+    device = db_session.scalar(select(Device).where(Device.external_id == "SILO-001"))
+    storage_unit = db_session.get(StorageUnit, device.storage_unit_id)
+    device.device_type = "field_sensor"
+    storage_unit.operation_type = "field"
+    db_session.add(
+        SensorCalibration(
+            device_id=device.id,
+            variable_type="soil_moisture_percent",
+            method="LINEAR_TWO_POINT",
+            dry_raw=3200,
+            wet_raw=900,
+            dry_percent=0,
+            wet_percent=100,
+            slope=100 / (900 - 3200),
+            intercept=-(100 / (900 - 3200)) * 3200,
+            calibration_version=1,
+            is_active=True,
+        )
+    )
+    db_session.commit()
+
+    response = post_batch(
+        client,
+        batch_payload(
+            protocol_version=3,
+            sensor_profile="field_sensor",
+            metric_flags=142,
+            grain_temp_c_x100=None,
+            soil_moisture_raw=2050,
+            sequence=2091,
+        ),
+        nonce="nonce-v3-field",
+    )
+
+    assert response.status_code == 200
+    assert response.json()["results"][0]["status"] == "accepted"
+    sensor_reading = db_session.scalar(select(SensorReading))
+    iot_reading = db_session.scalar(select(IotReading))
+    metric = db_session.scalar(
+        select(SensorMetricValue).where(
+            SensorMetricValue.variable_type == "soil_moisture_percent"
+        )
+    )
+    assert sensor_reading.soil_moisture_percent == 50
+    assert iot_reading.soil_moisture_raw == 2050
+    assert metric.raw_value == 2050
+    assert metric.calibration_version_applied == 1
 
 
 def test_iot_batch_marks_duplicate_reading_without_second_sensor_reading(client, db_session):

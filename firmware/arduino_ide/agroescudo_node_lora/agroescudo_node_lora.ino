@@ -4,7 +4,7 @@
   Envia una lectura tecnica por LoRa al gateway.
   El paquete NO usa JSON por radio. Usa texto compacto con HMAC:
 
-  AGRO1|node_id|boot_id|sequence|timestamp|grain_x100|air_x100|rh_x100|battery_mv|status|fw|hmac
+  AGRO3|node_id|boot_id|sequence|timestamp|profile|flags|grain_x100|air_x100|rh_x100|soil_raw|level_mm|battery_mv|status|fw|hmac
 
   Librerias:
   - LoRa by Sandeep Mistry
@@ -25,6 +25,10 @@ static const int LORA_MOSI = 27;
 static const int LORA_SS = 18;
 static const int LORA_RST = 14;
 static const int LORA_DIO0 = 26;
+static const int ULTRASONIC_TRIG = 32;
+static const int ULTRASONIC_ECHO = 33; // Usar divisor de tension hacia 3.3 V.
+static const int SOIL_MOISTURE_PIN = 34;
+static const int SENSOR_PROFILE = 1; // 1=SiloSensor, 2=CampoSensor.
 
 // ===== IDENTIDAD DEL NODO =====
 // Seed backend:
@@ -84,6 +88,27 @@ int readHumidityX100() {
   return (int)(base * 100);
 }
 
+long readLevelDistanceMm() {
+  long values[5];
+  int valid = 0;
+  for (int attempt = 0; attempt < 5; attempt++) {
+    digitalWrite(ULTRASONIC_TRIG, LOW);
+    delayMicroseconds(3);
+    digitalWrite(ULTRASONIC_TRIG, HIGH);
+    delayMicroseconds(12);
+    digitalWrite(ULTRASONIC_TRIG, LOW);
+    unsigned long duration = pulseIn(ULTRASONIC_ECHO, HIGH, 60000);
+    long mm = (long)((duration * 0.343f) / 2.0f);
+    if (duration > 0 && mm >= 200 && mm <= 20000) values[valid++] = mm;
+    delay(70);
+  }
+  if (!valid) return -1;
+  for (int i = 0; i < valid; i++) for (int j = i + 1; j < valid; j++) if (values[j] < values[i]) {
+    long temp = values[i]; values[i] = values[j]; values[j] = temp;
+  }
+  return values[valid / 2];
+}
+
 String buildPacket() {
   // Nodo sin RTC confiable: manda 0. El gateway usara su hora NTP.
   uint32_t timestampUtc = 0;
@@ -92,15 +117,25 @@ String buildPacket() {
   int rhX100 = readHumidityX100();
   int batteryMv = readBatteryMv();
   int sensorStatus = 0;
+  long levelDistanceMm = SENSOR_PROFILE == 1 ? readLevelDistanceMm() : -1;
+  int soilMoistureRaw = SENSOR_PROFILE == 2 ? analogRead(SOIL_MOISTURE_PIN) : 0;
+  int metricFlags = 2 | 4 | 8; // ambiente, humedad y bateria
+  if (SENSOR_PROFILE == 1) metricFlags |= 1; // temperatura de grano
+  if (SENSOR_PROFILE == 2) metricFlags |= 128; // ADC raw de humedad de suelo
+  if (levelDistanceMm > 0) { metricFlags |= 64; sensorStatus |= 64; }
 
-  String body = "AGRO1|";
+  String body = "AGRO3|";
   body += String(NODE_ID) + "|";
   body += String(bootId) + "|";
   body += String(sequenceNumber) + "|";
   body += String(timestampUtc) + "|";
+  body += String(SENSOR_PROFILE) + "|";
+  body += String(metricFlags) + "|";
   body += String(grainX100) + "|";
   body += String(airX100) + "|";
   body += String(rhX100) + "|";
+  body += String(soilMoistureRaw) + "|";
+  body += String(levelDistanceMm > 0 ? levelDistanceMm : 0) + "|";
   body += String(batteryMv) + "|";
   body += String(sensorStatus) + "|";
   body += String(FIRMWARE_VERSION);
@@ -125,6 +160,9 @@ void sendReading() {
 void setup() {
   Serial.begin(115200);
   delay(1200);
+  pinMode(ULTRASONIC_TRIG, OUTPUT);
+  pinMode(ULTRASONIC_ECHO, INPUT);
+  if (SENSOR_PROFILE == 2) pinMode(SOIL_MOISTURE_PIN, INPUT);
 
   bootId = (uint32_t)esp_random();
   Serial.println("AgroEscudo Nodo LoRa iniciando...");

@@ -3,13 +3,20 @@ import {
   BarChart3,
   BellRing,
   Building2,
+  Camera,
+  ClipboardCheck,
   ClipboardList,
   Cpu,
+  FileDown,
+  GitCompareArrows,
+  HeartPulse,
+  Sprout,
   Factory,
   Headphones,
   History,
   LayoutDashboard,
   MapPinned,
+  Network,
   ShieldCheck,
   SlidersHorizontal,
   Users,
@@ -30,16 +37,32 @@ const adminGroups: NavGroup[] = [
     title: "Operacion",
     items: [
       { key: "companies", label: "Empresas y sitios", icon: Building2 },
+      { key: "silos", label: "Silos", icon: Factory },
+      { key: "fields", label: "Campo", icon: Sprout },
       { key: "sensors", label: "Dispositivos", icon: Cpu },
       { key: "alerts", label: "Alertas e incidentes", icon: AlertTriangle },
-      { key: "logs", label: "Bitacora", icon: ClipboardList }
+      { key: "logs", label: "Bitacora", icon: ClipboardList },
+      { key: "maintenance", label: "Mantenimiento", icon: Wrench },
+      { key: "installations", label: "Instalaciones", icon: ClipboardCheck },
+      { key: "evidence", label: "Evidencia", icon: Camera }
     ]
   },
   {
     title: "Analisis",
     items: [
       { key: "history", label: "Historial", icon: History },
-      { key: "reports", label: "Reportes", icon: BarChart3 }
+      { key: "comparison", label: "Comparar periodos", icon: GitCompareArrows },
+      { key: "pilotMetrics", label: "Metricas de piloto", icon: BarChart3 },
+      { key: "reports", label: "Reportes", icon: BarChart3 },
+      { key: "exports", label: "Exportaciones", icon: FileDown }
+    ]
+  },
+  {
+    title: "Infraestructura",
+    items: [
+      { key: "systemHealth", label: "Salud del sistema", icon: HeartPulse },
+      { key: "gateways", label: "Gateways", icon: Network },
+      { key: "firmware", label: "Firmware", icon: Cpu }
     ]
   },
   {
@@ -61,7 +84,8 @@ const clientGroups: NavGroup[] = [
     title: "Portal cliente",
     items: [
       { key: "dashboard", label: "Inicio", icon: LayoutDashboard },
-      { key: "sites", label: "Mis silos", icon: Factory },
+      { key: "silos", label: "Mis silos", icon: Factory },
+      { key: "fields", label: "Mi campo", icon: Sprout },
       { key: "alerts", label: "Alertas", icon: AlertTriangle },
       { key: "history", label: "Historial", icon: History },
       { key: "reports", label: "Reportes", icon: BarChart3 },
@@ -74,10 +98,17 @@ const technicianGroups: NavGroup[] = [
   {
     title: "Operacion tecnica",
     items: [
-      { key: "sites", label: "Sitios asignados", icon: MapPinned },
+      { key: "silos", label: "Silos asignados", icon: Factory },
+      { key: "fields", label: "Campo asignado", icon: Sprout },
       { key: "sensors", label: "Dispositivos", icon: Cpu },
       { key: "alerts", label: "Alertas tecnicas", icon: AlertTriangle },
       { key: "maintenance", label: "Mantenimiento", icon: Wrench },
+      { key: "installations", label: "Instalaciones", icon: ClipboardCheck },
+      { key: "evidence", label: "Evidencia", icon: Camera },
+      { key: "systemHealth", label: "Salud y gateways", icon: HeartPulse },
+      { key: "comparison", label: "Comparar periodos", icon: GitCompareArrows },
+      { key: "exports", label: "Reportes tecnicos", icon: FileDown },
+      { key: "firmware", label: "Firmware", icon: Cpu },
       { key: "logs", label: "Bitacora", icon: ClipboardList },
       { key: "support", label: "Chat de ayuda", icon: Headphones }
     ]

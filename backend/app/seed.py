@@ -101,12 +101,13 @@ def seed() -> None:
         _ensure_education_articles(db)
         _ensure_iot_gateway(db)
         _ensure_iot_devices(db, assets)
-        _clear_seeded_operational_data(db, company.id)
+        if os.getenv("RESET_OPERATIONAL_DATA_ON_SEED", "false").lower() == "true":
+            _clear_seeded_operational_data(db, company.id)
 
         db.commit()
         print(
             "Pilot base ready: Acopio Valle Bajo S.R.L., 3 storage units, "
-            "3 devices, users and thresholds. Operational data is clean."
+            "3 devices, users and thresholds. Existing operational data was preserved."
         )
     finally:
         db.close()

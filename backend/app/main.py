@@ -5,7 +5,36 @@ from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from starlette.requests import Request
 
-from app.api.routes import admin, agro_assistant, ai, alerts, auth, companies, control_center, demo, devices, education, insights, iot, notifications, operational_logs, pilots, readings, reports, service_cases, sites, storage_units, users
+from app.api.routes import (
+    admin,
+    agro_assistant,
+    ai,
+    alerts,
+    auth,
+    companies,
+    control_center,
+    demo,
+    device_qr,
+    devices,
+    education,
+    evidence,
+    exports,
+    firmware,
+    insights,
+    installations,
+    iot,
+    maintenance,
+    notifications,
+    operations,
+    operational_logs,
+    pilots,
+    readings,
+    reports,
+    service_cases,
+    sites,
+    storage_units,
+    users,
+)
 from app.core.config import settings
 from app.db.session import SessionLocal
 
@@ -24,6 +53,7 @@ app.include_router(admin.router, prefix="/api", tags=["admin"])
 app.include_router(companies.router, prefix="/api", tags=["companies"])
 app.include_router(sites.router, prefix="/api", tags=["sites"])
 app.include_router(storage_units.router, prefix="/api", tags=["storage-units"])
+app.include_router(device_qr.router, prefix="/api", tags=["device-qr"])
 app.include_router(devices.router, prefix="/api", tags=["devices"])
 app.include_router(iot.router, prefix="/api", tags=["iot"])
 app.include_router(readings.router, prefix="/api", tags=["readings"])
@@ -34,10 +64,17 @@ app.include_router(pilots.router, prefix="/api", tags=["pilots"])
 app.include_router(users.router, prefix="/api", tags=["users"])
 app.include_router(demo.router, prefix="/api", tags=["demo"])
 app.include_router(notifications.router, prefix="/api", tags=["notifications"])
+app.include_router(operations.router, prefix="/api", tags=["operations"])
 app.include_router(ai.router, prefix="/api", tags=["ai"])
 app.include_router(insights.router, prefix="/api", tags=["insights"])
 app.include_router(control_center.router, prefix="/api", tags=["control-center"])
 app.include_router(service_cases.router, prefix="/api", tags=["service-cases"])
+app.include_router(maintenance.router, prefix="/api", tags=["maintenance"])
+app.include_router(installations.router, prefix="/api", tags=["installations"])
+app.include_router(evidence.router, prefix="/api", tags=["evidence"])
+app.include_router(exports.router, prefix="/api", tags=["exports"])
+app.include_router(firmware.router, prefix="/api", tags=["firmware"])
+app.include_router(firmware.device_router, prefix="/api", tags=["firmware"])
 app.include_router(agro_assistant.router, prefix="/api", tags=["agro-assistant"])
 app.include_router(education.router, prefix="/api", tags=["education"])
 

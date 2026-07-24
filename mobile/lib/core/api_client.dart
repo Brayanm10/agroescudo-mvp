@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 
 const _configuredApiBaseUrl = String.fromEnvironment('API_BASE_URL');
 const _localFallbackApiBaseUrl = 'http://10.0.2.2:8010';
@@ -40,8 +41,8 @@ class ApiClient {
     return _requestJson(path, method: 'POST', token: token, body: body);
   }
 
-  Future<dynamic> patchJson(String path, {String? token}) {
-    return _requestJson(path, method: 'PATCH', token: token);
+  Future<dynamic> patchJson(String path, {String? token, Object? body}) {
+    return _requestJson(path, method: 'PATCH', token: token, body: body);
   }
 
   Future<dynamic> putJson(String path, Object body, {String? token}) {
@@ -65,6 +66,38 @@ class ApiClient {
     return response.bodyBytes;
   }
 
+  Future<dynamic> postMultipart(
+    String path, {
+    required String token,
+    required Map<String, String> fields,
+    required String filePath,
+    required String contentType,
+  }) async {
+    final target = _targetUri(path);
+    try {
+      final request = http.MultipartRequest('POST', target)
+        ..headers['Authorization'] = 'Bearer $token'
+        ..fields.addAll(fields)
+        ..files.add(
+          await http.MultipartFile.fromPath(
+            'file',
+            filePath,
+            contentType: MediaType.parse(contentType),
+          ),
+        );
+      final streamed = await _client.send(request).timeout(_fileTimeout);
+      final response = await http.Response.fromStream(streamed);
+      if (response.statusCode < 200 || response.statusCode >= 300) {
+        throw _exceptionFrom(response, path, target);
+      }
+      return jsonDecode(utf8.decode(response.bodyBytes));
+    } on ApiException {
+      rethrow;
+    } on Exception catch (error) {
+      throw ApiException(_connectionMessage(path, target, error), 0);
+    }
+  }
+
   Future<dynamic> _requestJson(
     String path, {
     String method = 'GET',
@@ -76,13 +109,25 @@ class ApiClient {
     final timeout = _timeoutFor(path);
     final response = await _requestWithRetry(path, uri, () {
       if (method == 'POST') {
-        return _client.post(uri, headers: headers, body: jsonEncode(body)).timeout(timeout);
+        return _client
+            .post(uri, headers: headers, body: jsonEncode(body))
+            .timeout(timeout);
       } else if (method == 'PATCH') {
-        return _client.patch(uri, headers: headers).timeout(timeout);
+        return _client
+            .patch(
+              uri,
+              headers: headers,
+              body: body == null ? null : jsonEncode(body),
+            )
+            .timeout(timeout);
       } else if (method == 'PUT') {
-        return _client.put(uri, headers: headers, body: jsonEncode(body)).timeout(timeout);
+        return _client
+            .put(uri, headers: headers, body: jsonEncode(body))
+            .timeout(timeout);
       } else if (method == 'DELETE') {
-        return _client.delete(uri, headers: headers, body: jsonEncode(body)).timeout(timeout);
+        return _client
+            .delete(uri, headers: headers, body: jsonEncode(body))
+            .timeout(timeout);
       }
       return _client.get(uri, headers: headers).timeout(timeout);
     });
@@ -117,7 +162,10 @@ class ApiClient {
         await Future<void>.delayed(_retryDelays[attempt]);
       }
     }
-    throw ApiException(_connectionMessage(path, uri, lastError ?? 'error de red'), 0);
+    throw ApiException(
+      _connectionMessage(path, uri, lastError ?? 'error de red'),
+      0,
+    );
   }
 
   ApiException _exceptionFrom(http.Response response, String path, Uri uri) {
@@ -143,7 +191,10 @@ class ApiClient {
 }
 
 Duration _timeoutFor(String path) {
-  if (path == '/health' || path == '/api/health/db' || path == '/api/auth/login' || path == '/api/me') {
+  if (path == '/health' ||
+      path == '/api/health/db' ||
+      path == '/api/auth/login' ||
+      path == '/api/me') {
     return _longJsonTimeout;
   }
   return _jsonTimeout;

@@ -1,5 +1,13 @@
 # Firmware AgroEscudo
 
+PlatformIO compila protocolo V3:
+
+- `AGRO_SENSOR_PROFILE=1`: SiloSensor con JSN-SR04T.
+- `AGRO_SENSOR_PROFILE=2`: CampoSensor con `soil_moisture_raw`.
+- `AGRO_SOIL_MOISTURE_PIN=34`: ADC configurable.
+
+El gateway conserva V1/V2/V3 y solo envia metricas presentes. La calibracion se realiza en FastAPI.
+
 Este directorio contiene puntos de partida para el enlace:
 
 ```text
@@ -21,6 +29,26 @@ Lee primero:
 docs/ARDUINO_IDE_COMUNICACION_NODO_GATEWAY_PLATAFORMA.md
 ```
 
+La telemetria por nodo, calibracion y nivel JSN-SR04T estan documentados en:
+
+```text
+docs/TELEMETRIA_POR_NODO_Y_NIVEL.md
+```
+
+## Compilacion PlatformIO
+
+```powershell
+cd firmware
+pio run
+```
+
+Entornos compilados:
+
+- `node_lora_t3`: protocolo V2 y mediana de cinco muestras del JSN-SR04T.
+- `gateway_tbeam`: decodificacion V1/V2, cola LittleFS, NTP, TLS y batch HTTPS firmado.
+
+El gateway conserva los registros restantes al confirmar el primero. Solo retira una lectura si el backend responde `accepted` o `duplicate`.
+
 ## Estado
 
 NO VERIFICADO - requiere prueba fisica o credenciales externas:
@@ -31,6 +59,7 @@ NO VERIFICADO - requiere prueba fisica o credenciales externas:
 - Aprovisionamiento seguro de claves en NVS.
 - Recuperacion de cola ante corrupcion durante compactacion.
 - Pruebas de alcance, perdida de ACK, reinicio y operacion sin internet.
+- Comportamiento real del JSN-SR04T con polvo, ecos y condensacion.
 
 ## Reglas de piloto
 

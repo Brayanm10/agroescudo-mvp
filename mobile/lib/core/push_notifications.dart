@@ -26,7 +26,9 @@ class PushNotifications {
     if (!_fcmEnabled) return;
     try {
       await Firebase.initializeApp();
-      FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+      FirebaseMessaging.onBackgroundMessage(
+        _firebaseMessagingBackgroundHandler,
+      );
       await FirebaseMessaging.instance.setAutoInitEnabled(true);
       await FirebaseMessaging.instance.requestPermission(
         alert: true,
@@ -40,7 +42,10 @@ class PushNotifications {
     }
   }
 
-  static Future<void> registerForSession(ApiClient api, String authToken) async {
+  static Future<void> registerForSession(
+    ApiClient api,
+    String authToken,
+  ) async {
     if (!_ready) return;
     try {
       final registrationToken = await FirebaseMessaging.instance.getToken();
@@ -49,10 +54,13 @@ class PushNotifications {
       }
 
       await _tokenRefreshSubscription?.cancel();
-      _tokenRefreshSubscription = FirebaseMessaging.instance.onTokenRefresh.listen(
-        (token) => _register(api, authToken, token),
-        onError: (Object error) => debugPrint('No se pudo renovar el token FCM: ${error.runtimeType}.'),
-      );
+      _tokenRefreshSubscription = FirebaseMessaging.instance.onTokenRefresh
+          .listen(
+            (token) => _register(api, authToken, token),
+            onError: (Object error) => debugPrint(
+              'No se pudo renovar el token FCM: ${error.runtimeType}.',
+            ),
+          );
     } on FirebaseException catch (error) {
       debugPrint('No se pudo obtener el token FCM: ${error.code}.');
     }
@@ -65,11 +73,10 @@ class PushNotifications {
     try {
       final registrationToken = await FirebaseMessaging.instance.getToken();
       if (registrationToken != null && registrationToken.isNotEmpty) {
-        await api.deleteJson(
-          '/api/notifications/push-tokens/current',
-          {'token': registrationToken, 'platform': 'android'},
-          token: authToken,
-        );
+        await api.deleteJson('/api/notifications/push-tokens/current', {
+          'token': registrationToken,
+          'platform': 'android',
+        }, token: authToken);
       }
     } on FirebaseException {
       // Logout must still complete when Firebase is unavailable.
@@ -78,15 +85,20 @@ class PushNotifications {
     }
   }
 
-  static Future<void> _register(ApiClient api, String authToken, String registrationToken) async {
+  static Future<void> _register(
+    ApiClient api,
+    String authToken,
+    String registrationToken,
+  ) async {
     try {
-      await api.postJson(
-        '/api/notifications/push-tokens',
-        {'token': registrationToken, 'platform': 'android'},
-        token: authToken,
-      );
+      await api.postJson('/api/notifications/push-tokens', {
+        'token': registrationToken,
+        'platform': 'android',
+      }, token: authToken);
     } on ApiException catch (error) {
-      debugPrint('No se pudo registrar FCM en AgroEscudo: HTTP ${error.statusCode}.');
+      debugPrint(
+        'No se pudo registrar FCM en AgroEscudo: HTTP ${error.statusCode}.',
+      );
     }
   }
 }
