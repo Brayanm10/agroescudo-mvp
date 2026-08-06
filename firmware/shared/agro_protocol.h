@@ -9,6 +9,7 @@ static constexpr size_t AGRO_CCM_TAG_LEN = 8;
 static constexpr uint8_t AGRO_PROTOCOL_V1 = 1;
 static constexpr uint8_t AGRO_PROTOCOL_V2 = 2;
 static constexpr uint8_t AGRO_PROTOCOL_V3 = 3;
+static constexpr uint8_t AGRO_PROTOCOL_V4 = 4;
 static constexpr uint8_t AGRO_PROFILE_SILO = 1;
 static constexpr uint8_t AGRO_PROFILE_FIELD = 2;
 

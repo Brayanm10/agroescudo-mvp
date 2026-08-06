@@ -19,6 +19,9 @@ import type {
   SystemHealth,
   ControlCenterSummary,
   Device,
+  DeviceDashboardSchema,
+  CanonicalMetricSeries,
+  SensorChannel,
   DeviceSummary,
   DeviceWithApiKey,
   DemoSimulation,
@@ -443,6 +446,84 @@ export async function getDeviceSummary(token: string, deviceId: number, signal?:
       calibration_statuses: []
     } satisfies DeviceSummary;
   }
+}
+
+export function getDeviceDashboardSchema(token: string, deviceId: number, signal?: AbortSignal) {
+  return request<DeviceDashboardSchema>(`/api/devices/${deviceId}/dashboard-schema`, { token, signal });
+}
+
+export function getCanonicalMetricReadings(
+  token: string,
+  deviceId: number,
+  metricCode: string,
+  options: {
+    channelKey: string;
+    from?: string;
+    to?: string;
+    resolution?: "raw" | "5m" | "15m" | "1h" | "1d";
+    limit?: number;
+    signal?: AbortSignal;
+  }
+) {
+  const params = new URLSearchParams({
+    channel_key: options.channelKey,
+    resolution: options.resolution ?? "raw",
+    limit: String(options.limit ?? 1000),
+    order: "asc"
+  });
+  if (options.from) params.set("from", options.from);
+  if (options.to) params.set("to", options.to);
+  return request<CanonicalMetricSeries>(
+    `/api/devices/${deviceId}/metrics/${encodeURIComponent(metricCode)}/readings?${params}`,
+    { token, signal: options.signal }
+  );
+}
+
+export function updateSensorChannel(
+  token: string,
+  deviceId: number,
+  channelId: number,
+  payload: {
+    is_enabled?: boolean;
+    is_visible_to_client?: boolean;
+    chart_enabled?: boolean;
+    alert_enabled?: boolean;
+    display_name?: string;
+    display_order?: number;
+    status?: string;
+    reason?: string;
+  }
+) {
+  return request<SensorChannel>(`/api/devices/${deviceId}/channels/${channelId}`, {
+    token,
+    method: "PATCH",
+    body: payload
+  });
+}
+
+export function createSensorChannel(
+  token: string,
+  deviceId: number,
+  payload: {
+    channel_key: string;
+    sensor_type: string;
+    hardware_port: string;
+    metric_codes: string[];
+    is_installed: boolean;
+    is_required: boolean;
+    is_visible_to_client: boolean;
+    chart_enabled: boolean;
+    alert_enabled: boolean;
+    calibration_required: boolean;
+    display_name: string;
+    display_order: number;
+  }
+) {
+  return request<SensorChannel>(`/api/devices/${deviceId}/channels`, {
+    token,
+    method: "POST",
+    body: payload
+  });
 }
 
 export function updateDeviceCalibration(token: string, deviceId: number, emptyDistanceCm: number, fullDistanceCm: number) {

@@ -439,12 +439,38 @@ class AppStore extends ChangeNotifier {
           token: authToken,
         ),
         _api.getJson('/api/devices/$deviceId/summary', token: authToken),
+        _api.getJson(
+          '/api/devices/$deviceId/dashboard-schema',
+          token: authToken,
+        ),
       ]);
+      final dashboardSchema = Map<String, dynamic>.from(results[2] as Map);
+      final dashboardMetrics = (dashboardSchema['metrics'] as List? ?? const [])
+          .map((item) => Map<String, dynamic>.from(item as Map))
+          .where((item) => item['chart_enabled'] == true)
+          .toList();
+      final metricSeries = <String, Map<String, dynamic>>{};
+      for (final metric in dashboardMetrics) {
+        final metricCode = metric['metric_code'].toString();
+        final channelKey = metric['channel_key'].toString();
+        final encodedMetric = Uri.encodeComponent(metricCode);
+        final encodedChannel = Uri.encodeQueryComponent(channelKey);
+        final payload = await _api.getJson(
+          '/api/devices/$deviceId/metrics/$encodedMetric/readings'
+          '?channel_key=$encodedChannel&resolution=raw&limit=500&order=asc',
+          token: authToken,
+        );
+        metricSeries['$channelKey:$metricCode'] = Map<String, dynamic>.from(
+          payload as Map,
+        );
+      }
       return {
         'readings': (results[0] as List)
             .map((item) => Map<String, dynamic>.from(item as Map))
             .toList(),
         'summary': Map<String, dynamic>.from(results[1] as Map),
+        'dashboard_schema': dashboardSchema,
+        'metric_series': metricSeries,
         'cached': false,
       };
     } on ApiException {
@@ -456,6 +482,8 @@ class AppStore extends ChangeNotifier {
           'latest_reading': localReadings.last,
           'calibration_statuses': const [],
         },
+        'dashboard_schema': null,
+        'metric_series': const <String, dynamic>{},
         'cached': true,
       };
     }

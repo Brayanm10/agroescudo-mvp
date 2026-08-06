@@ -117,6 +117,8 @@ class Device(Base):
     model_version: Mapped[str | None] = mapped_column(String(80), nullable=True)
     physical_location: Mapped[str | None] = mapped_column(String(255), nullable=True)
     installed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    template_code: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
+    capabilities_version: Mapped[int] = mapped_column(Integer, default=1)
     operational_status: Mapped[str] = mapped_column(String(32), default="operational", index=True)
     expected_reading_interval_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
     empty_distance_cm: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -312,6 +314,12 @@ class Alert(Base):
     storage_unit_id: Mapped[int] = mapped_column(ForeignKey("storage_units.id"), index=True)
     device_id: Mapped[int] = mapped_column(ForeignKey("devices.id"), index=True)
     reading_id: Mapped[int | None] = mapped_column(ForeignKey("sensor_readings.id"), nullable=True, index=True)
+    sensor_channel_id: Mapped[int | None] = mapped_column(
+        ForeignKey("device_channels.id"), nullable=True, index=True
+    )
+    metric_definition_id: Mapped[int | None] = mapped_column(
+        ForeignKey("metric_definitions.id"), nullable=True, index=True
+    )
     alert_type: Mapped[str] = mapped_column(String(80), index=True)
     severity: Mapped[str] = mapped_column(String(20), index=True)
     title: Mapped[str] = mapped_column(String(160))
@@ -429,10 +437,14 @@ class ThresholdConfig(Base):
     company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
     site_id: Mapped[int | None] = mapped_column(ForeignKey("sites.id"), nullable=True, index=True)
     storage_unit_id: Mapped[int | None] = mapped_column(ForeignKey("storage_units.id"), nullable=True, index=True)
+    device_id: Mapped[int | None] = mapped_column(ForeignKey("devices.id"), nullable=True, index=True)
+    sensor_channel_id: Mapped[int | None] = mapped_column(ForeignKey("device_channels.id"), nullable=True, index=True)
+    metric_definition_id: Mapped[int | None] = mapped_column(ForeignKey("metric_definitions.id"), nullable=True, index=True)
     metric: Mapped[str] = mapped_column(String(80), index=True)
     operator: Mapped[str] = mapped_column(String(8))
     value: Mapped[float] = mapped_column(Float)
     severity: Mapped[str] = mapped_column(String(20), default="warning")
+    duration_seconds: Mapped[int] = mapped_column(Integer, default=0)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
@@ -551,21 +563,219 @@ class DeviceChannel(Base):
     __tablename__ = "device_channels"
     __table_args__ = (
         UniqueConstraint("device_id", "code", name="uq_device_channels_device_code"),
+        UniqueConstraint("device_id", "channel_key", name="uq_device_channels_device_channel_key"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     device_id: Mapped[int] = mapped_column(ForeignKey("devices.id"), index=True)
     name: Mapped[str] = mapped_column(String(120))
     code: Mapped[str] = mapped_column(String(80), index=True)
+    channel_key: Mapped[str] = mapped_column(String(80), index=True)
+    sensor_type: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    hardware_port: Mapped[str | None] = mapped_column(String(120), nullable=True)
     zone: Mapped[str | None] = mapped_column(String(120), nullable=True)
     level: Mapped[str | None] = mapped_column(String(80), nullable=True)
     position_description: Mapped[str | None] = mapped_column(String(255), nullable=True)
     channel: Mapped[str | None] = mapped_column(String(80), nullable=True)
     metric_type: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
+    metric_codes: Mapped[str | None] = mapped_column(Text, nullable=True)
     unit: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    canonical_unit: Mapped[str | None] = mapped_column(String(24), nullable=True)
     adc_min: Mapped[float | None] = mapped_column(Float, nullable=True)
     adc_max: Mapped[float | None] = mapped_column(Float, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    is_installed: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    is_enabled: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    is_required: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_visible_to_client: Mapped[bool] = mapped_column(Boolean, default=True)
+    chart_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    alert_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    calibration_required: Mapped[bool] = mapped_column(Boolean, default=False)
+    status: Mapped[str] = mapped_column(String(40), default="CONFIGURED_NOT_SEEN", index=True)
+    display_name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    display_order: Mapped[int] = mapped_column(Integer, default=0)
+    last_valid_reading_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    retired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    retired_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    retirement_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
+
+
+class MetricDefinition(Base):
+    __tablename__ = "metric_definitions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    numeric_id: Mapped[int] = mapped_column(Integer, unique=True, index=True)
+    metric_code: Mapped[str] = mapped_column(String(80), unique=True, index=True)
+    display_name: Mapped[str] = mapped_column(String(120))
+    description: Mapped[str] = mapped_column(Text)
+    canonical_unit: Mapped[str] = mapped_column(String(24))
+    storage_type: Mapped[str] = mapped_column(String(24))
+    scale_factor: Mapped[float] = mapped_column(Float)
+    physical_min: Mapped[float | None] = mapped_column(Float, nullable=True)
+    physical_max: Mapped[float | None] = mapped_column(Float, nullable=True)
+    default_decimals: Mapped[int] = mapped_column(Integer, default=2)
+    default_chart_type: Mapped[str] = mapped_column(String(32), default="line")
+    product_compatibility: Mapped[str] = mapped_column(String(160))
+    client_visibility: Mapped[bool] = mapped_column(Boolean, default=True)
+    is_derived: Mapped[bool] = mapped_column(Boolean, default=False)
+    calibration_method: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    alert_supported: Mapped[bool] = mapped_column(Boolean, default=False)
+    display_order: Mapped[int] = mapped_column(Integer, default=0)
+    registry_version: Mapped[int] = mapped_column(Integer, default=1)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
+
+
+class TelemetryEvent(Base):
+    __tablename__ = "telemetry_events"
+    __table_args__ = (
+        UniqueConstraint("device_id", "boot_id", "sequence", name="uq_telemetry_events_device_boot_sequence"),
+        Index("ix_telemetry_events_device_sampled", "device_id", "sampled_at"),
+        Index("ix_telemetry_events_company_sampled", "company_id", "sampled_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    storage_unit_id: Mapped[int] = mapped_column(ForeignKey("storage_units.id"), index=True)
+    device_id: Mapped[int] = mapped_column(ForeignKey("devices.id"), index=True)
+    gateway_id: Mapped[int | None] = mapped_column(ForeignKey("iot_gateways.id"), nullable=True, index=True)
+    sensor_reading_id: Mapped[int | None] = mapped_column(ForeignKey("sensor_readings.id"), nullable=True, index=True)
+    iot_reading_id: Mapped[int | None] = mapped_column(ForeignKey("iot_readings.id"), nullable=True, index=True)
+    boot_id: Mapped[int] = mapped_column(Integer)
+    sequence: Mapped[int] = mapped_column(Integer)
+    sample_counter: Mapped[int] = mapped_column(Integer)
+    sampled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    received_at_gateway: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    received_at_cloud: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
+    time_quality: Mapped[str] = mapped_column(String(32))
+    firmware_version: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    protocol_version: Mapped[int] = mapped_column(Integer)
+    capabilities_version: Mapped[int] = mapped_column(Integer, default=1)
+    sensor_status_flags: Mapped[int] = mapped_column(Integer, default=0)
+    raw_payload_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    quality_summary: Mapped[str] = mapped_column(String(40), default="VALID", index=True)
+    migration_classification: Mapped[str | None] = mapped_column(String(40), nullable=True, index=True)
+    legacy_table: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    legacy_row_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    migration_batch_id: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
+    mapping_rule_version: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    migrated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class MetricReading(Base):
+    __tablename__ = "metric_readings"
+    __table_args__ = (
+        UniqueConstraint(
+            "telemetry_event_id",
+            "sensor_channel_id",
+            "metric_code",
+            name="uq_metric_readings_event_channel_metric",
+        ),
+        Index("ix_metric_readings_series", "device_id", "metric_code", "sampled_at"),
+        Index("ix_metric_readings_company_series", "company_id", "metric_code", "sampled_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    telemetry_event_id: Mapped[int] = mapped_column(ForeignKey("telemetry_events.id"), index=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    storage_unit_id: Mapped[int] = mapped_column(ForeignKey("storage_units.id"), index=True)
+    device_id: Mapped[int] = mapped_column(ForeignKey("devices.id"), index=True)
+    sensor_channel_id: Mapped[int] = mapped_column(ForeignKey("device_channels.id"), index=True)
+    metric_definition_id: Mapped[int] = mapped_column(ForeignKey("metric_definitions.id"), index=True)
+    calibration_id: Mapped[int | None] = mapped_column(ForeignKey("sensor_calibrations.id"), nullable=True, index=True)
+    metric_code: Mapped[str] = mapped_column(String(80), index=True)
+    raw_value: Mapped[float] = mapped_column(Float)
+    calibrated_value: Mapped[float | None] = mapped_column(Float, nullable=True)
+    display_value: Mapped[float | None] = mapped_column(Float, nullable=True)
+    canonical_unit: Mapped[str] = mapped_column(String(24))
+    quality_status: Mapped[str] = mapped_column(String(40), default="VALID", index=True)
+    calibration_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    source_metric_code: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    derivation_version: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    sampled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    legacy_table: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    legacy_row_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    migration_batch_id: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
+    mapping_rule_version: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    migrated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+
+
+class DeviceDashboardPreference(Base):
+    __tablename__ = "device_dashboard_preferences"
+    __table_args__ = (
+        UniqueConstraint(
+            "device_id",
+            "sensor_channel_id",
+            "metric_code",
+            name="uq_device_dashboard_preference",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    device_id: Mapped[int] = mapped_column(ForeignKey("devices.id"), index=True)
+    sensor_channel_id: Mapped[int] = mapped_column(ForeignKey("device_channels.id"), index=True)
+    metric_code: Mapped[str] = mapped_column(String(80), index=True)
+    chart_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    client_visible: Mapped[bool] = mapped_column(Boolean, default=True)
+    display_order: Mapped[int] = mapped_column(Integer, default=0)
+    chart_type_override: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    display_name_override: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    updated_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
+
+
+class LegacyMigrationBatch(Base):
+    __tablename__ = "legacy_migration_batches"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    batch_id: Mapped[str] = mapped_column(String(80), unique=True, index=True)
+    mapping_rule_version: Mapped[str] = mapped_column(String(40))
+    source_table: Mapped[str] = mapped_column(String(80))
+    status: Mapped[str] = mapped_column(String(40), default="CREATED", index=True)
+    dry_run: Mapped[bool] = mapped_column(Boolean, default=True)
+    original_count: Mapped[int] = mapped_column(Integer, default=0)
+    safe_count: Mapped[int] = mapped_column(Integer, default=0)
+    requires_mapping_count: Mapped[int] = mapped_column(Integer, default=0)
+    quarantined_count: Mapped[int] = mapped_column(Integer, default=0)
+    invalid_count: Mapped[int] = mapped_column(Integer, default=0)
+    duplicate_count: Mapped[int] = mapped_column(Integer, default=0)
+    source_checksum: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    reconciliation_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    rolled_back_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class LegacyMappingResult(Base):
+    __tablename__ = "legacy_mapping_results"
+    __table_args__ = (
+        UniqueConstraint(
+            "migration_batch_id",
+            "legacy_table",
+            "legacy_row_id",
+            "legacy_field",
+            name="uq_legacy_mapping_result",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    migration_batch_id: Mapped[str] = mapped_column(String(80), index=True)
+    legacy_table: Mapped[str] = mapped_column(String(80), index=True)
+    legacy_row_id: Mapped[int] = mapped_column(Integer, index=True)
+    legacy_field: Mapped[str] = mapped_column(String(80))
+    classification: Mapped[str] = mapped_column(String(40), index=True)
+    device_type: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    sensor_type: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    channel_key: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    metric_code: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    canonical_unit: Mapped[str | None] = mapped_column(String(24), nullable=True)
+    reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    raw_value_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 

@@ -10,6 +10,7 @@
 #include "mbedtls/sha256.h"
 
 #include "../shared/agro_crypto.h"
+#include "../shared/protocol_tlv.h"
 
 static const char* WIFI_SSID = "CONFIGURAR_EN_PROVISIONAMIENTO";
 static const char* WIFI_PASSWORD = "CONFIGURAR_EN_PROVISIONAMIENTO";
@@ -48,6 +49,28 @@ struct PendingReading {
   float snr;
 };
 
+struct PendingEventV4 {
+  uint32_t device_id;
+  uint32_t boot_id;
+  uint32_t sequence;
+  uint32_t sample_counter;
+  uint32_t timestamp_utc;
+  uint8_t time_quality;
+  uint16_t firmware_version;
+  uint16_t capabilities_version;
+  uint16_t sensor_status_flags;
+  uint8_t metric_count;
+  AgroMetricTlv metrics[AGRO_TLV_MAX_METRICS];
+  int rssi;
+  float snr;
+};
+
+struct SeenKeyV4 {
+  uint32_t device_id;
+  uint32_t boot_id;
+  uint32_t sequence;
+};
+
 static bool persistReading(const PendingReading& reading) {
   File file = LittleFS.open("/queue.bin", FILE_APPEND);
   if (!file) return false;
@@ -58,6 +81,85 @@ static bool persistReading(const PendingReading& reading) {
   file.write(reinterpret_cast<const uint8_t*>(&reading), sizeof(reading));
   file.close();
   return true;
+}
+
+static bool persistEventV4(const PendingEventV4& event) {
+  File file = LittleFS.open("/queue-v4.bin", FILE_APPEND);
+  if (!file) return false;
+  const size_t written = file.write(
+    reinterpret_cast<const uint8_t*>(&event),
+    sizeof(event));
+  file.close();
+  return written == sizeof(event);
+}
+
+static bool isDuplicateV4(const PendingEventV4& event) {
+  File file = LittleFS.open("/seen-v4.bin", FILE_READ);
+  if (!file) return false;
+  SeenKeyV4 key{};
+  while (file.read(reinterpret_cast<uint8_t*>(&key), sizeof(key)) == sizeof(key)) {
+    if (key.device_id == event.device_id &&
+        key.boot_id == event.boot_id &&
+        key.sequence == event.sequence) {
+      file.close();
+      return true;
+    }
+  }
+  file.close();
+  return false;
+}
+
+static void rememberSeenV4(const PendingEventV4& event) {
+  File file = LittleFS.open("/seen-v4.bin", FILE_APPEND);
+  if (!file) return;
+  const SeenKeyV4 key{event.device_id, event.boot_id, event.sequence};
+  file.write(reinterpret_cast<const uint8_t*>(&key), sizeof(key));
+  file.close();
+}
+
+static bool readFirstQueuedV4(PendingEventV4& event) {
+  File file = LittleFS.open("/queue-v4.bin", FILE_READ);
+  if (!file) return false;
+  const bool valid =
+    file.read(reinterpret_cast<uint8_t*>(&event), sizeof(event)) == sizeof(event);
+  file.close();
+  return valid;
+}
+
+static bool removeFirstQueuedV4() {
+  File source = LittleFS.open("/queue-v4.bin", FILE_READ);
+  if (!source || source.size() < sizeof(PendingEventV4)) {
+    if (source) source.close();
+    return false;
+  }
+  source.seek(sizeof(PendingEventV4));
+  LittleFS.remove("/queue-v4.next");
+  File replacement = LittleFS.open("/queue-v4.next", FILE_WRITE);
+  if (!replacement) {
+    source.close();
+    return false;
+  }
+  uint8_t buffer[128];
+  while (source.available()) {
+    const size_t count = source.read(buffer, sizeof(buffer));
+    if (count == 0 || replacement.write(buffer, count) != count) {
+      source.close();
+      replacement.close();
+      LittleFS.remove("/queue-v4.next");
+      return false;
+    }
+  }
+  source.close();
+  replacement.close();
+  LittleFS.remove("/queue-v4.bin");
+  File pending = LittleFS.open("/queue-v4.next", FILE_READ);
+  const size_t size = pending ? pending.size() : 0;
+  if (pending) pending.close();
+  if (size == 0) {
+    LittleFS.remove("/queue-v4.next");
+    return true;
+  }
+  return LittleFS.rename("/queue-v4.next", "/queue-v4.bin");
 }
 
 static bool isDuplicate(const PendingReading& reading) {
@@ -279,6 +381,69 @@ static bool uploadFirstQueued() {
   return false;
 }
 
+static bool uploadFirstQueuedV4() {
+  if (WiFi.status() != WL_CONNECTED) return false;
+  const time_t now = time(nullptr);
+  if (now < MIN_VALID_EPOCH) return false;
+  PendingEventV4 event{};
+  if (!readFirstQueuedV4(event)) return false;
+
+  JsonDocument doc;
+  doc["gateway_id"] = GATEWAY_ID;
+  doc["firmware_version"] = "1.1.0";
+  doc["sent_at"] = isoTimestamp(now);
+  doc["batch_id"] = String(GATEWAY_ID) + "-v4-" + String(event.boot_id) + "-" + String(event.sequence);
+  doc["protocol_version"] = AGRO_PROTOCOL_V4;
+  JsonArray events = doc["events"].to<JsonArray>();
+  JsonObject item = events.add<JsonObject>();
+  item["device_id"] = event.device_id;
+  item["boot_id"] = event.boot_id;
+  item["sequence"] = event.sequence;
+  item["sample_counter"] = event.sample_counter;
+  item["timestamp_utc"] = event.timestamp_utc > 0 ? event.timestamp_utc : static_cast<uint32_t>(now);
+  item["time_quality"] = event.timestamp_utc > 0 ? event.time_quality : 1;
+  item["protocol_version"] = AGRO_PROTOCOL_V4;
+  item["firmware_version"] = event.firmware_version;
+  item["capabilities_version"] = event.capabilities_version;
+  item["sensor_status_flags"] = event.sensor_status_flags;
+  item["rssi_dbm"] = event.rssi;
+  item["snr_db_x10"] = static_cast<int>(event.snr * 10);
+  JsonArray metrics = item["metrics"].to<JsonArray>();
+  for (uint8_t index = 0; index < event.metric_count; index++) {
+    const AgroMetricTlv& source = event.metrics[index];
+    JsonObject metric = metrics.add<JsonObject>();
+    metric["channel_key"] = agroChannelKey(source.channel_id);
+    metric["metric_code"] = agroMetricCode(source.metric_id);
+    metric["raw_value"] = agroScaledValue(source);
+    metric["unit"] = agroCanonicalUnit(source.metric_id);
+    metric["quality"] = agroQualityCode(source.quality_code);
+  }
+
+  String body;
+  serializeJson(doc, body);
+  const String timestamp = String(now);
+  const String nonce = String(GATEWAY_ID) + "-v4-" + String(millis());
+  const String signature = hmacSignature(timestamp, nonce, sha256Hex(body));
+  WiFiClientSecure client;
+  client.setCACert(ROOT_CA);
+  HTTPClient http;
+  if (!http.begin(client, API_URL)) return false;
+  http.addHeader("Content-Type", "application/json");
+  http.addHeader("X-Agro-Gateway-ID", GATEWAY_ID);
+  http.addHeader("X-Agro-Timestamp", timestamp);
+  http.addHeader("X-Agro-Nonce", nonce);
+  http.addHeader("X-Agro-Signature", signature);
+  const int code = http.POST(body);
+  const String response = http.getString();
+  http.end();
+  if (code == 200 &&
+      (response.indexOf("\"canonical_status\":\"ACCEPTED\"") >= 0 ||
+       response.indexOf("\"canonical_status\":\"DUPLICATE\"") >= 0)) {
+    return removeFirstQueuedV4();
+  }
+  return false;
+}
+
 void setup() {
   Serial.begin(115200);
   LittleFS.begin(true);
@@ -389,11 +554,47 @@ void loop() {
           sendAck(header.protocol_version, header.device_id, header.boot_id, header.sequence);
         }
       }
+    } else if (
+        header.magic == AGRO_MAGIC &&
+        header.message_type == AGRO_MSG_READING &&
+        header.protocol_version == AGRO_PROTOCOL_V4 &&
+        header.payload_len >= sizeof(AgroTelemetryHeaderV4) &&
+        header.payload_len <= AGRO_TLV_MAX_PAYLOAD &&
+        packetSize == static_cast<int>(sizeof(AgroFrameHeader) + header.payload_len + AGRO_CCM_TAG_LEN)) {
+      uint8_t encrypted[AGRO_TLV_MAX_PAYLOAD]{};
+      uint8_t plain[AGRO_TLV_MAX_PAYLOAD]{};
+      uint8_t tag[AGRO_CCM_TAG_LEN]{};
+      LoRa.readBytes(encrypted, header.payload_len);
+      LoRa.readBytes(tag, sizeof(tag));
+      if (agroDecryptPayload(header, NODE_KEY, encrypted, header.payload_len, tag, plain) &&
+          agroValidateTlvPayload(plain, header.payload_len, header.device_id)) {
+        const auto* payload = reinterpret_cast<const AgroTelemetryHeaderV4*>(plain);
+        const auto* metrics = reinterpret_cast<const AgroMetricTlv*>(
+          plain + sizeof(AgroTelemetryHeaderV4));
+        PendingEventV4 pending{};
+        pending.device_id = payload->device_id;
+        pending.boot_id = header.boot_id;
+        pending.sequence = header.sequence;
+        pending.sample_counter = payload->sample_counter;
+        pending.timestamp_utc = payload->timestamp_utc;
+        pending.time_quality = payload->time_quality;
+        pending.firmware_version = payload->firmware_version;
+        pending.capabilities_version = payload->capabilities_version;
+        pending.sensor_status_flags = payload->sensor_status_flags;
+        pending.metric_count = payload->metric_count;
+        memcpy(pending.metrics, metrics, payload->metric_count * sizeof(AgroMetricTlv));
+        pending.rssi = LoRa.packetRssi();
+        pending.snr = LoRa.packetSnr();
+        if (isDuplicateV4(pending) || persistEventV4(pending)) {
+          rememberSeenV4(pending);
+          sendAck(header.protocol_version, header.device_id, header.boot_id, header.sequence);
+        }
+      }
     }
   }
   static uint32_t lastUpload = 0;
   if (millis() - lastUpload > 30000) {
-    uploadFirstQueued();
+    if (!uploadFirstQueued()) uploadFirstQueuedV4();
     lastUpload = millis();
   }
   delay(50);

@@ -3,7 +3,14 @@ from dataclasses import dataclass
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import Alert, Device, SensorReading, ThresholdConfig
+from app.models import (
+    Alert,
+    Device,
+    DeviceChannel,
+    MetricDefinition,
+    SensorReading,
+    ThresholdConfig,
+)
 
 GRAIN_TEMPERATURE_HIGH = "grain_temperature_high"
 AMBIENT_HUMIDITY_HIGH = "ambient_humidity_high"
@@ -14,6 +21,15 @@ LEVEL_HIGH = "level_high"
 LEVEL_DISTANCE_OUT_OF_RANGE = "level_distance_out_of_range"
 SOIL_MOISTURE_LOW = "soil_moisture_low"
 SOIL_MOISTURE_HIGH = "soil_moisture_high"
+
+ALERT_METRIC_SCOPE = {
+    "grain_temperature": ("grain_temp_1", "GRAIN_TEMPERATURE_C"),
+    "ambient_humidity": ("ambient_rh_1", "AMBIENT_RELATIVE_HUMIDITY_PCT"),
+    "battery_voltage": ("battery_1", "BATTERY_VOLTAGE_MV"),
+    "level_percent": ("level_ultrasonic_1", "LEVEL_PERCENT"),
+    "level_distance_cm": ("level_ultrasonic_1", "LEVEL_DISTANCE_MM"),
+    "soil_moisture_percent": ("soil_moisture_1", "SOIL_MOISTURE_PCT"),
+}
 
 
 @dataclass(frozen=True)
@@ -253,12 +269,31 @@ def _get_or_create_active_alert(
         existing._was_created = False
         return existing
 
+    sensor_channel_id = None
+    metric_definition_id = None
+    scope = ALERT_METRIC_SCOPE.get(metric or "")
+    if scope is not None:
+        channel_key, metric_code = scope
+        channel = db.scalar(
+            select(DeviceChannel).where(
+                DeviceChannel.device_id == device.id,
+                DeviceChannel.channel_key == channel_key,
+            )
+        )
+        definition = db.scalar(
+            select(MetricDefinition).where(MetricDefinition.metric_code == metric_code)
+        )
+        sensor_channel_id = channel.id if channel else None
+        metric_definition_id = definition.id if definition else None
+
     alert = Alert(
         company_id=device.company_id,
         site_id=device.site_id,
         storage_unit_id=device.storage_unit_id,
         device_id=device.id,
         reading_id=reading.id,
+        sensor_channel_id=sensor_channel_id,
+        metric_definition_id=metric_definition_id,
         alert_type=alert_type,
         severity=severity,
         title=title,

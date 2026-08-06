@@ -30,6 +30,7 @@ from app.models import (
     ThresholdConfig,
     User,
 )
+from app.services.device_capabilities import ensure_metric_registry, sync_device_channels
 
 PILOT_COMPANY = "Acopio Valle Bajo S.R.L."
 PILOT_SITE = "Centro de Acopio Norte"
@@ -39,6 +40,7 @@ CLIENT_EMAIL = "operaciones@vallebajo.bo"
 def seed() -> None:
     db = SessionLocal()
     try:
+        ensure_metric_registry(db)
         company = _ensure_company(db)
         _ensure_user(
             db,
@@ -94,6 +96,11 @@ def seed() -> None:
                 device_token=device_token,
             )
             assets[external_id] = (storage_unit, device)
+            sync_device_channels(
+                db,
+                device,
+                template_code="SILO_SENSOR_WITH_LEVEL" if external_id == "SILO-001" else "SILO_SENSOR_BASE",
+            )
             _ensure_thresholds(db, company.id, storage_unit.id)
 
         for user in [technician, client]:

@@ -1,0 +1,24 @@
+{
+  "registry_version": 1,
+  "protocol_version": 4,
+  "vectors": [
+    {
+      "name": "silo_base",
+      "device_id": 1001,
+      "metrics": [
+        {"metric_id": 1, "channel_id": 1, "value_scaled": 2540, "scale_code": 2, "quality_code": 1},
+        {"metric_id": 2, "channel_id": 2, "value_scaled": 2410, "scale_code": 2, "quality_code": 1},
+        {"metric_id": 3, "channel_id": 3, "value_scaled": 6320, "scale_code": 2, "quality_code": 1},
+        {"metric_id": 8, "channel_id": 6, "value_scaled": 3910, "scale_code": 0, "quality_code": 1}
+      ]
+    },
+    {
+      "name": "field_partial_sht31_fault",
+      "device_id": 2001,
+      "metrics": [
+        {"metric_id": 4, "channel_id": 4, "value_scaled": 2180, "scale_code": 0, "quality_code": 1},
+        {"metric_id": 8, "channel_id": 6, "value_scaled": 3860, "scale_code": 0, "quality_code": 1}
+      ]
+    }
+  ]
+}

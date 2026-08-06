@@ -29,6 +29,11 @@ from app.schemas import IotBatchIn, IotBatchOut, IotBatchReadingIn, IotBatchResu
 from app.services.alert_engine import evaluate_alerts
 from app.services.calibration import CalibrationResult, apply_active_calibration, persist_metric
 from app.services.notifications import dispatch_alert_notifications
+from app.services.normalized_telemetry import (
+    apply_explicit_metrics_to_legacy,
+    persist_normalized_telemetry,
+    validate_explicit_metrics,
+)
 from app.services.telemetry import calculate_level_percent, sensor_profile
 
 ALLOWED_RESULT_STATUSES = {
@@ -37,7 +42,18 @@ ALLOWED_RESULT_STATUSES = {
     "rejected_invalid",
     "rejected_unknown_device",
     "rejected_unauthorized",
+    "quarantined",
     "temporary_error",
+}
+
+CANONICAL_RESULT_STATUS = {
+    "accepted": "ACCEPTED",
+    "duplicate": "DUPLICATE",
+    "rejected_invalid": "REJECTED",
+    "rejected_unknown_device": "REJECTED",
+    "rejected_unauthorized": "REJECTED",
+    "quarantined": "QUARANTINED",
+    "temporary_error": "TEMPORARY_ERROR",
 }
 
 
@@ -173,7 +189,7 @@ def _process_reading(
     reading: IotBatchReadingIn,
 ) -> tuple[IotBatchResultOut, list[tuple[Any, SensorReading]]]:
     status_value = _validate_reading_ranges(reading)
-    iot_device = db.scalar(select(IotDevice).where(IotDevice.node_id == reading.device_id))
+    iot_device = _resolve_iot_device(db, reading.device_id)
     if iot_device is None:
         return _record_event(db, gateway, batch, reading, "rejected_unknown_device", "IoT device not registered"), []
     if not iot_device.is_active:
@@ -212,6 +228,10 @@ def _process_reading(
         return _record_event(db, gateway, batch, reading, "rejected_invalid", "Silo sensor contains soil metrics"), []
     if reading.soil_moisture_x100 is not None and reading.soil_moisture_raw is not None:
         return _record_event(db, gateway, batch, reading, "rejected_invalid", "Soil moisture raw and legacy percent cannot coexist"), []
+    explicit_error = validate_explicit_metrics(db, device, reading)
+    if explicit_error is not None:
+        return _record_event(db, gateway, batch, reading, "quarantined", explicit_error), []
+    apply_explicit_metrics_to_legacy(reading)
 
     try:
         raw_metrics = {
@@ -256,7 +276,7 @@ def _process_reading(
     except ValueError as exc:
         return _record_event(db, gateway, batch, reading, "rejected_invalid", str(exc)), []
 
-    timestamp = datetime.fromtimestamp(reading.timestamp_utc, tz=timezone.utc)
+    timestamp = datetime.fromtimestamp(int(reading.timestamp_utc or 0), tz=timezone.utc)
     sensor_reading = SensorReading(
         company_id=device.company_id,
         site_id=device.site_id,
@@ -335,17 +355,46 @@ def _process_reading(
         level_distance_mm=round(reading.level_distance_cm * 10) if reading.level_distance_cm is not None else None,
         level_percent_x100=round(level_percent * 100) if level_percent is not None else None,
         sensor_status=reading.sensor_status,
-        firmware_version=reading.firmware_version,
+        firmware_version=_firmware_version_as_int(reading.firmware_version),
         rssi_dbm=reading.rssi_dbm,
         snr_db_x10=reading.snr_db_x10,
     )
     db.add(iot_reading)
     device.last_seen_at = utc_now()
     db.flush()
+    persist_normalized_telemetry(
+        db,
+        gateway=gateway,
+        device=device,
+        reading=reading,
+        sensor_reading=sensor_reading,
+        iot_reading=iot_reading,
+    )
 
     alerts = evaluate_alerts(db=db, device=device, reading=sensor_reading)
     new_alerts = [(alert, sensor_reading) for alert in alerts if getattr(alert, "_was_created", False)]
     return _record_event(db, gateway, batch, reading, "accepted", None), new_alerts
+
+
+def _resolve_iot_device(db: Session, identifier: int | str) -> IotDevice | None:
+    if isinstance(identifier, int) or str(identifier).isdigit():
+        return db.scalar(select(IotDevice).where(IotDevice.node_id == int(identifier)))
+    device = db.scalar(select(Device).where(Device.external_id == str(identifier)))
+    if device is None:
+        return None
+    return db.scalar(select(IotDevice).where(IotDevice.device_id == device.id))
+
+
+def _firmware_version_as_int(value: int | str) -> int:
+    if isinstance(value, int):
+        return value
+    parts = str(value).split(".")
+    try:
+        major = int(parts[0]) if parts else 0
+        minor = int(parts[1]) if len(parts) > 1 else 0
+        return max(0, min(65535, (major << 8) | minor))
+    except ValueError:
+        return 0
 
 
 def _validate_reading_ranges(reading: IotBatchReadingIn) -> str | None:
@@ -377,7 +426,7 @@ def _validate_reading_ranges(reading: IotBatchReadingIn) -> str | None:
         reading.soil_temp_c_x100,
         reading.level_distance_cm,
     )
-    if all(value is None for value in metrics):
+    if all(value is None for value in metrics) and not reading.metrics:
         return "Reading contains no metrics"
     return None
 
@@ -394,7 +443,7 @@ def _record_event(
         IotIngestionEvent(
             batch_id=batch.id,
             gateway_id=gateway.id,
-            device_identifier=reading.device_id,
+            device_identifier=int(reading.device_id) if str(reading.device_id).isdigit() else 0,
             boot_id=reading.boot_id,
             sequence=reading.sequence,
             status=result_status,
@@ -407,4 +456,5 @@ def _record_event(
         sequence=reading.sequence,
         status=result_status,  # type: ignore[arg-type]
         detail=detail,
+        canonical_status=CANONICAL_RESULT_STATUS[result_status],  # type: ignore[arg-type]
     )

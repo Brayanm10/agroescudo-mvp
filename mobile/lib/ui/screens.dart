@@ -523,6 +523,12 @@ class _UnitDetailScreenState extends State<UnitDetailScreen> {
               (readings.isEmpty ? null : readings.last);
           final calibrations =
               (summary['calibration_statuses'] as List?) ?? const [];
+          final dashboardSchema =
+              payload?['dashboard_schema'] as Map<String, dynamic>?;
+          final dashboardMetrics =
+              (dashboardSchema?['metrics'] as List?) ?? const [];
+          final metricSeries =
+              (payload?['metric_series'] as Map<String, dynamic>?) ?? const {};
 
           return _Page(
             children: [
@@ -644,7 +650,27 @@ class _UnitDetailScreenState extends State<UnitDetailScreen> {
                     calibration: Map<String, dynamic>.from(item as Map),
                   ),
                 ),
-              if (readings.isNotEmpty) ...[
+              if (dashboardMetrics.isNotEmpty) ...[
+                const SizedBox(height: 20),
+                const _BlockTitle('Series por sensor y canal'),
+                ...dashboardMetrics.map((item) {
+                  final metric = Map<String, dynamic>.from(item as Map);
+                  final key =
+                      '${metric['channel_key']}:${metric['metric_code']}';
+                  final payload =
+                      metricSeries[key] as Map<String, dynamic>? ?? const {};
+                  final points = (payload['points'] as List? ?? const [])
+                      .map((point) => Map<String, dynamic>.from(point as Map))
+                      .toList();
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 14),
+                    child: _CanonicalMetricChart(
+                      metric: metric,
+                      points: points,
+                    ),
+                  );
+                }),
+              ] else if (readings.isNotEmpty) ...[
                 const SizedBox(height: 20),
                 _ReadingChart(
                   readings: readings,
@@ -652,12 +678,6 @@ class _UnitDetailScreenState extends State<UnitDetailScreen> {
                       ? 'soil_moisture_percent'
                       : 'grain_temperature',
                   suffix: field ? '%' : ' C',
-                ),
-                const SizedBox(height: 20),
-                _ReadingChart(
-                  readings: readings,
-                  keyName: 'ambient_humidity',
-                  suffix: '%',
                 ),
               ],
               const SizedBox(height: 20),
@@ -1274,6 +1294,145 @@ class _ReadingChart extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+class _CanonicalMetricChart extends StatelessWidget {
+  const _CanonicalMetricChart({required this.metric, required this.points});
+
+  final Map<String, dynamic> metric;
+  final List<Map<String, dynamic>> points;
+
+  @override
+  Widget build(BuildContext context) {
+    final available = points.where((point) => point['value'] is num).toList();
+    final title =
+        metric['display_name_override']?.toString() ??
+        metric['display_name']?.toString() ??
+        metric['metric_code']?.toString() ??
+        'Metrica';
+    if (available.isEmpty) {
+      return Card(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
+              const SizedBox(height: 8),
+              Text(
+                metric['is_derived'] == true
+                    ? 'Sin datos derivados. Verifica calibracion y primera lectura valida.'
+                    : 'Canal configurado sin lecturas en el periodo.',
+                style: const TextStyle(color: muted),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+    final suffix = _canonicalSuffix(metric['canonical_unit']?.toString());
+    final values = available.length > 40
+        ? available.sublist(available.length - 40)
+        : available;
+    final spots = values.asMap().entries.map((entry) {
+      return FlSpot(
+        entry.key.toDouble(),
+        (entry.value['value'] as num).toDouble(),
+      );
+    }).toList();
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 14, 16, 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
+            const SizedBox(height: 3),
+            Text(
+              '${metric['channel_key']} | ${available.length} lecturas',
+              style: const TextStyle(color: muted, fontSize: 11),
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              height: 190,
+              child: LineChart(
+                LineChartData(
+                  gridData: const FlGridData(
+                    show: true,
+                    drawVerticalLine: false,
+                  ),
+                  titlesData: const FlTitlesData(
+                    topTitles: AxisTitles(
+                      sideTitles: SideTitles(showTitles: false),
+                    ),
+                    rightTitles: AxisTitles(
+                      sideTitles: SideTitles(showTitles: false),
+                    ),
+                    bottomTitles: AxisTitles(
+                      sideTitles: SideTitles(showTitles: false),
+                    ),
+                  ),
+                  borderData: FlBorderData(show: false),
+                  lineTouchData: LineTouchData(
+                    touchTooltipData: LineTouchTooltipData(
+                      getTooltipItems: (items) => items
+                          .map(
+                            (item) => LineTooltipItem(
+                              '${item.y.toStringAsFixed(1)}$suffix',
+                              const TextStyle(color: Colors.white),
+                            ),
+                          )
+                          .toList(),
+                    ),
+                  ),
+                  lineBarsData: [
+                    LineChartBarData(
+                      spots: spots,
+                      color: emerald,
+                      barWidth: 3,
+                      isCurved: true,
+                      dotData: const FlDotData(show: false),
+                      belowBarData: BarAreaData(
+                        show: true,
+                        color: emerald.withValues(alpha: .08),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            if (available.any((point) => point['source'] == 'legacy_fallback'))
+              const Padding(
+                padding: EdgeInsets.only(top: 8),
+                child: Text(
+                  'Serie legacy conservada durante conciliacion P1.5.',
+                  style: TextStyle(
+                    color: Color(0xFF92400E),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+String _canonicalSuffix(String? unit) {
+  switch (unit) {
+    case 'degC':
+      return ' C';
+    case 'percent':
+      return '%';
+    case 'mV':
+      return ' mV';
+    case 'mm':
+      return ' mm';
+    default:
+      return unit == null ? '' : ' $unit';
   }
 }
 

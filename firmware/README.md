@@ -1,12 +1,21 @@
 # Firmware AgroEscudo
 
-PlatformIO compila protocolo V3:
+## Arduino IDE V4 para piloto
+
+La entrega compilada para Arduino IDE esta en `firmware/arduino_ide/` e
+incluye gateway multinodo, SiloSensor, CampoSensor y la biblioteca comun
+`AgroEscudoProtocol`. Consulta
+`docs/MANUAL_GATEWAY_SILO_CAMPO_ARDUINO_IDE.md` antes de cargar las placas.
+
+PlatformIO compila protocolo V4 P1.5:
 
 - `AGRO_SENSOR_PROFILE=1`: SiloSensor con JSN-SR04T.
 - `AGRO_SENSOR_PROFILE=2`: CampoSensor con `soil_moisture_raw`.
-- `AGRO_SOIL_MOISTURE_PIN=34`: ADC configurable.
+- `AGRO_SOIL_MOISTURE_PIN=32`: ADC1 configurable para CampoSensor.
 
-El gateway conserva V1/V2/V3 y solo envia metricas presentes. La calibracion se realiza en FastAPI.
+El gateway conserva V1/V2/V3 y agrega V4 TLV. Solo envia metricas presentes,
+identificadas por `metric_id`, `channel_id`, `metric_code` y `channel_key`. La
+calibracion y las metricas derivadas se calculan en FastAPI.
 
 Este directorio contiene puntos de partida para el enlace:
 
@@ -19,7 +28,8 @@ Nodo ESP32 LoRa -> Gateway LoRa/WiFi -> HTTPS batch -> FastAPI
 - `node_lora_t3`: ejemplo avanzado PlatformIO con paquete binario, AES-128-CCM, persistencia antes de transmitir y ACK.
 - `gateway_tbeam`: ejemplo avanzado PlatformIO con recepcion LoRa, descifrado, deduplicacion, persistencia previa a ACK y HTTPS/HMAC.
 - `shared`: protocolo binario y funciones de cifrado compartidas.
-- `arduino_ide`: sketches `.ino` mas simples para cargar desde Arduino IDE y probar nodo -> gateway -> plataforma.
+- `arduino_ide`: sketches legacy de laboratorio. No son el firmware P1.5 para
+  piloto; el build verificado está en PlatformIO.
 
 ## Guia Arduino IDE
 
@@ -33,27 +43,31 @@ La telemetria por nodo, calibracion y nivel JSN-SR04T estan documentados en:
 
 ```text
 docs/TELEMETRIA_POR_NODO_Y_NIVEL.md
+docs/MANUAL_TECNICO_INTEGRACION_SENSORES_LORA_P1_5.md
 ```
 
 ## Compilacion PlatformIO
 
 ```powershell
 cd firmware
-pio run
+C:\Users\braya\.platformio\penv\Scripts\platformio.exe run
 ```
 
 Entornos compilados:
 
-- `node_lora_t3`: protocolo V2 y mediana de cinco muestras del JSN-SR04T.
-- `gateway_tbeam`: decodificacion V1/V2, cola LittleFS, NTP, TLS y batch HTTPS firmado.
+- `node_lora_t3`: SiloSensor V4 TLV con DS18B20, SHT31, JSN-SR04T y batería.
+- `node_field_t3`: CampoSensor V4 TLV con suelo raw, SHT31 y batería.
+- `gateway_tbeam`: decodificación V1/V2/V3/V4, colas LittleFS separadas,
+  deduplicación, NTP, TLS y batch HTTPS firmado.
 
-El gateway conserva los registros restantes al confirmar el primero. Solo retira una lectura si el backend responde `accepted` o `duplicate`.
+El gateway conserva los registros restantes al confirmar el primero. Solo retira
+una lectura V4 si el backend responde `ACCEPTED` o `DUPLICATE`.
 
 ## Estado
 
 NO VERIFICADO - requiere prueba fisica o credenciales externas:
 
-- Pinout exacto de LILYGO T3 LoRa32/T-Beam.
+- Cableado y comportamiento eléctrico en las placas físicas disponibles.
 - Inicializacion de energia AXP2101 si tu placa la requiere.
 - Certificado CA real de produccion.
 - Aprovisionamiento seguro de claves en NVS.

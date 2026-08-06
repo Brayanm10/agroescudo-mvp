@@ -55,6 +55,7 @@ import { SupportChatbot } from "@/components/SupportChatbot";
 import { ReportDownloadButton } from "@/components/reports/ReportDownloadButton";
 import { SiloLevelIndicator } from "@/components/telemetry/SiloLevelIndicator";
 import { CalibrationWizard } from "@/components/telemetry/CalibrationWizard";
+import { DynamicDeviceDashboard } from "@/components/telemetry/DynamicDeviceDashboard";
 import {
   ComparisonView,
   EvidenceOperationsView,
@@ -2178,20 +2179,13 @@ function StorageUnitDetail({
           <CalibrationWizard token={token} device={device} role={data.me.role} onChanged={() => setNodeReload((current) => current + 1)} />
         </div>
       ) : <CalibrationWizard token={token} device={device} role={data.me.role} onChanged={() => setNodeReload((current) => current + 1)} />}
-      {readings.length ? (
-        <div className="grid gap-4 xl:grid-cols-2">
-          {profile === "silo_sensor" && hasMetric("grain_temperature") ? <ReadingChart title="Temperatura de grano" readings={readings} metric="grain_temperature" color="#047857" unit=" C" /> : null}
-          {hasMetric("ambient_temperature") ? <ReadingChart title="Temperatura ambiente" readings={readings} metric="ambient_temperature" color="#2563eb" unit=" C" /> : null}
-          {hasMetric("ambient_humidity") ? <ReadingChart title="Humedad ambiente" readings={readings} metric="ambient_humidity" color="#d97706" unit="%" /> : null}
-          {profile === "silo_sensor" && hasMetric("level_percent") ? <ReadingChart title="Nivel estimado del silo" readings={readings} metric="level_percent" color="#047857" unit="%" /> : null}
-          {profile === "silo_sensor" && hasMetric("level_distance_cm") ? <ReadingChart title="Distancia a la superficie" readings={readings} metric="level_distance_cm" color="#0f766e" unit=" cm" /> : null}
-          {profile === "field_sensor" && hasMetric("soil_moisture_percent") ? <ReadingChart title="Humedad del suelo" readings={readings} metric="soil_moisture_percent" color="#047857" unit="%" /> : null}
-          {profile === "field_sensor" && hasMetric("soil_temperature_c") ? <ReadingChart title="Temperatura del suelo" readings={readings} metric="soil_temperature_c" color="#92400e" unit=" C" /> : null}
-          {hasMetric("battery_voltage") ? <ReadingChart title="Voltaje de bateria" readings={readings} metric="battery_voltage" color="#475569" unit=" V" threshold={3.5} /> : null}
-        </div>
-      ) : (
-        <EmptyState title="Sin lecturas para graficar" message="Cuando el dispositivo envie datos, las curvas apareceran aqui." />
-      )}
+      <DynamicDeviceDashboard
+        token={token}
+        deviceId={device.id}
+        role={data.me.role}
+        from={period === "custom" ? (customFrom ? new Date(customFrom).toISOString() : undefined) : periodStart(period)}
+        to={period === "custom" && customTo ? new Date(customTo).toISOString() : undefined}
+      />
       <section className="panel p-5">
         <p className="section-kicker">Trazabilidad</p>
         <h3 className="font-bold text-slate-950">Bitacora reciente</h3>

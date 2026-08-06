@@ -2,7 +2,7 @@ from datetime import datetime
 import math
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class TokenOut(BaseModel):
@@ -282,6 +282,8 @@ class AdminDeviceCreate(BaseModel):
     model_version: str | None = Field(default=None, max_length=80)
     physical_location: str | None = Field(default=None, max_length=255)
     installed_at: datetime | None = None
+    template_code: Literal["SILO_SENSOR_BASE", "SILO_SENSOR_WITH_LEVEL", "CAMPO_SENSOR_BASE"] | None = None
+    template_code: Literal["SILO_SENSOR_BASE", "SILO_SENSOR_WITH_LEVEL", "CAMPO_SENSOR_BASE"] | None = None
     capabilities: list[str] = []
     is_active: bool = True
 
@@ -296,6 +298,7 @@ class AdminDeviceUpdate(BaseModel):
     model_version: str | None = Field(default=None, max_length=80)
     physical_location: str | None = Field(default=None, max_length=255)
     installed_at: datetime | None = None
+    template_code: Literal["SILO_SENSOR_BASE", "SILO_SENSOR_WITH_LEVEL", "CAMPO_SENSOR_BASE"] | None = None
     capabilities: list[str] | None = None
     is_active: bool | None = None
 
@@ -327,6 +330,8 @@ class DeviceOut(BaseModel):
     model_version: str | None = None
     physical_location: str | None = None
     installed_at: datetime | None = None
+    template_code: str | None = None
+    capabilities_version: int = 1
     is_active: bool
     created_at: datetime
     last_seen_at: datetime | None = None
@@ -374,14 +379,31 @@ class SensorReadingCreate(BaseModel):
         return value
 
 
+class IotMetricIn(BaseModel):
+    channel_key: str = Field(min_length=1, max_length=80)
+    metric_code: str = Field(min_length=1, max_length=80)
+    raw_value: float
+    unit: str = Field(min_length=1, max_length=24)
+    quality: Literal["VALID", "SUSPECT", "SENSOR_FAULT", "OUT_OF_RANGE"] = "VALID"
+
+    @field_validator("raw_value")
+    @classmethod
+    def validate_raw_value(cls, value: float) -> float:
+        if not math.isfinite(value):
+            raise ValueError("La metrica debe contener un valor finito.")
+        return value
+
+
 class IotBatchReadingIn(BaseModel):
-    device_id: int
+    device_id: int | str
     boot_id: int
     sequence: int
     sample_counter: int
-    timestamp_utc: int
-    time_quality: int
+    timestamp_utc: int | None = None
+    sampled_at: datetime | None = None
+    time_quality: int | str
     protocol_version: int = 1
+    capabilities_version: int = 1
     sensor_profile: Literal["silo_sensor", "field_sensor"] | None = None
     metric_flags: int | None = None
     grain_temp_c_x100: int | None = None
@@ -392,10 +414,22 @@ class IotBatchReadingIn(BaseModel):
     soil_moisture_raw: int | None = None
     soil_temp_c_x100: int | None = None
     level_distance_cm: float | None = None
-    sensor_status: int
-    firmware_version: int
+    sensor_status: int = 0
+    sensor_status_flags: int | None = None
+    firmware_version: int | str
     rssi_dbm: int | None = None
     snr_db_x10: int | None = None
+    metrics: list[IotMetricIn] = Field(default_factory=list, max_length=32)
+
+    @model_validator(mode="after")
+    def normalize_event_fields(self):
+        if self.timestamp_utc is None and self.sampled_at is None:
+            raise ValueError("La lectura requiere timestamp_utc o sampled_at.")
+        if self.timestamp_utc is None and self.sampled_at is not None:
+            self.timestamp_utc = int(self.sampled_at.timestamp())
+        if self.sensor_status_flags is not None:
+            self.sensor_status = self.sensor_status_flags
+        return self
 
 
 class IotBatchIn(BaseModel):
@@ -403,11 +437,23 @@ class IotBatchIn(BaseModel):
     firmware_version: str | None = Field(default=None, max_length=40)
     sent_at: datetime
     batch_id: str = Field(min_length=1, max_length=120)
-    readings: list[IotBatchReadingIn] = Field(min_length=1, max_length=100)
+    protocol_version: int | None = None
+    readings: list[IotBatchReadingIn] = Field(default_factory=list, max_length=100)
+    events: list[IotBatchReadingIn] = Field(default_factory=list, max_length=100)
+
+    @model_validator(mode="after")
+    def normalize_events(self):
+        if self.readings and self.events:
+            raise ValueError("Usa readings o events, no ambos.")
+        if self.events:
+            self.readings = self.events
+        if not self.readings:
+            raise ValueError("El lote requiere al menos una lectura.")
+        return self
 
 
 class IotBatchResultOut(BaseModel):
-    device_id: int
+    device_id: int | str
     boot_id: int
     sequence: int
     status: Literal[
@@ -416,9 +462,11 @@ class IotBatchResultOut(BaseModel):
         "rejected_invalid",
         "rejected_unknown_device",
         "rejected_unauthorized",
+        "quarantined",
         "temporary_error",
     ]
     detail: str | None = None
+    canonical_status: Literal["ACCEPTED", "DUPLICATE", "REJECTED", "QUARANTINED", "TEMPORARY_ERROR"]
 
 
 class IotBatchOut(BaseModel):
@@ -465,6 +513,132 @@ class DeviceDiagnosticsOut(BaseModel):
     snr_db: float | None = None
     sensor_status: int | None = None
     firmware_version: str | None = None
+
+
+class MetricDefinitionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    numeric_id: int
+    metric_code: str
+    display_name: str
+    description: str
+    canonical_unit: str
+    physical_min: float | None = None
+    physical_max: float | None = None
+    default_decimals: int
+    default_chart_type: str
+    client_visibility: bool
+    is_derived: bool
+    calibration_method: str | None = None
+    alert_supported: bool
+    display_order: int
+    registry_version: int
+
+
+class SensorChannelOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    device_id: int
+    channel_key: str
+    sensor_type: str | None = None
+    hardware_port: str | None = None
+    metric_codes: list[str]
+    canonical_unit: str | None = None
+    is_installed: bool
+    is_enabled: bool
+    is_required: bool
+    is_visible_to_client: bool
+    chart_enabled: bool
+    alert_enabled: bool
+    calibration_required: bool
+    status: str
+    display_name: str
+    display_order: int
+    last_valid_reading_at: datetime | None = None
+    retired_at: datetime | None = None
+    retirement_reason: str | None = None
+
+
+class SensorChannelCreateIn(BaseModel):
+    channel_key: str = Field(pattern=r"^[a-z][a-z0-9_]{2,79}$")
+    sensor_type: str = Field(min_length=2, max_length=80)
+    hardware_port: str = Field(min_length=2, max_length=120)
+    metric_codes: list[str] = Field(min_length=1, max_length=4)
+    is_installed: bool = True
+    is_required: bool = False
+    is_visible_to_client: bool = True
+    chart_enabled: bool = True
+    alert_enabled: bool = True
+    calibration_required: bool = False
+    display_name: str = Field(min_length=2, max_length=120)
+    display_order: int = Field(default=0, ge=0, le=1000)
+
+
+class SensorChannelUpdateIn(BaseModel):
+    hardware_port: str | None = Field(default=None, min_length=2, max_length=120)
+    is_installed: bool | None = None
+    is_enabled: bool | None = None
+    is_visible_to_client: bool | None = None
+    chart_enabled: bool | None = None
+    alert_enabled: bool | None = None
+    display_name: str | None = Field(default=None, min_length=2, max_length=120)
+    display_order: int | None = Field(default=None, ge=0, le=1000)
+    status: Literal[
+        "CONFIGURED_NOT_SEEN",
+        "ACTIVE",
+        "MISSING",
+        "SENSOR_FAULT",
+        "DISABLED",
+        "RETIRED",
+    ] | None = None
+    reason: str | None = Field(default=None, max_length=500)
+
+
+class DashboardMetricOut(MetricDefinitionOut):
+    channel_id: int
+    channel_key: str
+    chart_enabled: bool
+    client_visible: bool
+    display_name_override: str | None = None
+    chart_type_override: str | None = None
+
+
+class DeviceDashboardSchemaOut(BaseModel):
+    registry_version: int
+    capabilities_version: int
+    device_id: int
+    device_external_id: str
+    device_name: str
+    device_profile: Literal["silo_sensor", "field_sensor"]
+    template_code: str | None = None
+    channels: list[SensorChannelOut]
+    metrics: list[DashboardMetricOut]
+
+
+class MetricReadingPointOut(BaseModel):
+    id: int | None = None
+    telemetry_event_id: int | None = None
+    device_id: int
+    channel_key: str
+    metric_code: str
+    raw_value: float | None = None
+    calibrated_value: float | None = None
+    value: float | None = None
+    unit: str
+    quality_status: str
+    calibration_version: int | None = None
+    sampled_at: datetime
+    source: Literal["normalized", "legacy_fallback"]
+
+
+class MetricReadingsOut(BaseModel):
+    device_id: int
+    channel_key: str
+    metric_code: str
+    resolution: str
+    reconciliation_approved: bool = False
+    points: list[MetricReadingPointOut]
 
 
 class DeviceCalibrationOut(BaseModel):

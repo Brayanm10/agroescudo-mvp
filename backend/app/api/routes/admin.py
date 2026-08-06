@@ -9,7 +9,7 @@ from app.api.deps import require_role
 from app.core.config import settings
 from app.core.security import hash_password, hash_secret
 from app.db.session import get_db
-from app.models import Company, Device, DeviceChannel, NotificationDelivery, NotificationPreference, Site, StorageUnit, User, utc_now
+from app.models import Company, Device, NotificationDelivery, NotificationPreference, Site, StorageUnit, User, utc_now
 from app.schemas import (
     AdminDeviceCreate,
     AdminDeviceSecretOut,
@@ -35,46 +35,13 @@ from app.schemas import (
 from app.services.notifications import create_admin_test_delivery, upsert_preference
 from app.services.audit import record_audit_event
 from app.services.calibration import create_calibration
+from app.services.device_capabilities import sync_device_channels
 from app.services.telemetry import validate_device_unit_compatibility
 
 router = APIRouter(prefix="/admin", dependencies=[Depends(require_role("admin"))])
 
-_CAPABILITY_UNITS = {
-    "grain_temperature": "C",
-    "ambient_temperature": "C",
-    "ambient_humidity": "%",
-    "battery_voltage": "V",
-    "level_percent": "%",
-    "soil_moisture_percent": "%",
-    "soil_temperature_c": "C",
-    "signal_quality": "dBm",
-}
-
-
 def _sync_device_channels(db: Session, device: Device, capabilities: list[str]) -> None:
-    existing = {
-        item.code: item
-        for item in db.scalars(select(DeviceChannel).where(DeviceChannel.device_id == device.id)).all()
-    }
-    requested = {item.strip().lower() for item in capabilities if item.strip()}
-    for code, channel in existing.items():
-        channel.is_active = code in requested
-    for code in requested:
-        if code in existing:
-            existing[code].is_active = True
-            continue
-        db.add(
-            DeviceChannel(
-                device_id=device.id,
-                name=code.replace("_", " ").title(),
-                code=code,
-                metric_type=code,
-                unit=_CAPABILITY_UNITS.get(code),
-                adc_min=0 if code == "soil_moisture_percent" else None,
-                adc_max=4095 if code == "soil_moisture_percent" else None,
-                is_active=True,
-            )
-        )
+    sync_device_channels(db, device, capabilities=capabilities)
 
 
 @router.get("/integrations/status")
@@ -276,12 +243,18 @@ def create_admin_device(payload: AdminDeviceCreate, db: Session = Depends(get_db
         model_version=payload.model_version,
         physical_location=payload.physical_location,
         installed_at=payload.installed_at,
+        template_code=payload.template_code,
         token_hash=hash_secret(api_key),
         is_active=payload.is_active,
     )
     db.add(device)
     db.flush()
-    _sync_device_channels(db, device, payload.capabilities)
+    sync_device_channels(
+        db,
+        device,
+        template_code=payload.template_code,
+        capabilities=payload.capabilities,
+    )
     db.commit()
     db.refresh(device)
     setattr(device, "api_key", api_key)
@@ -296,6 +269,7 @@ def update_admin_device(device_id: int, payload: AdminDeviceUpdate, db: Session 
         if db.scalar(select(Device).where(Device.external_id == values["external_id"], Device.id != device.id)) is not None:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Ya existe un sensor con ese device_id.")
     capabilities = values.pop("capabilities", None)
+    template_code = values.pop("template_code", None)
     target_unit = db.get(StorageUnit, values.get("storage_unit_id", device.storage_unit_id))
     target_type = values.get("device_type", device.device_type)
     if target_unit is None:
@@ -311,8 +285,13 @@ def update_admin_device(device_id: int, payload: AdminDeviceUpdate, db: Session 
         device.storage_unit_id = unit.id
         values.pop("storage_unit_id")
     _apply_values(device, values)
-    if capabilities is not None:
-        _sync_device_channels(db, device, capabilities)
+    if capabilities is not None or template_code is not None:
+        sync_device_channels(
+            db,
+            device,
+            template_code=template_code,
+            capabilities=capabilities,
+        )
     db.commit()
     db.refresh(device)
     return device

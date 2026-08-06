@@ -1,5 +1,8 @@
 # AgroEscudo
 
+Manual de firmware Arduino IDE para gateway, SiloSensor y CampoSensor:
+`docs/MANUAL_GATEWAY_SILO_CAMPO_ARDUINO_IDE.md`.
+
 AgroEscudo es una plataforma agri-tech B2B para monitoreo de riesgo operativo y postcosecha en silos, galpones, centros de acopio, molinos y agroindustrias.
 
 El repositorio incluye:
@@ -60,6 +63,11 @@ Frontend (`frontend/.env.local`, copiar desde `frontend/.env.example`):
 - [Arquitectura del sistema](docs/ARQUITECTURA_SISTEMA.md)
 - [Arquitectura IoT](docs/ARQUITECTURA_IOT.md)
 - [Protocolo LoRa](docs/PROTOCOLO_LORA.md)
+- [Protocolo LoRa P1.5](docs/PROTOCOLO_LORA_P1_5.md)
+- [Registro canonico de metricas P1.5](docs/METRIC_REGISTRY_P1_5.md)
+- [Cableado SiloSensor, CampoSensor y gateway](docs/WIRING_P1_5.md)
+- [Auditoria de mapeo historico](docs/DATA_MAPPING_AUDIT.md)
+- [Conciliacion de migracion P1.5](docs/MIGRATION_RECONCILIATION_REPORT.md)
 - [Telemetria por nodo y nivel ultrasonico](docs/TELEMETRIA_POR_NODO_Y_NIVEL.md)
 - [Calibracion versionada y productos](docs/CALIBRACION_VERSIONADA_Y_PRODUCTOS.md)
 - [Operacion P1 de primeros pilotos](docs/P1_OPERACION_PRIMEROS_PILOTOS.md)

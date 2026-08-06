@@ -30,6 +30,7 @@ from app.api.routes import (
     pilots,
     readings,
     reports,
+    telemetry,
     service_cases,
     sites,
     storage_units,
@@ -55,6 +56,7 @@ app.include_router(sites.router, prefix="/api", tags=["sites"])
 app.include_router(storage_units.router, prefix="/api", tags=["storage-units"])
 app.include_router(device_qr.router, prefix="/api", tags=["device-qr"])
 app.include_router(devices.router, prefix="/api", tags=["devices"])
+app.include_router(telemetry.router, prefix="/api", tags=["telemetry"])
 app.include_router(iot.router, prefix="/api", tags=["iot"])
 app.include_router(readings.router, prefix="/api", tags=["readings"])
 app.include_router(alerts.router, prefix="/api", tags=["alerts"])

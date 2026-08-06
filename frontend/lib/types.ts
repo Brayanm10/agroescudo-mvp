@@ -85,12 +85,98 @@ export type Device = {
   model_version?: string | null;
   physical_location?: string | null;
   installed_at?: string | null;
+  template_code?: string | null;
+  capabilities_version?: number;
   empty_distance_cm?: number | null;
   full_distance_cm?: number | null;
   is_active: boolean;
   created_at: string;
   last_seen_at: string | null;
   updated_at: string | null;
+};
+
+export type SensorChannel = {
+  id: number;
+  device_id: number;
+  channel_key: string;
+  sensor_type: string | null;
+  hardware_port: string | null;
+  metric_codes: string[];
+  canonical_unit: string | null;
+  is_installed: boolean;
+  is_enabled: boolean;
+  is_required: boolean;
+  is_visible_to_client: boolean;
+  chart_enabled: boolean;
+  alert_enabled: boolean;
+  calibration_required: boolean;
+  status: "CONFIGURED_NOT_SEEN" | "ACTIVE" | "MISSING" | "SENSOR_FAULT" | "DISABLED" | "RETIRED" | string;
+  display_name: string;
+  display_order: number;
+  last_valid_reading_at: string | null;
+  retired_at: string | null;
+  retirement_reason: string | null;
+};
+
+export type DashboardMetric = {
+  numeric_id: number;
+  metric_code: string;
+  display_name: string;
+  description: string;
+  canonical_unit: string;
+  physical_min: number | null;
+  physical_max: number | null;
+  default_decimals: number;
+  default_chart_type: string;
+  client_visibility: boolean;
+  is_derived: boolean;
+  calibration_method: string | null;
+  alert_supported: boolean;
+  display_order: number;
+  registry_version: number;
+  channel_id: number;
+  channel_key: string;
+  chart_enabled: boolean;
+  client_visible: boolean;
+  display_name_override: string | null;
+  chart_type_override: string | null;
+};
+
+export type DeviceDashboardSchema = {
+  registry_version: number;
+  capabilities_version: number;
+  device_id: number;
+  device_external_id: string;
+  device_name: string;
+  device_profile: "silo_sensor" | "field_sensor";
+  template_code: string | null;
+  channels: SensorChannel[];
+  metrics: DashboardMetric[];
+};
+
+export type CanonicalMetricPoint = {
+  id: number | null;
+  telemetry_event_id: number | null;
+  device_id: number;
+  channel_key: string;
+  metric_code: string;
+  raw_value: number | null;
+  calibrated_value: number | null;
+  value: number | null;
+  unit: string;
+  quality_status: string;
+  calibration_version: number | null;
+  sampled_at: string;
+  source: "normalized" | "legacy_fallback";
+};
+
+export type CanonicalMetricSeries = {
+  device_id: number;
+  channel_key: string;
+  metric_code: string;
+  resolution: string;
+  reconciliation_approved: boolean;
+  points: CanonicalMetricPoint[];
 };
 
 export type DeviceWithApiKey = Device & {

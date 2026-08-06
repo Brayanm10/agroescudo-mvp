@@ -28,6 +28,7 @@ from app.schemas import (
 from app.services.audit import record_audit_event
 from app.services.calibration import create_calibration, preview_calibration
 from app.services.comparison import compare_device_periods
+from app.services.device_capabilities import sync_device_channels
 from app.services.thresholds import get_device_thresholds, upsert_device_thresholds
 from app.services.telemetry import reading_out_for_user, sensor_profile, validate_device_unit_compatibility
 
@@ -90,10 +91,18 @@ def create_device(
         model_version=payload.model_version,
         physical_location=payload.physical_location,
         installed_at=payload.installed_at,
+        template_code=payload.template_code,
         token_hash=hash_secret(payload.device_token),
         is_active=payload.is_active,
     )
     db.add(device)
+    db.flush()
+    sync_device_channels(
+        db,
+        device,
+        template_code=payload.template_code,
+        capabilities=payload.capabilities,
+    )
     db.commit()
     db.refresh(device)
     return device

@@ -1,0 +1,87 @@
+#pragma once
+
+#include <Arduino.h>
+
+// Registry P1.5 v1. Numeric IDs are immutable after field deployment.
+enum AgroMetricId : uint8_t {
+  AGRO_METRIC_GRAIN_TEMPERATURE_C = 1,
+  AGRO_METRIC_AMBIENT_TEMPERATURE_C = 2,
+  AGRO_METRIC_AMBIENT_RELATIVE_HUMIDITY_PCT = 3,
+  AGRO_METRIC_SOIL_MOISTURE_RAW = 4,
+  AGRO_METRIC_SOIL_MOISTURE_PCT = 5,
+  AGRO_METRIC_LEVEL_DISTANCE_MM = 6,
+  AGRO_METRIC_LEVEL_PERCENT = 7,
+  AGRO_METRIC_BATTERY_VOLTAGE_MV = 8,
+  AGRO_METRIC_BATTERY_PERCENT = 9,
+  AGRO_METRIC_SIGNAL_RSSI_DBM = 10,
+  AGRO_METRIC_SIGNAL_SNR_DB = 11,
+  AGRO_METRIC_DEVICE_INTERNAL_TEMPERATURE_C = 12,
+  AGRO_METRIC_GATEWAY_QUEUE_SIZE = 13,
+  AGRO_METRIC_SENSOR_STATUS_FLAGS = 14,
+  AGRO_METRIC_TIME_QUALITY = 15,
+};
+
+enum AgroChannelId : uint8_t {
+  AGRO_CHANNEL_GRAIN_TEMP_1 = 1,
+  AGRO_CHANNEL_AMBIENT_TEMP_1 = 2,
+  AGRO_CHANNEL_AMBIENT_RH_1 = 3,
+  AGRO_CHANNEL_SOIL_MOISTURE_1 = 4,
+  AGRO_CHANNEL_LEVEL_ULTRASONIC_1 = 5,
+  AGRO_CHANNEL_BATTERY_1 = 6,
+};
+
+inline const char* agroMetricCode(uint8_t metricId) {
+  switch (metricId) {
+    case AGRO_METRIC_GRAIN_TEMPERATURE_C: return "GRAIN_TEMPERATURE_C";
+    case AGRO_METRIC_AMBIENT_TEMPERATURE_C: return "AMBIENT_TEMPERATURE_C";
+    case AGRO_METRIC_AMBIENT_RELATIVE_HUMIDITY_PCT: return "AMBIENT_RELATIVE_HUMIDITY_PCT";
+    case AGRO_METRIC_SOIL_MOISTURE_RAW: return "SOIL_MOISTURE_RAW";
+    case AGRO_METRIC_SOIL_MOISTURE_PCT: return "SOIL_MOISTURE_PCT";
+    case AGRO_METRIC_LEVEL_DISTANCE_MM: return "LEVEL_DISTANCE_MM";
+    case AGRO_METRIC_LEVEL_PERCENT: return "LEVEL_PERCENT";
+    case AGRO_METRIC_BATTERY_VOLTAGE_MV: return "BATTERY_VOLTAGE_MV";
+    case AGRO_METRIC_BATTERY_PERCENT: return "BATTERY_PERCENT";
+    case AGRO_METRIC_SIGNAL_RSSI_DBM: return "SIGNAL_RSSI_DBM";
+    case AGRO_METRIC_SIGNAL_SNR_DB: return "SIGNAL_SNR_DB";
+    case AGRO_METRIC_DEVICE_INTERNAL_TEMPERATURE_C: return "DEVICE_INTERNAL_TEMPERATURE_C";
+    case AGRO_METRIC_GATEWAY_QUEUE_SIZE: return "GATEWAY_QUEUE_SIZE";
+    case AGRO_METRIC_SENSOR_STATUS_FLAGS: return "SENSOR_STATUS_FLAGS";
+    case AGRO_METRIC_TIME_QUALITY: return "TIME_QUALITY";
+    default: return nullptr;
+  }
+}
+
+inline const char* agroChannelKey(uint8_t channelId) {
+  switch (channelId) {
+    case AGRO_CHANNEL_GRAIN_TEMP_1: return "grain_temp_1";
+    case AGRO_CHANNEL_AMBIENT_TEMP_1: return "ambient_temp_1";
+    case AGRO_CHANNEL_AMBIENT_RH_1: return "ambient_rh_1";
+    case AGRO_CHANNEL_SOIL_MOISTURE_1: return "soil_moisture_1";
+    case AGRO_CHANNEL_LEVEL_ULTRASONIC_1: return "level_ultrasonic_1";
+    case AGRO_CHANNEL_BATTERY_1: return "battery_1";
+    default: return nullptr;
+  }
+}
+
+inline const char* agroCanonicalUnit(uint8_t metricId) {
+  switch (metricId) {
+    case AGRO_METRIC_GRAIN_TEMPERATURE_C:
+    case AGRO_METRIC_AMBIENT_TEMPERATURE_C:
+    case AGRO_METRIC_DEVICE_INTERNAL_TEMPERATURE_C:
+      return "degC";
+    case AGRO_METRIC_AMBIENT_RELATIVE_HUMIDITY_PCT:
+    case AGRO_METRIC_SOIL_MOISTURE_PCT:
+    case AGRO_METRIC_LEVEL_PERCENT:
+    case AGRO_METRIC_BATTERY_PERCENT:
+      return "percent";
+    case AGRO_METRIC_SOIL_MOISTURE_RAW: return "ADC_RAW";
+    case AGRO_METRIC_LEVEL_DISTANCE_MM: return "mm";
+    case AGRO_METRIC_BATTERY_VOLTAGE_MV: return "mV";
+    case AGRO_METRIC_SIGNAL_RSSI_DBM: return "dBm";
+    case AGRO_METRIC_SIGNAL_SNR_DB: return "dB";
+    case AGRO_METRIC_GATEWAY_QUEUE_SIZE: return "count";
+    case AGRO_METRIC_SENSOR_STATUS_FLAGS: return "flags";
+    case AGRO_METRIC_TIME_QUALITY: return "code";
+    default: return nullptr;
+  }
+}
