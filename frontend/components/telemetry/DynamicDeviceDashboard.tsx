@@ -45,6 +45,16 @@ export function DynamicDeviceDashboard({
         const nextSchema = await getDeviceDashboardSchema(token, deviceId, controller.signal);
         if (controller.signal.aborted) return;
         setSchema(nextSchema);
+        if (nextSchema.metrics.length === 0) {
+          const readings = await getDeviceReadings(token, deviceId, controller.signal, {
+            from,
+            to,
+            limit: 2000,
+            order: "desc"
+          });
+          if (!controller.signal.aborted) setLegacyReadings(readings);
+          return;
+        }
         const visible = nextSchema.metrics.filter((metric) => metric.chart_enabled);
         const loaded = await Promise.all(
           visible.map(async (metric) => [
@@ -92,7 +102,21 @@ export function DynamicDeviceDashboard({
   );
   if (loading) return <LoadingState label="Cargando sensores y gráficas del nodo" />;
   if (error) return <ErrorState message={error} onRetry={() => setReload((value) => value + 1)} />;
-  if (legacyReadings) return <LegacyDeviceDashboard readings={legacyReadings} />;
+  if (legacyReadings) {
+    return (
+      <section className="space-y-4">
+        <LegacyDeviceDashboard readings={legacyReadings} />
+        {schema && (role === "admin" || role === "technician") ? (
+          <SensorChannelManager
+            token={token}
+            deviceId={deviceId}
+            schema={schema}
+            onChanged={() => setReload((value) => value + 1)}
+          />
+        ) : null}
+      </section>
+    );
+  }
   if (!schema) return null;
 
   const visibleMetrics = schema.metrics.filter((metric) => metric.chart_enabled);
