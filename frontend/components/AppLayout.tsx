@@ -30,7 +30,7 @@ const pageCopy: Record<ViewKey, { eyebrow: string; title: string }> = {
   reports: { eyebrow: "Analisis", title: "Reportes" },
   users: { eyebrow: "Administracion", title: "Usuarios y accesos" },
   notifications: { eyebrow: "Administracion", title: "Configuracion" },
-  support: { eyebrow: "Soporte", title: "Soporte operativo" },
+  support: { eyebrow: "Asistente", title: "AgroAsistente operativo" },
   profile: { eyebrow: "Cuenta", title: "Mi perfil" },
   changePassword: { eyebrow: "Cuenta", title: "Cambiar contrasena" },
   preferences: { eyebrow: "Cuenta", title: "Preferencias" }
@@ -59,12 +59,13 @@ export function AppLayout({
     <div className="min-h-screen bg-field lg:flex">
       <Sidebar current={current} onChange={onChange} allowedViews={allowedViews} role={user.role} />
       <div className="min-w-0 flex-1">
-        <header className="sticky top-0 z-10 border-b border-slate-200/80 bg-white/90 px-4 py-4 backdrop-blur-xl lg:px-8">
+        <header className="sticky top-0 z-10 border-b border-slate-200/80 bg-white/90 px-4 py-3 backdrop-blur-xl lg:px-8 lg:py-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div>
+            <div className="hidden lg:block">
               <p className="section-kicker">{copy.eyebrow}</p>
               <h1 className="text-xl font-black tracking-tight text-slate-950">{copy.title}</h1>
             </div>
+            <p className="min-w-0 truncate text-sm font-black text-slate-800 lg:hidden">{copy.title}</p>
             <div className="flex items-center gap-2">
               <AccountMenu user={user} onNavigate={onChange} onLogout={onLogout} />
               <button
@@ -78,7 +79,7 @@ export function AppLayout({
             </div>
           </div>
         </header>
-        <main className="mx-auto max-w-[1500px] px-4 py-6 lg:px-8">{children}</main>
+        <main className="mx-auto max-w-[1500px] px-4 py-4 lg:px-8 lg:py-6">{children}</main>
       </div>
     </div>
   );

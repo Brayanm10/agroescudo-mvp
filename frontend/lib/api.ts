@@ -709,19 +709,36 @@ export function getAiAlertRecommendation(token: string, alertId: number) {
   return request<AiAlertRecommendation>(`/api/ai/alerts/${alertId}/recommendation`, { token });
 }
 
-export function askAgroAssistant(token: string, message: string, storageUnitId?: number | null) {
-  return request<{
-    source: string;
-    answer: string;
-    facts: string[];
-    interpretation: string;
-    recommended_actions: string[];
-    conversation_id: number;
-  }>("/api/agro-assistant/messages", {
-    token,
-    method: "POST",
-    body: { message, storage_unit_id: storageUnitId ?? null }
-  });
+export async function askAgroAssistant(token: string, message: string, storageUnitId?: number | null) {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 15000);
+  try {
+    return await request<{
+      source: string;
+      answer: string;
+      facts: string[];
+      interpretation: string;
+      recommended_actions: string[];
+      conversation_id: number;
+    }>("/api/agro-assistant/messages", {
+      token,
+      method: "POST",
+      body: { message, storage_unit_id: storageUnitId ?? null },
+      signal: controller.signal
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new ApiError(
+        "El asistente en linea tardo demasiado. Se usara el analisis local disponible.",
+        0,
+        "/api/agro-assistant/messages",
+        apiUrlFor("/api/agro-assistant/messages")
+      );
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timeout);
+  }
 }
 
 export function createAdminCompany(

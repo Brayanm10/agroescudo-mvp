@@ -1,7 +1,7 @@
 from sqlalchemy import select
 
 from app.core.security import verify_password
-from app.models import EducationArticle, StorageUnit, User
+from app.models import Device, EducationArticle, SensorReading, StorageUnit, User, utc_now
 
 
 def _auth_headers(client, email="admin@agroescudo.local", password="admin123"):
@@ -173,3 +173,36 @@ def test_agro_assistant_rules_response(client, db_session):
     assert body["source"] == "rules"
     assert body["facts"]
     assert body["recommended_actions"]
+
+
+def test_agro_assistant_accepts_partial_field_sensor_readings(client, db_session):
+    storage_unit = db_session.scalar(select(StorageUnit))
+    device = db_session.scalar(select(Device).where(Device.storage_unit_id == storage_unit.id))
+    db_session.add(
+        SensorReading(
+            company_id=storage_unit.company_id,
+            site_id=storage_unit.site_id,
+            storage_unit_id=storage_unit.id,
+            device_id=device.id,
+            grain_temperature=None,
+            ambient_temperature=27.4,
+            ambient_humidity=78.2,
+            battery_voltage=None,
+            signal_quality=None,
+            soil_moisture_percent=46.0,
+            timestamp=utc_now(),
+        )
+    )
+    db_session.commit()
+
+    response = client.post(
+        "/api/agro-assistant/messages",
+        headers=_auth_headers(client, "cliente@silo-demo.local", "cliente123"),
+        json={"storage_unit_id": storage_unit.id, "message": "Que debo revisar hoy?"},
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert any("Humedad ambiente: 78.2" in fact for fact in body["facts"])
+    assert any("Humedad de suelo: 46.0" in fact for fact in body["facts"])
+    assert all("None" not in fact for fact in body["facts"])

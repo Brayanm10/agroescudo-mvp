@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useMemo, useState } from "react";
-import { Bot, LoaderCircle, Send, UserCircle } from "lucide-react";
+import { Bot, CheckCircle2, Database, LoaderCircle, RefreshCw, Send, UserCircle, WifiOff } from "lucide-react";
 import { formatDateTime, formatNumber } from "@/lib/format";
 import { askAgroAssistant } from "@/lib/api";
 import type { AppData, ViewKey } from "@/lib/types";
@@ -10,6 +10,10 @@ type ChatMessage = {
   id: number;
   role: "assistant" | "user";
   text: string;
+  facts?: string[];
+  actions?: string[];
+  source?: "online" | "local";
+  notice?: string;
 };
 
 const suggestions = [
@@ -32,6 +36,8 @@ export function SupportChatbot({
 }) {
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
+  const [selectedUnitId, setSelectedUnitId] = useState<number | null>(null);
+  const [lastFailedQuestion, setLastFailedQuestion] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>(() => [
     {
       id: 1,
@@ -39,7 +45,16 @@ export function SupportChatbot({
       text: openingMessage(data)
     }
   ]);
-  const context = useMemo(() => buildSupportContext(data), [data]);
+  const scopedData = useMemo(() => dataForStorageUnit(data, selectedUnitId), [data, selectedUnitId]);
+  const context = useMemo(() => buildSupportContext(scopedData), [scopedData]);
+
+  function selectStorageUnit(value: string) {
+    const nextId = value ? Number(value) : null;
+    const nextData = dataForStorageUnit(data, nextId);
+    setSelectedUnitId(nextId);
+    setLastFailedQuestion(null);
+    setMessages([{ id: Date.now(), role: "assistant", text: openingMessage(nextData), source: "local" }]);
+  }
 
   async function submit(event?: FormEvent<HTMLFormElement>, forcedQuestion?: string) {
     event?.preventDefault();
@@ -51,19 +66,30 @@ export function SupportChatbot({
       userMessage
     ]);
     setInput("");
+    setLastFailedQuestion(null);
     setBusy(true);
     try {
-      const response = await askAgroAssistant(token, question);
-      const answer = [
-        response.answer,
-        response.facts.length ? `\nDatos verificados:\n${response.facts.map((fact) => `- ${fact}`).join("\n")}` : ""
-      ].filter(Boolean).join("");
-      setMessages((current) => [...current, { id: Date.now() + 1, role: "assistant", text: answer }]);
-    } catch {
-      const fallback = answerQuestion(question, data, context);
+      const response = await askAgroAssistant(token, question, selectedUnitId);
+      setMessages((current) => [...current, {
+        id: Date.now() + 1,
+        role: "assistant",
+        text: response.answer,
+        facts: response.facts,
+        actions: response.recommended_actions,
+        source: "online"
+      }]);
+    } catch (cause) {
+      const fallback = answerQuestion(question, scopedData, context);
+      setLastFailedQuestion(question);
       setMessages((current) => [
         ...current,
-        { id: Date.now() + 1, role: "assistant", text: `${fallback}\n\nEl servicio avanzado no esta disponible; respuesta generada con reglas locales.` }
+        {
+          id: Date.now() + 1,
+          role: "assistant",
+          text: fallback,
+          source: "local",
+          notice: offlineNotice(cause)
+        }
       ]);
     } finally {
       setBusy(false);
@@ -75,27 +101,44 @@ export function SupportChatbot({
   }
 
   return (
-    <section className="panel overflow-hidden">
-      <div className="border-b border-slate-200 bg-gradient-to-br from-emerald-50 to-white p-5">
-        <div className="flex items-start justify-between gap-4">
+    <section className="overflow-hidden rounded-panel border border-slate-200 bg-white shadow-panel">
+      <div className="border-b border-slate-200 bg-gradient-to-br from-emerald-50 via-white to-white p-4 sm:p-6">
+        <div className="grid gap-5 lg:grid-cols-[1fr_300px] lg:items-end">
           <div>
-            <p className="section-kicker">Chat de ayuda</p>
-            <h2 className="section-title">Asistente operativo AgroEscudo</h2>
+            <div className="flex items-center gap-3">
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-700 text-white shadow-soft">
+                <Bot size={22} aria-hidden="true" />
+              </div>
+              <div>
+                <p className="section-kicker">Consulta operativa</p>
+                <h2 className="text-xl font-black text-slate-950 sm:text-2xl">AgroAsistente</h2>
+              </div>
+            </div>
             <p className="section-subtitle">
-              Responde con reglas del sistema y datos visibles para tu rol. No inventa datos ni diagnostica hongos.
+              Analiza alertas, lecturas, conectividad y procedimientos visibles para tu rol. No inventa datos ni reemplaza una inspeccion tecnica.
             </p>
           </div>
-          <div className="rounded-2xl bg-emerald-700 p-3 text-white shadow-soft">
-            <Bot size={24} aria-hidden="true" />
-          </div>
+          <label className="block text-xs font-black uppercase tracking-[0.12em] text-slate-500">
+            Contexto de consulta
+            <select className="input mt-2 bg-white text-sm normal-case tracking-normal" value={selectedUnitId ?? ""} onChange={(event) => selectStorageUnit(event.target.value)}>
+              <option value="">Toda mi operacion</option>
+              {data.storageUnits.map((unit) => <option key={unit.id} value={unit.id}>{unit.name}</option>)}
+            </select>
+          </label>
         </div>
-        <div className="mt-4 flex flex-wrap gap-2">
+        <div className="mt-5 grid grid-cols-2 gap-2 lg:grid-cols-4">
+          <ContextMetric label="Unidades" value={String(context.storageUnits)} />
+          <ContextMetric label="Alertas activas" value={String(context.activeAlerts)} critical={context.criticalAlerts > 0} />
+          <ContextMetric label="Criticas" value={String(context.criticalAlerts)} critical={context.criticalAlerts > 0} />
+          <ContextMetric label="Sin conexion" value={String(context.disconnectedDevices)} warning={context.disconnectedDevices > 0} />
+        </div>
+        <div className="mt-4 flex gap-2 overflow-x-auto pb-1 sm:flex-wrap">
           {suggestions.map((item) => (
             <button
               key={item}
               type="button"
               onClick={() => submit(undefined, item)}
-              className="rounded-full border border-emerald-100 bg-white px-3 py-1.5 text-xs font-bold text-emerald-800 shadow-soft transition hover:bg-emerald-50"
+              className="shrink-0 rounded-full border border-emerald-100 bg-white px-3 py-1.5 text-xs font-bold text-emerald-800 shadow-soft transition hover:border-emerald-300 hover:bg-emerald-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600"
             >
               {item}
             </button>
@@ -103,7 +146,7 @@ export function SupportChatbot({
         </div>
       </div>
 
-      <div className="max-h-[430px] space-y-3 overflow-y-auto bg-slate-50/80 p-5">
+      <div className="min-h-[300px] max-h-[520px] space-y-4 overflow-y-auto bg-slate-50/80 p-4 sm:p-6" aria-live="polite">
         {messages.map((message) => (
           <div key={message.id} className={`flex gap-3 ${message.role === "user" ? "justify-end" : "justify-start"}`}>
             {message.role === "assistant" ? (
@@ -119,6 +162,28 @@ export function SupportChatbot({
               }`}
             >
               <p className="whitespace-pre-line">{message.text}</p>
+              {message.facts?.length ? (
+                <div className="mt-3 border-t border-slate-100 pt-3">
+                  <p className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.12em] text-emerald-800"><Database size={13} />Datos verificados</p>
+                  <ul className="mt-2 space-y-1.5 text-xs leading-5 text-slate-600">
+                    {message.facts.map((fact) => <li key={fact}>- {fact}</li>)}
+                  </ul>
+                </div>
+              ) : null}
+              {message.actions?.length ? (
+                <div className="mt-3 rounded-lg bg-emerald-50 p-3">
+                  <p className="text-[10px] font-black uppercase tracking-[0.12em] text-emerald-800">Acciones recomendadas</p>
+                  <ul className="mt-2 space-y-1.5 text-xs font-semibold leading-5 text-emerald-950">
+                    {message.actions.map((action) => <li key={action} className="flex gap-2"><CheckCircle2 className="mt-0.5 shrink-0" size={13} />{action}</li>)}
+                  </ul>
+                </div>
+              ) : null}
+              {message.notice ? (
+                <p className="mt-3 flex items-start gap-2 rounded-lg bg-amber-50 p-2.5 text-xs font-semibold leading-5 text-amber-900">
+                  <WifiOff className="mt-0.5 shrink-0" size={14} />
+                  Respuesta local disponible. {message.notice}
+                </p>
+              ) : null}
             </div>
             {message.role === "user" ? (
               <div className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-200 text-slate-600">
@@ -139,14 +204,19 @@ export function SupportChatbot({
             </>
           ) : null}
         </div>
-        <form onSubmit={submit} className="flex gap-2">
+        {lastFailedQuestion && !busy ? (
+          <button type="button" onClick={() => submit(undefined, lastFailedQuestion)} className="mb-3 inline-flex items-center gap-2 text-xs font-black text-emerald-800 hover:text-emerald-950">
+            <RefreshCw size={14} /> Reintentar respuesta en linea
+          </button>
+        ) : null}
+        <form onSubmit={submit} className="grid gap-2 sm:grid-cols-[1fr_auto]">
           <input
             value={input}
             onChange={(event) => setInput(event.target.value)}
             className="input"
             placeholder="Escribe una pregunta operativa..."
           />
-          <button type="submit" className="btn-primary shrink-0" disabled={!input.trim() || busy}>
+          <button type="submit" className="btn-primary min-w-36 shrink-0 justify-center" disabled={!input.trim() || busy}>
             {busy ? <LoaderCircle className="mr-2 animate-spin" size={16} aria-hidden="true" /> : <Send className="mr-2" size={16} aria-hidden="true" />}
             {busy ? "Analizando..." : "Enviar"}
           </button>
@@ -154,6 +224,30 @@ export function SupportChatbot({
       </div>
     </section>
   );
+}
+
+function ContextMetric({ label, value, critical = false, warning = false }: { label: string; value: string; critical?: boolean; warning?: boolean }) {
+  const tone = critical ? "border-red-200 bg-red-50 text-red-800" : warning ? "border-amber-200 bg-amber-50 text-amber-800" : "border-emerald-100 bg-white text-emerald-900";
+  return (
+    <div className={`rounded-xl border px-3 py-2.5 ${tone}`}>
+      <p className="text-[10px] font-black uppercase tracking-[0.12em] opacity-70">{label}</p>
+      <p className="mt-1 text-xl font-black">{value}</p>
+    </div>
+  );
+}
+
+function dataForStorageUnit(data: AppData, storageUnitId: number | null): AppData {
+  if (storageUnitId === null) return data;
+  return {
+    ...data,
+    storageUnits: data.storageUnits.filter((unit) => unit.id === storageUnitId),
+    devices: data.devices.filter((device) => device.storage_unit_id === storageUnitId),
+    readings: data.readings.filter((reading) => reading.storage_unit_id === storageUnitId),
+    alerts: data.alerts.filter((alert) => alert.storage_unit_id === storageUnitId),
+    activeAlerts: data.activeAlerts.filter((alert) => alert.storage_unit_id === storageUnitId),
+    logs: data.logs.filter((log) => log.storage_unit_id === storageUnitId),
+    insights: data.insights.filter((insight) => insight.storage_unit_id === storageUnitId)
+  };
 }
 
 function openingMessage(data: AppData) {
@@ -297,4 +391,12 @@ function normalize(value: string) {
 
 function matches(value: string, keywords: string[]) {
   return keywords.some((keyword) => value.includes(keyword));
+}
+
+function offlineNotice(cause: unknown) {
+  const message = cause instanceof Error ? cause.message : "";
+  if (message.toLowerCase().includes("tardo demasiado")) {
+    return "El servidor esta iniciando o respondio lentamente. Puedes reintentar la consulta en linea.";
+  }
+  return "No fue posible consultar el servicio en linea. Se uso el analisis local con los datos ya cargados.";
 }

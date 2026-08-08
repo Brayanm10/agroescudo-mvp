@@ -2621,31 +2621,55 @@ function MaintenanceView({ data, token, onChanged, canCreateLog }: { data: AppDa
 
 function SupportView({ data, token, onNavigate }: { data: AppData; token: string; onNavigate: (view: ViewKey) => void }) {
   const critical = data.activeAlerts.filter((alert) => alert.severity === "critical");
+  const offline = disconnectedDevices(data);
+  const latest = data.readings[0] ?? null;
   return (
     <section className="space-y-5">
       <div>
-        <p className="section-kicker">Soporte AgroEscudo</p>
-        <h2 className="section-title">Acompanamiento operativo</h2>
-        <p className="section-subtitle">Guia rapida para interpretar alertas y coordinar acciones con el equipo tecnico.</p>
+        <p className="section-kicker">Centro de consulta</p>
+        <h2 className="section-title">Asistente y ayuda operativa</h2>
+        <p className="section-subtitle">Consulta el estado visible de tu operacion y recibe pasos concretos para alertas, sensores, reportes y mantenimiento.</p>
       </div>
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <div className="panel p-5">
-          <Headphones className="text-emerald-700" size={24} aria-hidden="true" />
-          <h3 className="mt-3 font-black text-slate-950">Contacto soporte</h3>
-          <p className="mt-2 text-sm leading-6 text-slate-600">Canal operativo AgroEscudo para seguimiento de sensores, alertas y reportes del piloto.</p>
+          <Factory className="text-emerald-700" size={22} aria-hidden="true" />
+          <p className="mt-3 text-2xl font-black text-slate-950">{data.storageUnits.length}</p>
+          <p className="text-xs font-bold text-slate-500">Unidades visibles</p>
         </div>
         <div className="panel p-5">
           <AlertTriangle className={critical.length ? "text-red-600" : "text-amber-600"} size={24} aria-hidden="true" />
-          <h3 className="mt-3 font-black text-slate-950">Ante alerta critica</h3>
-          <p className="mt-2 text-sm leading-6 text-slate-600">Revisar el silo, activar ventilacion si corresponde y solicitar registro tecnico en bitacora.</p>
+          <p className="mt-3 text-2xl font-black text-slate-950">{critical.length}</p>
+          <p className="text-xs font-bold text-slate-500">Alertas criticas</p>
         </div>
         <div className="panel p-5">
-          <FileText className="text-emerald-700" size={24} aria-hidden="true" />
-          <h3 className="mt-3 font-black text-slate-950">Evidencia del piloto</h3>
-          <p className="mt-2 text-sm leading-6 text-slate-600">Descarga el reporte semanal para compartir condiciones, alertas y acciones registradas.</p>
+          <Wifi className={offline.length ? "text-amber-600" : "text-emerald-700"} size={22} aria-hidden="true" />
+          <p className="mt-3 text-2xl font-black text-slate-950">{offline.length}</p>
+          <p className="text-xs font-bold text-slate-500">Sensores sin conexion</p>
+        </div>
+        <div className="panel p-5">
+          <Clock3 className="text-emerald-700" size={22} aria-hidden="true" />
+          <p className="mt-3 text-sm font-black text-slate-950">{latest ? formatDateTime(latest.timestamp) : "Sin lectura"}</p>
+          <p className="mt-1 text-xs font-bold text-slate-500">Ultima lectura visible</p>
         </div>
       </div>
       <SupportChatbot data={data} token={token} onNavigate={onNavigate} />
+      <div className="grid gap-4 lg:grid-cols-3">
+        <div className="panel p-5">
+          <Headphones className="text-emerald-700" size={22} aria-hidden="true" />
+          <h3 className="mt-3 font-black text-slate-950">Soporte tecnico</h3>
+          <p className="mt-2 text-sm leading-6 text-slate-600">Ante falta de lecturas, revisa energia del nodo, antena LoRa, estado del gateway y ultima sincronizacion antes de intervenir.</p>
+        </div>
+        <div className="panel p-5">
+          <AlertTriangle className="text-amber-600" size={22} aria-hidden="true" />
+          <h3 className="mt-3 font-black text-slate-950">Respuesta a incidentes</h3>
+          <p className="mt-2 text-sm leading-6 text-slate-600">Una alerta critica requiere inspeccion humana, accion correctiva documentada y validacion posterior de la variable.</p>
+        </div>
+        <div className="panel p-5">
+          <FileText className="text-emerald-700" size={22} aria-hidden="true" />
+          <h3 className="mt-3 font-black text-slate-950">Reportes y evidencia</h3>
+          <p className="mt-2 text-sm leading-6 text-slate-600">El PDF semanal consolida metricas, alertas y bitacora. No sustituye una certificacion ni un diagnostico de laboratorio.</p>
+        </div>
+      </div>
     </section>
   );
 }

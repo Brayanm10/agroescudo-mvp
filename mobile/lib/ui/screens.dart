@@ -175,8 +175,8 @@ class _MobileShellState extends State<MobileShell> {
       const DashboardScreen(),
       const UnitsScreen(),
       const AlertsScreen(),
-      const LogsScreen(),
-      const ReportsScreen(),
+      const AssistantScreen(),
+      const MoreScreen(),
     ];
     return Scaffold(
       appBar: AppBar(
@@ -253,20 +253,17 @@ class _MobileShellState extends State<MobileShell> {
           ),
           NavigationDestination(
             icon: Icon(Icons.sensors_outlined),
-            label: 'Silos/Campo',
+            label: 'Unidades',
           ),
           NavigationDestination(
             icon: Icon(Icons.warning_amber),
             label: 'Alertas',
           ),
           NavigationDestination(
-            icon: Icon(Icons.fact_check_outlined),
-            label: 'Bitacora',
+            icon: Icon(Icons.support_agent_outlined),
+            label: 'Asistente',
           ),
-          NavigationDestination(
-            icon: Icon(Icons.picture_as_pdf_outlined),
-            label: 'Reportes',
-          ),
+          NavigationDestination(icon: Icon(Icons.more_horiz), label: 'Mas'),
         ],
       ),
     );
@@ -736,6 +733,501 @@ class AlertsScreen extends StatelessWidget {
       ],
     );
   }
+}
+
+class AssistantScreen extends StatefulWidget {
+  const AssistantScreen({super.key});
+
+  @override
+  State<AssistantScreen> createState() => _AssistantScreenState();
+}
+
+class _AssistantScreenState extends State<AssistantScreen> {
+  final input = TextEditingController();
+  var selectedUnitId = 0;
+  var busy = false;
+  final messages = <_AssistantMessage>[
+    const _AssistantMessage(
+      assistant: true,
+      text:
+          'Estoy listo para revisar alertas, sensores, conectividad, reportes y mantenimiento con los datos visibles para tu rol.',
+    ),
+  ];
+
+  @override
+  void dispose() {
+    input.dispose();
+    super.dispose();
+  }
+
+  Future<void> submit([String? suggestion]) async {
+    final question = (suggestion ?? input.text).trim();
+    if (question.isEmpty || busy) return;
+    final store = context.read<AppStore>();
+    setState(() {
+      input.clear();
+      busy = true;
+      messages.add(_AssistantMessage(assistant: false, text: question));
+    });
+    try {
+      final response = await store.askAssistant(
+        question,
+        storageUnitId: selectedUnitId == 0 ? null : selectedUnitId,
+      );
+      if (!mounted) return;
+      setState(() {
+        messages.add(
+          _AssistantMessage(
+            assistant: true,
+            text:
+                response['answer']?.toString() ??
+                'No se recibio una respuesta operativa.',
+            facts: _strings(response['facts']),
+            actions: _strings(response['recommended_actions']),
+          ),
+        );
+      });
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        messages.add(
+          _AssistantMessage(
+            assistant: true,
+            text: _assistantFallback(store, question, selectedUnitId),
+            notice:
+                'Respuesta local. El servicio en linea no respondio: ${_shortError(error.message)}',
+          ),
+        );
+      });
+    } finally {
+      if (mounted) setState(() => busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final store = context.watch<AppStore>();
+    final scopedAlerts = selectedUnitId == 0
+        ? store.activeAlerts
+        : store.activeAlerts
+              .where((item) => item['storage_unit_id'] == selectedUnitId)
+              .toList();
+    final suggestions = const [
+      'Que unidad necesita atencion?',
+      'Que hago ante una alerta critica?',
+      'Hay sensores desconectados?',
+      'Como descargo el reporte?',
+    ];
+    return Column(
+      children: [
+        Expanded(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(16, 18, 16, 14),
+            children: [
+              const _SectionTitle(
+                eyebrow: 'CONSULTA OPERATIVA',
+                title: 'AgroAsistente',
+                subtitle:
+                    'Respuestas basadas en alertas, lecturas y procedimientos visibles. No sustituye una inspeccion tecnica.',
+              ),
+              DropdownButtonFormField<int>(
+                initialValue: selectedUnitId,
+                decoration: const InputDecoration(
+                  labelText: 'Contexto de consulta',
+                  prefixIcon: Icon(Icons.factory_outlined),
+                ),
+                items: [
+                  const DropdownMenuItem(
+                    value: 0,
+                    child: Text('Toda mi operacion'),
+                  ),
+                  ...store.units.map(
+                    (unit) => DropdownMenuItem<int>(
+                      value: unit['id'] as int,
+                      child: Text(
+                        unit['name']?.toString() ?? 'Unidad',
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ),
+                ],
+                onChanged: (value) =>
+                    setState(() => selectedUnitId = value ?? 0),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: _AssistantContextCard(
+                      label: 'Alertas activas',
+                      value: '${scopedAlerts.length}',
+                      critical: scopedAlerts.any(
+                        (item) => item['severity'] == 'critical',
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: _AssistantContextCard(
+                      label: 'Lecturas visibles',
+                      value:
+                          '${selectedUnitId == 0 ? store.readings.length : store.readings.where((item) => item['storage_unit_id'] == selectedUnitId).length}',
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                height: 38,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  itemCount: suggestions.length,
+                  separatorBuilder: (_, _) => const SizedBox(width: 7),
+                  itemBuilder: (_, index) => ActionChip(
+                    label: Text(suggestions[index]),
+                    onPressed: busy ? null : () => submit(suggestions[index]),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              ...messages.map((message) => _AssistantBubble(message: message)),
+              if (busy)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 12),
+                  child: Row(
+                    children: [
+                      SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                      SizedBox(width: 10),
+                      Text('Analizando datos disponibles...'),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+        ),
+        SafeArea(
+          top: false,
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              border: Border(top: BorderSide(color: Color(0xffd9e3df))),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: input,
+                    minLines: 1,
+                    maxLines: 3,
+                    textInputAction: TextInputAction.send,
+                    onSubmitted: busy ? null : (_) => submit(),
+                    decoration: const InputDecoration(
+                      hintText: 'Escribe una pregunta operativa...',
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                IconButton.filled(
+                  tooltip: 'Enviar',
+                  onPressed: busy ? null : submit,
+                  icon: const Icon(Icons.send_outlined),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class MoreScreen extends StatelessWidget {
+  const MoreScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final store = context.watch<AppStore>();
+    return _Page(
+      children: [
+        const _SectionTitle(
+          eyebrow: 'HERRAMIENTAS',
+          title: 'Mas opciones',
+          subtitle: 'Bitacora, reportes y operaciones tecnicas del piloto.',
+        ),
+        _MoreTile(
+          icon: Icons.fact_check_outlined,
+          title: 'Bitacora operativa',
+          subtitle: 'Consulta acciones y registra intervenciones autorizadas.',
+          onTap: () => _openMobileTool(
+            context,
+            title: 'Bitacora',
+            child: const LogsScreen(),
+          ),
+        ),
+        _MoreTile(
+          icon: Icons.picture_as_pdf_outlined,
+          title: 'Reportes semanales',
+          subtitle: 'Descarga evidencia tecnica en PDF.',
+          onTap: () => _openMobileTool(
+            context,
+            title: 'Reportes',
+            child: const ReportsScreen(),
+          ),
+        ),
+        if (store.canOperate)
+          _MoreTile(
+            icon: Icons.build_outlined,
+            title: 'Operacion tecnica',
+            subtitle: 'Mantenimiento, instalacion y evidencia de campo.',
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const PilotOperationsScreen(),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _MoreTile extends StatelessWidget {
+  const _MoreTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 10),
+      child: ListTile(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 7),
+        leading: CircleAvatar(
+          backgroundColor: const Color(0xffe8f5ef),
+          foregroundColor: emerald,
+          child: Icon(icon),
+        ),
+        title: Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
+        subtitle: Text(subtitle),
+        trailing: const Icon(Icons.chevron_right),
+        onTap: onTap,
+      ),
+    );
+  }
+}
+
+class _AssistantContextCard extends StatelessWidget {
+  const _AssistantContextCard({
+    required this.label,
+    required this.value,
+    this.critical = false,
+  });
+
+  final String label;
+  final String value;
+  final bool critical;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(13),
+      decoration: BoxDecoration(
+        color: critical ? const Color(0xffffefed) : const Color(0xffedf8f3),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: critical ? const Color(0xffffc8c2) : const Color(0xffc8e9dc),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: const TextStyle(fontSize: 11, color: muted)),
+          const SizedBox(height: 3),
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.w800,
+              color: critical ? danger : darkGreen,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AssistantMessage {
+  const _AssistantMessage({
+    required this.assistant,
+    required this.text,
+    this.facts = const [],
+    this.actions = const [],
+    this.notice,
+  });
+
+  final bool assistant;
+  final String text;
+  final List<String> facts;
+  final List<String> actions;
+  final String? notice;
+}
+
+class _AssistantBubble extends StatelessWidget {
+  const _AssistantBubble({required this.message});
+
+  final _AssistantMessage message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: message.assistant
+          ? Alignment.centerLeft
+          : Alignment.centerRight,
+      child: Container(
+        constraints: const BoxConstraints(maxWidth: 560),
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: message.assistant ? Colors.white : darkGreen,
+          borderRadius: BorderRadius.circular(16),
+          border: message.assistant
+              ? Border.all(color: const Color(0xffd9e3df))
+              : null,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              message.text,
+              style: TextStyle(
+                height: 1.4,
+                color: message.assistant ? ink : Colors.white,
+              ),
+            ),
+            if (message.facts.isNotEmpty) ...[
+              const SizedBox(height: 11),
+              const Text(
+                'DATOS VERIFICADOS',
+                style: TextStyle(
+                  color: emerald,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: .8,
+                ),
+              ),
+              ...message.facts.map(
+                (fact) => Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text('- $fact', style: const TextStyle(fontSize: 12)),
+                ),
+              ),
+            ],
+            if (message.actions.isNotEmpty) ...[
+              const SizedBox(height: 11),
+              ...message.actions.map(
+                (action) => Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Icon(
+                        Icons.check_circle_outline,
+                        size: 15,
+                        color: emerald,
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          action,
+                          style: const TextStyle(fontSize: 12, height: 1.35),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+            if (message.notice != null) ...[
+              const SizedBox(height: 10),
+              Text(
+                message.notice!,
+                style: const TextStyle(
+                  color: Color(0xff8a5a00),
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+void _openMobileTool(
+  BuildContext context, {
+  required String title,
+  required Widget child,
+}) {
+  Navigator.of(context).push(
+    MaterialPageRoute<void>(
+      builder: (_) => Scaffold(
+        appBar: AppBar(title: Text(title)),
+        body: child,
+      ),
+    ),
+  );
+}
+
+List<String> _strings(dynamic value) =>
+    value is List ? value.map((item) => item.toString()).toList() : const [];
+
+String _shortError(String value) => value.split('\n').first;
+
+String _assistantFallback(AppStore store, String question, int selectedUnitId) {
+  final normalized = question.toLowerCase();
+  final alerts = selectedUnitId == 0
+      ? store.activeAlerts
+      : store.activeAlerts
+            .where((item) => item['storage_unit_id'] == selectedUnitId)
+            .toList();
+  final readings = selectedUnitId == 0
+      ? store.readings
+      : store.readings
+            .where((item) => item['storage_unit_id'] == selectedUnitId)
+            .toList();
+  final critical = alerts
+      .where((item) => item['severity'] == 'critical')
+      .toList();
+  if (normalized.contains('reporte') || normalized.contains('pdf')) {
+    return 'Abre Mas, entra a Reportes semanales, selecciona la unidad y descarga el PDF.';
+  }
+  if (normalized.contains('mantenimiento') || normalized.contains('bitacora')) {
+    return store.canOperate
+        ? 'Abre Mas y selecciona Bitacora u Operacion tecnica para registrar la intervencion.'
+        : 'Puedes consultar la bitacora y solicitar soporte tecnico para registrar una intervencion.';
+  }
+  if (critical.isNotEmpty) {
+    return 'Hay ${critical.length} alerta(s) critica(s). Prioriza inspeccion fisica, registra la accion correctiva y valida una nueva lectura.';
+  }
+  if (readings.isEmpty) {
+    return 'No hay lecturas visibles para este contexto. Verifica energia del nodo, LoRa, gateway y conexion a la API.';
+  }
+  return 'No se observan alertas criticas en los datos guardados. Mantener monitoreo y revisar tendencias antes de intervenir.';
 }
 
 class LogsScreen extends StatelessWidget {

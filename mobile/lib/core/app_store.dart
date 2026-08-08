@@ -202,6 +202,19 @@ class AppStore extends ChangeNotifier {
     await refresh();
   }
 
+  Future<Map<String, dynamic>> askAssistant(
+    String message, {
+    int? storageUnitId,
+  }) async {
+    final authToken = token;
+    if (authToken == null) throw ApiException('Sesion no disponible.', 401);
+    final result = await _api.postJson('/api/agro-assistant/messages', {
+      'message': message,
+      'storage_unit_id': storageUnitId,
+    }, token: authToken);
+    return _map(result);
+  }
+
   Future<void> createInstallation({
     required int storageUnitId,
     required int deviceId,

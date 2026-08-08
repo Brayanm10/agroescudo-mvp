@@ -107,30 +107,37 @@ class ApiClient {
     final uri = _targetUri(path);
     final headers = _headers(token);
     final timeout = _timeoutFor(path);
-    final response = await _requestWithRetry(path, uri, () {
-      if (method == 'POST') {
-        return _client
-            .post(uri, headers: headers, body: jsonEncode(body))
-            .timeout(timeout);
-      } else if (method == 'PATCH') {
-        return _client
-            .patch(
-              uri,
-              headers: headers,
-              body: body == null ? null : jsonEncode(body),
-            )
-            .timeout(timeout);
-      } else if (method == 'PUT') {
-        return _client
-            .put(uri, headers: headers, body: jsonEncode(body))
-            .timeout(timeout);
-      } else if (method == 'DELETE') {
-        return _client
-            .delete(uri, headers: headers, body: jsonEncode(body))
-            .timeout(timeout);
-      }
-      return _client.get(uri, headers: headers).timeout(timeout);
-    });
+    final response = await _requestWithRetry(
+      path,
+      uri,
+      () {
+        if (method == 'POST') {
+          return _client
+              .post(uri, headers: headers, body: jsonEncode(body))
+              .timeout(timeout);
+        } else if (method == 'PATCH') {
+          return _client
+              .patch(
+                uri,
+                headers: headers,
+                body: body == null ? null : jsonEncode(body),
+              )
+              .timeout(timeout);
+        } else if (method == 'PUT') {
+          return _client
+              .put(uri, headers: headers, body: jsonEncode(body))
+              .timeout(timeout);
+        } else if (method == 'DELETE') {
+          return _client
+              .delete(uri, headers: headers, body: jsonEncode(body))
+              .timeout(timeout);
+        }
+        return _client.get(uri, headers: headers).timeout(timeout);
+      },
+      retryDelays: path == '/api/agro-assistant/messages'
+          ? const [Duration(seconds: 2)]
+          : null,
+    );
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw _exceptionFrom(response, path, uri);
     }
@@ -145,10 +152,12 @@ class ApiClient {
   Future<http.Response> _requestWithRetry(
     String path,
     Uri uri,
-    Future<http.Response> Function() request,
-  ) async {
+    Future<http.Response> Function() request, {
+    List<Duration>? retryDelays,
+  }) async {
+    final delays = retryDelays ?? _retryDelays;
     Object? lastError;
-    for (var attempt = 0; attempt <= _retryDelays.length; attempt += 1) {
+    for (var attempt = 0; attempt <= delays.length; attempt += 1) {
       try {
         return await request();
       } on ApiException {
@@ -158,8 +167,8 @@ class ApiClient {
       } on Exception catch (error) {
         lastError = error;
       }
-      if (attempt < _retryDelays.length) {
-        await Future<void>.delayed(_retryDelays[attempt]);
+      if (attempt < delays.length) {
+        await Future<void>.delayed(delays[attempt]);
       }
     }
     throw ApiException(
@@ -191,6 +200,9 @@ class ApiClient {
 }
 
 Duration _timeoutFor(String path) {
+  if (path == '/api/agro-assistant/messages') {
+    return const Duration(seconds: 15);
+  }
   if (path == '/health' ||
       path == '/api/health/db' ||
       path == '/api/auth/login' ||
