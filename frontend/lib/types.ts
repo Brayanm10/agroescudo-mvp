@@ -152,6 +152,7 @@ export type DeviceDashboardSchema = {
   template_code: string | null;
   channels: SensorChannel[];
   metrics: DashboardMetric[];
+  thresholds: Record<string, number>;
 };
 
 export type CanonicalMetricPoint = {
@@ -168,6 +169,32 @@ export type CanonicalMetricPoint = {
   calibration_version: number | null;
   sampled_at: string;
   source: "normalized" | "legacy_fallback";
+  bucket_min: number | null;
+  bucket_max: number | null;
+  sample_count: number;
+};
+
+export type MetricSeriesPeriod = {
+  from: string | null;
+  to: string | null;
+};
+
+export type MetricSeriesSummary = {
+  current: number | null;
+  initial: number | null;
+  minimum: number | null;
+  maximum: number | null;
+  average: number | null;
+  change: number | null;
+  sample_count: number;
+  point_count: number;
+  coverage_seconds: number;
+};
+
+export type MetricDataGap = {
+  from: string;
+  to: string;
+  duration_seconds: number;
 };
 
 export type CanonicalMetricSeries = {
@@ -177,6 +204,38 @@ export type CanonicalMetricSeries = {
   resolution: string;
   reconciliation_approved: boolean;
   points: CanonicalMetricPoint[];
+  period: MetricSeriesPeriod;
+  summary: MetricSeriesSummary;
+  gaps: MetricDataGap[];
+};
+
+export type DeviceChartEvent = {
+  id: number;
+  timestamp: string;
+  event_type: string;
+  severity: string;
+  title: string;
+  metric_code: string | null;
+  observed_value: number | null;
+  threshold_value: number | null;
+  status: "active" | "acknowledged" | "resolved";
+};
+
+export type DeviceChartAction = {
+  id: number;
+  timestamp: string;
+  category: string;
+  title: string;
+  result: string | null;
+  operator_name: string;
+  alert_id: number | null;
+};
+
+export type DeviceChartContext = {
+  device_id: number;
+  period: MetricSeriesPeriod;
+  events: DeviceChartEvent[];
+  actions: DeviceChartAction[];
 };
 
 export type DeviceWithApiKey = Device & {
@@ -355,7 +414,12 @@ export type ProductSummary = {
   calibration_statuses: CalibrationStatus[];
 };
 
+export type ReportPeriod = "daily" | "weekly" | "monthly" | "custom";
+export type ReportDocumentType = "full" | "logbook";
+
 export type WeeklyReport = {
+  period: ReportPeriod;
+  period_label: string;
   company_name: string;
   site_name: string;
   storage_unit_name: string;

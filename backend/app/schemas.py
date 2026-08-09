@@ -614,6 +614,7 @@ class DeviceDashboardSchemaOut(BaseModel):
     template_code: str | None = None
     channels: list[SensorChannelOut]
     metrics: list[DashboardMetricOut]
+    thresholds: dict[str, float] = Field(default_factory=dict)
 
 
 class MetricReadingPointOut(BaseModel):
@@ -630,6 +631,36 @@ class MetricReadingPointOut(BaseModel):
     calibration_version: int | None = None
     sampled_at: datetime
     source: Literal["normalized", "legacy_fallback"]
+    bucket_min: float | None = None
+    bucket_max: float | None = None
+    sample_count: int = 1
+
+
+class MetricSeriesPeriodOut(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    from_: datetime | None = Field(default=None, alias="from")
+    to: datetime | None = None
+
+
+class MetricSeriesSummaryOut(BaseModel):
+    current: float | None = None
+    initial: float | None = None
+    minimum: float | None = None
+    maximum: float | None = None
+    average: float | None = None
+    change: float | None = None
+    sample_count: int = 0
+    point_count: int = 0
+    coverage_seconds: float = 0
+
+
+class MetricDataGapOut(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    from_: datetime = Field(alias="from")
+    to: datetime
+    duration_seconds: float
 
 
 class MetricReadingsOut(BaseModel):
@@ -639,6 +670,38 @@ class MetricReadingsOut(BaseModel):
     resolution: str
     reconciliation_approved: bool = False
     points: list[MetricReadingPointOut]
+    period: MetricSeriesPeriodOut = Field(default_factory=MetricSeriesPeriodOut)
+    summary: MetricSeriesSummaryOut = Field(default_factory=MetricSeriesSummaryOut)
+    gaps: list[MetricDataGapOut] = Field(default_factory=list)
+
+
+class DeviceChartEventOut(BaseModel):
+    id: int
+    timestamp: datetime
+    event_type: str
+    severity: str
+    title: str
+    metric_code: str | None = None
+    observed_value: float | None = None
+    threshold_value: float | None = None
+    status: Literal["active", "acknowledged", "resolved"]
+
+
+class DeviceChartActionOut(BaseModel):
+    id: int
+    timestamp: datetime
+    category: str
+    title: str
+    result: str | None = None
+    operator_name: str
+    alert_id: int | None = None
+
+
+class DeviceChartContextOut(BaseModel):
+    device_id: int
+    period: MetricSeriesPeriodOut
+    events: list[DeviceChartEventOut] = Field(default_factory=list)
+    actions: list[DeviceChartActionOut] = Field(default_factory=list)
 
 
 class DeviceCalibrationOut(BaseModel):
@@ -839,6 +902,8 @@ class WeeklyNodeReportOut(BaseModel):
 
 
 class WeeklyReportOut(BaseModel):
+    period: Literal["daily", "weekly", "monthly", "custom"] = "weekly"
+    period_label: str = "Semanal"
     company_name: str
     site_name: str
     storage_unit_name: str
@@ -1323,6 +1388,7 @@ class MaintenanceSignatureOut(BaseModel):
 class AgroAssistantMessageIn(BaseModel):
     message: str = Field(min_length=1, max_length=2000)
     storage_unit_id: int | None = None
+    conversation_id: int | None = Field(default=None, ge=1)
 
 
 class AgroAssistantMessageOut(BaseModel):
@@ -1332,6 +1398,9 @@ class AgroAssistantMessageOut(BaseModel):
     interpretation: str
     recommended_actions: list[str]
     conversation_id: int
+    risk_level: Literal["critical", "attention", "stable", "insufficient_data"] = "insufficient_data"
+    suggested_questions: list[str] = Field(default_factory=list)
+    context_window: str = "30d"
 
 
 class EducationArticleOut(BaseModel):

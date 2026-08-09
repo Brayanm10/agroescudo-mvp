@@ -19,6 +19,7 @@ import type {
   SystemHealth,
   ControlCenterSummary,
   Device,
+  DeviceChartContext,
   DeviceDashboardSchema,
   CanonicalMetricSeries,
   SensorChannel,
@@ -33,6 +34,8 @@ import type {
   Pilot,
   ProductSummary,
   Reading,
+  ReportDocumentType,
+  ReportPeriod,
   Site,
   StorageUnitInsight,
   StorageUnit,
@@ -578,14 +581,42 @@ export function getProductSummary(token: string, storageUnitId: number, signal?:
   return request<ProductSummary>(`/api/storage-units/${storageUnitId}/product-summary`, { token, signal });
 }
 
-export function getWeeklyReport(token: string, storageUnitId: number, deviceId?: number) {
+export function getPeriodReport(token: string, storageUnitId: number, period: ReportPeriod, deviceId?: number, range?: { from?: string; to?: string }) {
   const node = deviceId ? `&device_id=${deviceId}` : "";
-  return request<WeeklyReport>(`/api/reports/weekly?storage_unit_id=${storageUnitId}${node}`, { token });
+  const dates = `${range?.from ? `&date_from=${encodeURIComponent(range.from)}` : ""}${range?.to ? `&date_to=${encodeURIComponent(range.to)}` : ""}`;
+  return request<WeeklyReport>(`/api/reports/period?storage_unit_id=${storageUnitId}&period=${period}${node}${dates}`, { token });
 }
 
-export async function getWeeklyReportPdf(token: string, storageUnitId: number, deviceId?: number) {
+export function getDeviceChartContext(
+  token: string,
+  deviceId: number,
+  options: { from?: string; to?: string; signal?: AbortSignal } = {}
+) {
+  const params = new URLSearchParams();
+  if (options.from) params.set("from", options.from);
+  if (options.to) params.set("to", options.to);
+  const query = params.size ? `?${params}` : "";
+  return request<DeviceChartContext>(`/api/devices/${deviceId}/chart-context${query}`, {
+    token,
+    signal: options.signal
+  });
+}
+
+export function getWeeklyReport(token: string, storageUnitId: number, deviceId?: number) {
+  return getPeriodReport(token, storageUnitId, "weekly", deviceId);
+}
+
+export async function getPeriodReportPdf(
+  token: string,
+  storageUnitId: number,
+  period: ReportPeriod,
+  documentType: ReportDocumentType = "full",
+  deviceId?: number,
+  range?: { from?: string; to?: string }
+) {
   const node = deviceId ? `&device_id=${deviceId}` : "";
-  const path = `/api/reports/weekly/pdf?storage_unit_id=${storageUnitId}${node}`;
+  const dates = `${range?.from ? `&date_from=${encodeURIComponent(range.from)}` : ""}${range?.to ? `&date_to=${encodeURIComponent(range.to)}` : ""}`;
+  const path = `/api/reports/period/pdf?storage_unit_id=${storageUnitId}&period=${period}&document_type=${documentType}${node}${dates}`;
   const apiUrl = apiUrlFor(path);
   let response: Response;
   try {
@@ -606,6 +637,10 @@ export async function getWeeklyReportPdf(token: string, storageUnitId: number, d
     throw new ApiError(httpMessage(apiUrl, path, response.status, message), response.status, path, apiUrl);
   }
   return response.blob();
+}
+
+export function getWeeklyReportPdf(token: string, storageUnitId: number, deviceId?: number) {
+  return getPeriodReportPdf(token, storageUnitId, "weekly", "full", deviceId);
 }
 
 function connectionMessage(apiUrl: string, path: string, err: unknown) {
@@ -709,7 +744,12 @@ export function getAiAlertRecommendation(token: string, alertId: number) {
   return request<AiAlertRecommendation>(`/api/ai/alerts/${alertId}/recommendation`, { token });
 }
 
-export async function askAgroAssistant(token: string, message: string, storageUnitId?: number | null) {
+export async function askAgroAssistant(
+  token: string,
+  message: string,
+  storageUnitId?: number | null,
+  conversationId?: number | null
+) {
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), 15000);
   try {
@@ -720,10 +760,17 @@ export async function askAgroAssistant(token: string, message: string, storageUn
       interpretation: string;
       recommended_actions: string[];
       conversation_id: number;
+      risk_level: "critical" | "attention" | "stable" | "insufficient_data";
+      suggested_questions: string[];
+      context_window: string;
     }>("/api/agro-assistant/messages", {
       token,
       method: "POST",
-      body: { message, storage_unit_id: storageUnitId ?? null },
+      body: {
+        message,
+        storage_unit_id: storageUnitId ?? null,
+        conversation_id: conversationId ?? null
+      },
       signal: controller.signal
     });
   } catch (error) {

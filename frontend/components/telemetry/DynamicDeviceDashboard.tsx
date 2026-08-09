@@ -2,13 +2,13 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { RefreshCw } from "lucide-react";
-import { ApiError, getCanonicalMetricReadings, getDeviceDashboardSchema, getDeviceReadings } from "@/lib/api";
-import type { CanonicalMetricSeries, DeviceDashboardSchema, Reading, UserRole } from "@/lib/types";
-import type { ReadingMetric } from "@/lib/telemetry";
+import { ApiError, getCanonicalMetricReadings, getDeviceChartContext, getDeviceDashboardSchema, getDeviceReadings } from "@/lib/api";
+import type { CanonicalMetricSeries, DeviceChartContext, DeviceDashboardSchema, Reading, UserRole } from "@/lib/types";
+import { automaticResolution, type ReadingMetric, type TelemetryResolution } from "@/lib/telemetry";
 import { EmptyState } from "@/components/EmptyState";
 import { ErrorState } from "@/components/ErrorState";
 import { LoadingState } from "@/components/LoadingState";
-import { ReadingChart } from "@/components/ReadingChart";
+import { ReadingChart, type ChartThresholds } from "@/components/ReadingChart";
 import { MetricChart } from "./MetricChart";
 import { SensorStatusCard } from "./SensorStatusCard";
 import { SensorChannelManager } from "./SensorChannelManager";
@@ -18,20 +18,26 @@ export function DynamicDeviceDashboard({
   deviceId,
   role,
   from,
-  to
+  to,
+  resolution = "auto",
+  rangeLabel
 }: {
   token: string;
   deviceId: number;
   role: UserRole;
   from?: string;
   to?: string;
+  resolution?: TelemetryResolution;
+  rangeLabel?: string;
 }) {
   const [schema, setSchema] = useState<DeviceDashboardSchema | null>(null);
   const [series, setSeries] = useState<Record<string, CanonicalMetricSeries>>({});
+  const [context, setContext] = useState<DeviceChartContext | null>(null);
   const [legacyReadings, setLegacyReadings] = useState<Reading[] | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [reload, setReload] = useState(0);
+  const effectiveResolution = resolution === "auto" ? automaticResolution(from, to) : resolution;
 
   useEffect(() => {
     const controller = new AbortController();
@@ -39,12 +45,20 @@ export function DynamicDeviceDashboard({
     setError("");
     setSchema(null);
     setSeries({});
+    setContext(null);
     setLegacyReadings(null);
     (async () => {
       try {
-        const nextSchema = await getDeviceDashboardSchema(token, deviceId, controller.signal);
+        const [nextSchema, nextContext] = await Promise.all([
+          getDeviceDashboardSchema(token, deviceId, controller.signal),
+          getDeviceChartContext(token, deviceId, { from, to, signal: controller.signal }).catch((cause) => {
+            if (cause instanceof ApiError && cause.status === 404) return null;
+            throw cause;
+          })
+        ]);
         if (controller.signal.aborted) return;
         setSchema(nextSchema);
+        setContext(nextContext);
         if (nextSchema.metrics.length === 0) {
           const readings = await getDeviceReadings(token, deviceId, controller.signal, {
             from,
@@ -63,7 +77,7 @@ export function DynamicDeviceDashboard({
               channelKey: metric.channel_key,
               from,
               to,
-              resolution: resolutionForRange(from, to),
+              resolution: effectiveResolution,
               limit: 2000,
               signal: controller.signal
             })
@@ -94,7 +108,7 @@ export function DynamicDeviceDashboard({
       }
     })();
     return () => controller.abort();
-  }, [deviceId, from, reload, to, token]);
+  }, [deviceId, effectiveResolution, from, reload, to, token]);
 
   const channels = useMemo(
     () => new Map(schema?.channels.map((channel) => [channel.id, channel]) ?? []),
@@ -105,7 +119,13 @@ export function DynamicDeviceDashboard({
   if (legacyReadings) {
     return (
       <section className="space-y-4">
-        <LegacyDeviceDashboard readings={legacyReadings} />
+        <LegacyDeviceDashboard
+          readings={legacyReadings}
+          thresholds={schema?.thresholds ?? {}}
+          context={context}
+          periodLabel={rangeLabel}
+          resolutionLabel={resolutionName(effectiveResolution)}
+        />
         {schema && (role === "admin" || role === "technician") ? (
           <SensorChannelManager
             token={token}
@@ -119,7 +139,11 @@ export function DynamicDeviceDashboard({
   }
   if (!schema) return null;
 
-  const visibleMetrics = schema.metrics.filter((metric) => metric.chart_enabled);
+  const visibleMetrics = schema.metrics
+    .filter((metric) => metric.chart_enabled)
+    .sort((a, b) => metricPriority(a.metric_code) - metricPriority(b.metric_code) || a.display_order - b.display_order);
+  const distanceSeries = Object.values(series).find((item) => item.metric_code === "LEVEL_DISTANCE_MM");
+  const distanceCurrent = distanceSeries?.summary?.current ?? null;
   return (
     <section className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
@@ -139,11 +163,23 @@ export function DynamicDeviceDashboard({
         <div className="grid gap-4 xl:grid-cols-2">
           {visibleMetrics.map((metric) => {
             const key = `${metric.channel_key}:${metric.metric_code}`;
-            const points = series[key]?.points ?? [];
+            const metricSeries = series[key];
             const channel = channels.get(metric.channel_id);
             if (!channel) return null;
-            return points.length
-              ? <MetricChart key={key} metric={metric} points={points} />
+            const annotations = annotationsForMetric(metric.metric_code, context);
+            return metricSeries?.points.length
+              ? <MetricChart
+                  key={key}
+                  metric={metric}
+                  series={metricSeries}
+                  thresholds={thresholdsForMetric(metric.metric_code, schema.thresholds ?? {})}
+                  events={annotations.events}
+                  actions={annotations.actions}
+                  periodLabel={rangeLabel}
+                  resolutionLabel={resolutionName(effectiveResolution)}
+                  levelDistanceCm={distanceCurrent === null ? null : distanceCurrent / 10}
+                  calibrationStatus={metric.metric_code === "LEVEL_PERCENT" ? (metricSeries.summary?.current === null && distanceCurrent !== null ? "pending" : "configured") : undefined}
+                />
               : <SensorStatusCard key={key} metric={metric} channel={channel} />;
           })}
         </div>
@@ -178,7 +214,19 @@ const LEGACY_METRICS: Array<{
   { metric: "battery_voltage", title: "Batería del nodo", color: "#475569", unit: " V" }
 ];
 
-function LegacyDeviceDashboard({ readings }: { readings: Reading[] }) {
+function LegacyDeviceDashboard({
+  readings,
+  thresholds,
+  context,
+  periodLabel,
+  resolutionLabel
+}: {
+  readings: Reading[];
+  thresholds: Record<string, number>;
+  context: DeviceChartContext | null;
+  periodLabel?: string;
+  resolutionLabel?: string;
+}) {
   const available = LEGACY_METRICS.filter(({ metric }) =>
     readings.some((reading) => reading[metric] !== null && reading[metric] !== undefined)
   );
@@ -195,14 +243,20 @@ function LegacyDeviceDashboard({ readings }: { readings: Reading[] }) {
       {available.length ? (
         <div className="grid gap-4 xl:grid-cols-2">
           {available.map((item) => (
-            <ReadingChart
-              key={item.metric}
-              title={item.title}
-              readings={readings}
-              metric={item.metric}
-              color={item.color}
-              unit={item.unit}
-            />
+            <div key={item.metric} className={item.metric === "grain_temperature" || item.metric === "level_percent" ? "xl:col-span-2" : ""}>
+              <ReadingChart
+                title={item.title}
+                readings={readings}
+                metric={item.metric}
+                color={item.color}
+                unit={item.unit}
+                thresholds={thresholdsForLegacyMetric(item.metric, thresholds)}
+                events={annotationsForMetric(legacyMetricCode(item.metric), context).events}
+                actions={annotationsForMetric(legacyMetricCode(item.metric), context).actions}
+                periodLabel={periodLabel}
+                resolutionLabel={resolutionLabel}
+              />
+            </div>
           ))}
         </div>
       ) : (
@@ -212,8 +266,67 @@ function LegacyDeviceDashboard({ readings }: { readings: Reading[] }) {
   );
 }
 
-function resolutionForRange(from?: string, to?: string): "raw" | "15m" | "1h" {
-  if (!from) return "raw";
-  const duration = (to ? new Date(to).getTime() : Date.now()) - new Date(from).getTime();
-  return duration > 14 * 86400000 ? "1h" : duration > 2 * 86400000 ? "15m" : "raw";
+function thresholdsForMetric(metricCode: string, values: Record<string, number>): ChartThresholds {
+  switch (metricCode) {
+    case "GRAIN_TEMPERATURE_C":
+      return { max: values.grain_temperature, criticalMax: values.critical_temperature };
+    case "AMBIENT_RELATIVE_HUMIDITY_PCT":
+      return { max: values.ambient_humidity, criticalMax: values.critical_humidity };
+    case "LEVEL_PERCENT":
+      return { min: values.level_percent_low, max: values.level_percent_high };
+    case "SOIL_MOISTURE_PCT":
+      return { min: values.soil_moisture_low, max: values.soil_moisture_high };
+    case "BATTERY_VOLTAGE_MV":
+      return { min: values.battery_voltage === undefined ? undefined : values.battery_voltage * 1000 };
+    default:
+      return {};
+  }
+}
+
+function metricPriority(metricCode: string) {
+  return ({ GRAIN_TEMPERATURE_C: 0, AMBIENT_RELATIVE_HUMIDITY_PCT: 1, LEVEL_PERCENT: 2 } as Record<string, number>)[metricCode] ?? 10;
+}
+
+function annotationsForMetric(metricCode: string, context: DeviceChartContext | null) {
+  if (!context) return { events: [], actions: [] };
+  const events = context.events.filter((event) => event.metric_code === metricCode);
+  const alertIds = new Set(events.map((event) => event.id));
+  const actions = context.actions.filter((action) =>
+    action.alert_id !== null ? alertIds.has(action.alert_id) : metricCode === "GRAIN_TEMPERATURE_C"
+  );
+  return { events, actions };
+}
+
+function legacyMetricCode(metric: ReadingMetric) {
+  return ({
+    grain_temperature: "GRAIN_TEMPERATURE_C",
+    ambient_temperature: "AMBIENT_TEMPERATURE_C",
+    ambient_humidity: "AMBIENT_RELATIVE_HUMIDITY_PCT",
+    level_distance_cm: "LEVEL_DISTANCE_MM",
+    level_percent: "LEVEL_PERCENT",
+    soil_moisture_percent: "SOIL_MOISTURE_PCT",
+    soil_temperature_c: "SOIL_TEMPERATURE_C",
+    battery_voltage: "BATTERY_VOLTAGE_MV"
+  } as Record<ReadingMetric, string>)[metric];
+}
+
+function thresholdsForLegacyMetric(metric: ReadingMetric, values: Record<string, number>): ChartThresholds {
+  switch (metric) {
+    case "grain_temperature":
+      return { max: values.grain_temperature, criticalMax: values.critical_temperature };
+    case "ambient_humidity":
+      return { max: values.ambient_humidity, criticalMax: values.critical_humidity };
+    case "level_percent":
+      return { min: values.level_percent_low, max: values.level_percent_high };
+    case "soil_moisture_percent":
+      return { min: values.soil_moisture_low, max: values.soil_moisture_high };
+    case "battery_voltage":
+      return { min: values.battery_voltage };
+    default:
+      return {};
+  }
+}
+
+function resolutionName(value: Exclude<TelemetryResolution, "auto">) {
+  return ({ raw: "cada lectura", "5m": "promedio 5 min", "15m": "promedio 15 min", "1h": "promedio horario", "1d": "promedio diario" } as const)[value];
 }

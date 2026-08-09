@@ -1,15 +1,17 @@
 from datetime import datetime, timedelta, timezone
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import assigned_storage_unit_ids, get_current_user, require_device_access, require_role, require_storage_unit_access
 from app.db.session import get_db
 from app.models import StorageUnit, User
 from app.schemas import WeeklyReportOut
-from app.services.pdf_reports import build_weekly_pdf, pdf_filename
-from app.services.reports import build_weekly_report
+from app.services.pdf_reports import build_report_pdf, build_weekly_pdf, pdf_filename
+from app.services.reports import build_period_report, build_weekly_report
 from app.services.audit import record_audit_event
 from app.services.p1_reports import (
     build_executive_report,
@@ -18,6 +20,78 @@ from app.services.p1_reports import (
 )
 
 router = APIRouter(prefix="/reports", dependencies=[Depends(get_current_user)])
+
+
+@router.get("/period", response_model=WeeklyReportOut)
+def period_report(
+    storage_unit_id: int,
+    period: Literal["daily", "weekly", "monthly", "custom"] = "weekly",
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
+    device_id: int | None = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> WeeklyReportOut:
+    storage_unit = _validated_storage_unit(db, current_user, storage_unit_id, device_id)
+    storage_unit.last_report_generated_at = datetime.now(timezone.utc)
+    db.commit()
+    try:
+        report = build_period_report(db, storage_unit_id, period=period, device_id=device_id, date_from=date_from, date_to=date_to)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if report is None:
+        raise HTTPException(status_code=404, detail="Unidad monitoreada no encontrada.")
+    return report
+
+
+@router.get("/period/pdf")
+def period_report_pdf(
+    storage_unit_id: int,
+    period: Literal["daily", "weekly", "monthly", "custom"] = "weekly",
+    document_type: Literal["full", "logbook"] = "full",
+    device_id: int | None = None,
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> Response:
+    storage_unit = _validated_storage_unit(db, current_user, storage_unit_id, device_id)
+    storage_unit.last_report_generated_at = datetime.now(timezone.utc)
+    db.commit()
+    try:
+        report = build_period_report(db, storage_unit_id, period=period, device_id=device_id, date_from=date_from, date_to=date_to)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if report is None:
+        raise HTTPException(status_code=404, detail="Unidad monitoreada no encontrada.")
+    content = build_report_pdf(
+        db,
+        storage_unit,
+        report,
+        device_id=device_id,
+        document_type=document_type,
+    )
+    filename = pdf_filename(
+        storage_unit.name,
+        report.date_to,
+        period=period,
+        document_type=document_type,
+    )
+    record_audit_event(
+        db,
+        action=f"report.{document_type}.{period}",
+        summary=f"{report.period_label}: {'bitacora' if document_type == 'logbook' else 'reporte completo'} generado.",
+        user=current_user,
+        resource_type="report",
+        resource_id=storage_unit.id,
+        metadata={"storage_unit_id": storage_unit.id, "device_id": device_id, "period": period},
+    )
+    db.commit()
+    return Response(
+        content=content,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get("/executive")
@@ -114,6 +188,20 @@ def weekly_report_pdf(
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+def _validated_storage_unit(
+    db: Session,
+    current_user: User,
+    storage_unit_id: int,
+    device_id: int | None,
+) -> StorageUnit:
+    storage_unit = require_storage_unit_access(db, current_user, storage_unit_id)
+    if device_id is not None:
+        device = require_device_access(db, current_user, device_id)
+        if device.storage_unit_id != storage_unit_id:
+            raise HTTPException(status_code=422, detail="El nodo no pertenece a la unidad seleccionada.")
+    return storage_unit
 
 
 def _report_period(date_from: datetime | None, date_to: datetime | None) -> tuple[datetime, datetime]:

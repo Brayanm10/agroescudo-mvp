@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   canViewDeviceDiagnostics,
+  automaticResolution,
   chartSeries,
   deviceProfile,
   nodeSelectionPath,
@@ -8,7 +9,8 @@ import {
   readingsForDevice,
   replaceNodeReadings,
   storageOperation,
-  storageUnitSelectionPath
+  storageUnitSelectionPath,
+  telemetryRangeLabel
 } from "./telemetry";
 import type { Device, Reading } from "./types";
 
@@ -85,5 +87,19 @@ describe("telemetria por nodo", () => {
     const elapsedHours = (Date.now() - start) / (60 * 60 * 1000);
     expect(elapsedHours).toBeGreaterThan(23.9);
     expect(elapsedHours).toBeLessThan(24.1);
+  });
+
+  it("elige una resolución defendible según la ventana temporal", () => {
+    const now = "2026-08-09T12:00:00Z";
+    expect(automaticResolution("2026-08-09T06:00:00Z", now)).toBe("raw");
+    expect(automaticResolution("2026-08-08T12:00:00Z", now)).toBe("5m");
+    expect(automaticResolution("2026-08-02T12:00:00Z", now)).toBe("15m");
+    expect(automaticResolution("2026-07-20T12:00:00Z", now)).toBe("1h");
+    expect(automaticResolution("2026-05-01T12:00:00Z", now)).toBe("1d");
+  });
+
+  it("presenta etiquetas comprensibles para rangos rápidos y personalizados", () => {
+    expect(telemetryRangeLabel("7d")).toBe("Últimos 7 días");
+    expect(telemetryRangeLabel("custom")).toBe("Rango personalizado");
   });
 });

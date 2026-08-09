@@ -1,5 +1,7 @@
 from datetime import datetime, timedelta, timezone
+from io import BytesIO
 
+from pypdf import PdfReader
 from sqlalchemy import func, select
 
 from app import seed as seed_module
@@ -606,6 +608,104 @@ def test_generate_weekly_pdf_for_authorized_client(client, db_session):
     assert "agroescudo-reporte-" in response.headers["content-disposition"]
     assert response.content.startswith(b"%PDF")
     assert response.content.count(b"/Type /Page") >= 2
+
+
+def test_generate_daily_monthly_and_logbook_reports(client, db_session):
+    storage_unit = db_session.scalar(select(StorageUnit))
+    device = db_session.scalar(select(Device))
+    db_session.add(
+        SensorReading(
+            company_id=storage_unit.company_id,
+            site_id=storage_unit.site_id,
+            storage_unit_id=storage_unit.id,
+            device_id=device.id,
+            grain_temperature=29.4,
+            ambient_temperature=26.2,
+            ambient_humidity=68.0,
+            battery_voltage=3.82,
+            signal_quality=-66,
+            level_distance_cm=128.0,
+            level_percent=62.5,
+            timestamp=datetime.now(timezone.utc),
+        )
+    )
+    db_session.commit()
+    headers = auth_headers(client, "cliente@silo-demo.local", "cliente123")
+
+    daily = client.get(
+        f"/api/reports/period?storage_unit_id={storage_unit.id}&period=daily",
+        headers=headers,
+    )
+    monthly = client.get(
+        f"/api/reports/period?storage_unit_id={storage_unit.id}&period=monthly",
+        headers=headers,
+    )
+    logbook = client.get(
+        f"/api/reports/period/pdf?storage_unit_id={storage_unit.id}&period=monthly&document_type=logbook",
+        headers=headers,
+    )
+
+    assert daily.status_code == 200, daily.text
+    assert daily.json()["period"] == "daily"
+    assert daily.json()["period_label"] == "Diario"
+    assert monthly.status_code == 200, monthly.text
+    assert monthly.json()["period"] == "monthly"
+    assert monthly.json()["period_label"] == "Mensual"
+    assert logbook.status_code == 200, logbook.text
+    assert logbook.content.startswith(b"%PDF")
+    assert "agroescudo-bitacora-monthly-" in logbook.headers["content-disposition"]
+    assert len(PdfReader(BytesIO(logbook.content)).pages) == 3
+
+    full = client.get(
+        f"/api/reports/period/pdf?storage_unit_id={storage_unit.id}&period=monthly&document_type=full",
+        headers=headers,
+    )
+    assert full.status_code == 200, full.text
+    assert len(PdfReader(BytesIO(full.content)).pages) == 10
+
+
+def test_generate_custom_period_report(client, db_session):
+    storage_unit = db_session.scalar(select(StorageUnit))
+    headers = auth_headers(client, "cliente@silo-demo.local", "cliente123")
+    date_from = datetime.now(timezone.utc) - timedelta(days=12)
+    date_to = datetime.now(timezone.utc)
+
+    response = client.get(
+        "/api/reports/period",
+        params={
+            "storage_unit_id": storage_unit.id,
+            "period": "custom",
+            "date_from": date_from.isoformat(),
+            "date_to": date_to.isoformat(),
+        },
+        headers=headers,
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["period"] == "custom"
+    assert response.json()["period_label"] == "Personalizado"
+
+
+def test_custom_period_rejects_incomplete_or_reversed_range(client, db_session):
+    storage_unit = db_session.scalar(select(StorageUnit))
+    headers = auth_headers(client)
+    missing = client.get(
+        "/api/reports/period",
+        params={"storage_unit_id": storage_unit.id, "period": "custom"},
+        headers=headers,
+    )
+    reversed_range = client.get(
+        "/api/reports/period",
+        params={
+            "storage_unit_id": storage_unit.id,
+            "period": "custom",
+            "date_from": datetime.now(timezone.utc).isoformat(),
+            "date_to": (datetime.now(timezone.utc) - timedelta(days=1)).isoformat(),
+        },
+        headers=headers,
+    )
+    assert missing.status_code == 422
+    assert reversed_range.status_code == 422
 
 
 def test_client_cannot_generate_weekly_pdf_for_other_company(client, db_session):

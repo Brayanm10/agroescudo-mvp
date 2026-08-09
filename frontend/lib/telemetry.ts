@@ -10,6 +10,9 @@ export type ReadingMetric =
   | "soil_moisture_percent"
   | "soil_temperature_c";
 
+export type TelemetryRange = "6h" | "24h" | "7d" | "30d" | "90d" | "custom";
+export type TelemetryResolution = "auto" | "raw" | "5m" | "15m" | "1h" | "1d";
+
 export function deviceProfile(device: Device | undefined): "silo_sensor" | "field_sensor" {
   return device?.device_type?.toLowerCase() === "field_sensor" ? "field_sensor" : "silo_sensor";
 }
@@ -19,9 +22,33 @@ export function storageOperation(unit: StorageUnit): "storage" | "field" {
   return unit.operation_type === "field" || ["field", "campo", "parcela", "lote"].includes(legacyType) ? "field" : "storage";
 }
 
-export function periodStart(period: "24h" | "7d" | "30d"): string {
-  const hours = period === "24h" ? 24 : period === "7d" ? 24 * 7 : 24 * 30;
+export function periodStart(period: Exclude<TelemetryRange, "custom">): string {
+  const hours = period === "6h" ? 6 : period === "24h" ? 24 : period === "7d" ? 24 * 7 : period === "30d" ? 24 * 30 : 24 * 90;
   return new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
+}
+
+export function automaticResolution(from?: string, to?: string): Exclude<TelemetryResolution, "auto"> {
+  if (!from) return "raw";
+  const duration = Math.max(0, (to ? new Date(to).getTime() : Date.now()) - new Date(from).getTime());
+  if (duration > 45 * 86400000) return "1d";
+  if (duration > 14 * 86400000) return "1h";
+  if (duration > 2 * 86400000) return "15m";
+  if (duration > 12 * 3600000) return "5m";
+  return "raw";
+}
+
+export function telemetryRangeLabel(range: TelemetryRange, from?: string, to?: string): string {
+  const labels: Record<Exclude<TelemetryRange, "custom">, string> = {
+    "6h": "Últimas 6 horas",
+    "24h": "Últimas 24 horas",
+    "7d": "Últimos 7 días",
+    "30d": "Últimos 30 días",
+    "90d": "Últimos 90 días"
+  };
+  if (range !== "custom") return labels[range];
+  if (!from || !to) return "Rango personalizado";
+  const formatter = new Intl.DateTimeFormat("es-BO", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+  return `${formatter.format(new Date(from))} - ${formatter.format(new Date(to))}`;
 }
 
 export function readingsForDevice(readings: Reading[], deviceId: number): Reading[] {

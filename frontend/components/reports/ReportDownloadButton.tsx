@@ -2,8 +2,8 @@
 
 import { Download, FileText } from "lucide-react";
 import { useState } from "react";
-import { getWeeklyReportPdf } from "@/lib/api";
-import type { Alert, Device, OperationalLog, Reading, StorageUnit, WeeklyReport } from "@/lib/types";
+import { getPeriodReportPdf } from "@/lib/api";
+import type { Alert, Device, OperationalLog, Reading, ReportDocumentType, ReportPeriod, StorageUnit, WeeklyReport } from "@/lib/types";
 
 type Props = {
   token: string;
@@ -15,6 +15,10 @@ type Props = {
   report?: WeeklyReport | null;
   className?: string;
   compact?: boolean;
+  period?: ReportPeriod;
+  documentType?: ReportDocumentType;
+  range?: { from?: string; to?: string };
+  disabled?: boolean;
 };
 
 function safeFilePart(value: string) {
@@ -51,7 +55,11 @@ export function ReportDownloadButton({
   logs,
   report,
   className = "",
-  compact = false
+  compact = false,
+  period = "weekly",
+  documentType = "full",
+  range,
+  disabled = false
 }: Props) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -61,8 +69,9 @@ export function ReportDownloadButton({
     setLoading(true);
     setError(null);
     try {
-      const blob = await getWeeklyReportPdf(token, storageUnit.id, device?.id);
-      triggerDownload(blob, `agroescudo-reporte-${safeFilePart(storageUnit.name)}-${fileDate()}.pdf`);
+      const blob = await getPeriodReportPdf(token, storageUnit.id, period, documentType, device?.id, range);
+      const kind = documentType === "logbook" ? "bitacora" : "reporte";
+      triggerDownload(blob, `agroescudo-${kind}-${period}-${safeFilePart(storageUnit.name)}-${fileDate()}.pdf`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudo generar el PDF.");
     } finally {
@@ -75,11 +84,11 @@ export function ReportDownloadButton({
       <button
         type="button"
         onClick={downloadReport}
-        disabled={!storageUnit || loading}
+        disabled={!storageUnit || loading || disabled}
         className={`btn-primary ${compact ? "px-3 py-2 text-xs" : ""} ${className}`}
       >
         {loading ? <FileText className="mr-2 animate-pulse" size={16} aria-hidden="true" /> : <Download className="mr-2" size={16} aria-hidden="true" />}
-        {loading ? "Generando PDF..." : "Descargar reporte PDF"}
+        {loading ? "Generando PDF..." : documentType === "logbook" ? "Descargar bitacora PDF" : "Descargar reporte PDF"}
       </button>
       {error ? <p className="max-w-sm whitespace-pre-line rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-800">{error}</p> : null}
     </div>

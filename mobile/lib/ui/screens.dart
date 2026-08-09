@@ -1,4 +1,3 @@
-import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
@@ -6,6 +5,7 @@ import 'package:provider/provider.dart';
 
 import '../core/api_client.dart';
 import '../core/app_store.dart';
+import 'charts/agro_charts.dart';
 import 'pilot_operations_screen.dart';
 
 const darkGreen = Color(0xff053f31);
@@ -469,11 +469,20 @@ class UnitDetailScreen extends StatefulWidget {
 class _UnitDetailScreenState extends State<UnitDetailScreen> {
   int? deviceId;
   Future<Map<String, dynamic>>? telemetry;
+  String period = '24h';
 
   void _selectDevice(AppStore store, int id) {
     setState(() {
       deviceId = id;
-      telemetry = store.loadDeviceTelemetry(id);
+      telemetry = store.loadDeviceTelemetry(id, period: period);
+    });
+  }
+
+  void _selectPeriod(AppStore store, String value) {
+    if (deviceId == null) return;
+    setState(() {
+      period = value;
+      telemetry = store.loadDeviceTelemetry(deviceId!, period: period);
     });
   }
 
@@ -485,7 +494,7 @@ class _UnitDetailScreenState extends State<UnitDetailScreen> {
     final devices = store.devicesFor(id);
     if (deviceId == null && devices.isNotEmpty) {
       deviceId = devices.first['id'] as int;
-      telemetry = store.loadDeviceTelemetry(deviceId!);
+      telemetry = store.loadDeviceTelemetry(deviceId!, period: period);
     }
     final selectedDevice = devices.cast<Map<String, dynamic>?>().firstWhere(
       (device) => device?['id'] == deviceId,
@@ -526,6 +535,12 @@ class _UnitDetailScreenState extends State<UnitDetailScreen> {
               (dashboardSchema?['metrics'] as List?) ?? const [];
           final metricSeries =
               (payload?['metric_series'] as Map<String, dynamic>?) ?? const {};
+          final chartContext =
+              (payload?['chart_context'] as Map<String, dynamic>?) ??
+              const {'events': <dynamic>[], 'actions': <dynamic>[]};
+          final chartThresholds =
+              (dashboardSchema?['thresholds'] as Map<String, dynamic>?) ??
+              const {};
 
           return _Page(
             children: [
@@ -557,6 +572,20 @@ class _UnitDetailScreenState extends State<UnitDetailScreen> {
                   },
                 ),
               if (devices.length > 1) const SizedBox(height: 14),
+              if (devices.isNotEmpty) ...[
+                SegmentedButton<String>(
+                  segments: const [
+                    ButtonSegment(value: '24h', label: Text('24 H')),
+                    ButtonSegment(value: '7d', label: Text('7 D')),
+                    ButtonSegment(value: '30d', label: Text('30 D')),
+                  ],
+                  selected: {period},
+                  showSelectedIcon: false,
+                  onSelectionChanged: (selection) =>
+                      _selectPeriod(store, selection.first),
+                ),
+                const SizedBox(height: 14),
+              ],
               _RiskPanel(
                 title: unitAlerts.any((item) => item['severity'] == 'critical')
                     ? 'Riesgo critico'
@@ -656,25 +685,29 @@ class _UnitDetailScreenState extends State<UnitDetailScreen> {
                       '${metric['channel_key']}:${metric['metric_code']}';
                   final payload =
                       metricSeries[key] as Map<String, dynamic>? ?? const {};
-                  final points = (payload['points'] as List? ?? const [])
-                      .map((point) => Map<String, dynamic>.from(point as Map))
-                      .toList();
+                  final thresholds = _mobileThresholds(
+                    metric['metric_code']?.toString(),
+                    chartThresholds,
+                  );
                   return Padding(
                     padding: const EdgeInsets.only(bottom: 14),
-                    child: _CanonicalMetricChart(
+                    child: AgroMetricChart(
                       metric: metric,
-                      points: points,
+                      series: Map<String, dynamic>.from(payload),
+                      context: chartContext,
+                      thresholds: thresholds,
                     ),
                   );
                 }),
               ] else if (readings.isNotEmpty) ...[
                 const SizedBox(height: 20),
-                _ReadingChart(
+                AgroLegacyReadingChart(
                   readings: readings,
                   keyName: field
                       ? 'soil_moisture_percent'
                       : 'grain_temperature',
-                  suffix: field ? '%' : ' C',
+                  title: field ? 'Humedad de suelo' : 'Temperatura del grano',
+                  unit: field ? '%' : 'C',
                 ),
               ],
               const SizedBox(height: 20),
@@ -746,6 +779,13 @@ class _AssistantScreenState extends State<AssistantScreen> {
   final input = TextEditingController();
   var selectedUnitId = 0;
   var busy = false;
+  int? conversationId;
+  var suggestions = <String>[
+    'Que unidad necesita atencion?',
+    'Como evolucionaron temperatura y humedad?',
+    'Hay sensores desconectados?',
+    'Como genero el reporte mensual?',
+  ];
   final messages = <_AssistantMessage>[
     const _AssistantMessage(
       assistant: true,
@@ -773,9 +813,13 @@ class _AssistantScreenState extends State<AssistantScreen> {
       final response = await store.askAssistant(
         question,
         storageUnitId: selectedUnitId == 0 ? null : selectedUnitId,
+        conversationId: conversationId,
       );
       if (!mounted) return;
       setState(() {
+        conversationId = response['conversation_id'] as int?;
+        final nextSuggestions = _strings(response['suggested_questions']);
+        if (nextSuggestions.isNotEmpty) suggestions = nextSuggestions;
         messages.add(
           _AssistantMessage(
             assistant: true,
@@ -784,6 +828,8 @@ class _AssistantScreenState extends State<AssistantScreen> {
                 'No se recibio una respuesta operativa.',
             facts: _strings(response['facts']),
             actions: _strings(response['recommended_actions']),
+            riskLevel: response['risk_level']?.toString(),
+            contextWindow: response['context_window']?.toString(),
           ),
         );
       });
@@ -812,12 +858,6 @@ class _AssistantScreenState extends State<AssistantScreen> {
         : store.activeAlerts
               .where((item) => item['storage_unit_id'] == selectedUnitId)
               .toList();
-    final suggestions = const [
-      'Que unidad necesita atencion?',
-      'Que hago ante una alerta critica?',
-      'Hay sensores desconectados?',
-      'Como descargo el reporte?',
-    ];
     return Column(
       children: [
         Expanded(
@@ -828,7 +868,7 @@ class _AssistantScreenState extends State<AssistantScreen> {
                 eyebrow: 'CONSULTA OPERATIVA',
                 title: 'AgroAsistente',
                 subtitle:
-                    'Respuestas basadas en alertas, lecturas y procedimientos visibles. No sustituye una inspeccion tecnica.',
+                    'Cruza alertas, tendencias, lecturas, conectividad y bitacora. Mantiene contexto y no sustituye una inspeccion tecnica.',
               ),
               DropdownButtonFormField<int>(
                 initialValue: selectedUnitId,
@@ -851,8 +891,19 @@ class _AssistantScreenState extends State<AssistantScreen> {
                     ),
                   ),
                 ],
-                onChanged: (value) =>
-                    setState(() => selectedUnitId = value ?? 0),
+                onChanged: (value) => setState(() {
+                  selectedUnitId = value ?? 0;
+                  conversationId = null;
+                  messages
+                    ..clear()
+                    ..add(
+                      const _AssistantMessage(
+                        assistant: true,
+                        text:
+                            'Contexto actualizado. Pregunta por tendencias, alertas, sensores, bitacora o reportes.',
+                      ),
+                    );
+                }),
               ),
               const SizedBox(height: 12),
               Row(
@@ -1076,6 +1127,8 @@ class _AssistantMessage {
     this.facts = const [],
     this.actions = const [],
     this.notice,
+    this.riskLevel,
+    this.contextWindow,
   });
 
   final bool assistant;
@@ -1083,6 +1136,8 @@ class _AssistantMessage {
   final List<String> facts;
   final List<String> actions;
   final String? notice;
+  final String? riskLevel;
+  final String? contextWindow;
 }
 
 class _AssistantBubble extends StatelessWidget {
@@ -1117,6 +1172,18 @@ class _AssistantBubble extends StatelessWidget {
                 color: message.assistant ? ink : Colors.white,
               ),
             ),
+            if (message.riskLevel != null) ...[
+              const SizedBox(height: 9),
+              Wrap(
+                spacing: 7,
+                runSpacing: 6,
+                children: [
+                  _AssistantTag(_riskText(message.riskLevel!)),
+                  if (message.contextWindow != null)
+                    _AssistantTag('Analisis ${message.contextWindow}'),
+                ],
+              ),
+            ],
             if (message.facts.isNotEmpty) ...[
               const SizedBox(height: 11),
               const Text(
@@ -1177,6 +1244,39 @@ class _AssistantBubble extends StatelessWidget {
     );
   }
 }
+
+class _AssistantTag extends StatelessWidget {
+  const _AssistantTag(this.label);
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      decoration: BoxDecoration(
+        color: const Color(0xffeaf8f1),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(
+        label.toUpperCase(),
+        style: const TextStyle(
+          color: emerald,
+          fontSize: 9,
+          fontWeight: FontWeight.w800,
+          letterSpacing: .6,
+        ),
+      ),
+    );
+  }
+}
+
+String _riskText(String value) => switch (value) {
+  'critical' => 'Riesgo critico',
+  'attention' => 'Requiere atencion',
+  'stable' => 'Operacion estable',
+  _ => 'Datos insuficientes',
+};
 
 void _openMobileTool(
   BuildContext context, {
@@ -1273,8 +1373,16 @@ class LogsScreen extends StatelessWidget {
   }
 }
 
-class ReportsScreen extends StatelessWidget {
+class ReportsScreen extends StatefulWidget {
   const ReportsScreen({super.key});
+
+  @override
+  State<ReportsScreen> createState() => _ReportsScreenState();
+}
+
+class _ReportsScreenState extends State<ReportsScreen> {
+  var period = 'weekly';
+  var documentType = 'full';
 
   @override
   Widget build(BuildContext context) {
@@ -1283,10 +1391,46 @@ class ReportsScreen extends StatelessWidget {
       children: [
         const _SectionTitle(
           eyebrow: 'EVIDENCIA PARA CLIENTE',
-          title: 'Reportes semanales',
+          title: 'Reportes y bitacoras',
           subtitle:
-              'Descarga el informe corporativo con indicadores y trazabilidad.',
+              'Genera evidencia diaria, semanal o mensual con indicadores, tendencias y trazabilidad.',
         ),
+        DropdownButtonFormField<String>(
+          initialValue: period,
+          decoration: const InputDecoration(
+            labelText: 'Periodo del documento',
+            prefixIcon: Icon(Icons.date_range_outlined),
+          ),
+          items: const [
+            DropdownMenuItem(value: 'daily', child: Text('Diario - 24 horas')),
+            DropdownMenuItem(value: 'weekly', child: Text('Semanal - 7 dias')),
+            DropdownMenuItem(
+              value: 'monthly',
+              child: Text('Mensual - 30 dias'),
+            ),
+          ],
+          onChanged: (value) => setState(() => period = value ?? 'weekly'),
+        ),
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            ChoiceChip(
+              label: const Text('Informe completo'),
+              avatar: const Icon(Icons.analytics_outlined, size: 18),
+              selected: documentType == 'full',
+              onSelected: (_) => setState(() => documentType = 'full'),
+            ),
+            ChoiceChip(
+              label: const Text('Solo bitacora'),
+              avatar: const Icon(Icons.assignment_outlined, size: 18),
+              selected: documentType == 'logbook',
+              onSelected: (_) => setState(() => documentType = 'logbook'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
         if (store.units.isEmpty)
           const _Empty('No hay unidades disponibles para generar reportes.')
         else
@@ -1318,9 +1462,18 @@ class ReportsScreen extends StatelessWidget {
                     ),
                     const SizedBox(height: 13),
                     ElevatedButton.icon(
-                      onPressed: () => _downloadPdf(context, unit),
+                      onPressed: () => _downloadReportPdf(
+                        context,
+                        unit,
+                        period: period,
+                        documentType: documentType,
+                      ),
                       icon: const Icon(Icons.download_outlined),
-                      label: const Text('Descargar PDF semanal'),
+                      label: Text(
+                        documentType == 'logbook'
+                            ? 'Descargar bitacora PDF'
+                            : 'Descargar reporte PDF',
+                      ),
                     ),
                   ],
                 ),
@@ -1708,223 +1861,39 @@ class _LogTile extends StatelessWidget {
   }
 }
 
-class _ReadingChart extends StatelessWidget {
-  const _ReadingChart({
-    required this.readings,
-    required this.keyName,
-    required this.suffix,
-  });
-
-  final List<Map<String, dynamic>> readings;
-  final String keyName;
-  final String suffix;
-
-  @override
-  Widget build(BuildContext context) {
-    final available = readings
-        .where((reading) => reading[keyName] is num)
-        .toList();
-    if (available.isEmpty) {
-      return const _Empty('No hay datos de esta variable en el periodo.');
-    }
-    final values = available.length > 28
-        ? available.sublist(available.length - 28)
-        : available;
-    final spots = values.asMap().entries.map((entry) {
-      return FlSpot(
-        entry.key.toDouble(),
-        (entry.value[keyName] as num).toDouble(),
-      );
-    }).toList();
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(10, 18, 16, 12),
-        child: SizedBox(
-          height: 190,
-          child: LineChart(
-            LineChartData(
-              gridData: const FlGridData(show: true, drawVerticalLine: false),
-              titlesData: const FlTitlesData(
-                topTitles: AxisTitles(
-                  sideTitles: SideTitles(showTitles: false),
-                ),
-                rightTitles: AxisTitles(
-                  sideTitles: SideTitles(showTitles: false),
-                ),
-                bottomTitles: AxisTitles(
-                  sideTitles: SideTitles(showTitles: false),
-                ),
-              ),
-              borderData: FlBorderData(show: false),
-              lineTouchData: LineTouchData(
-                touchTooltipData: LineTouchTooltipData(
-                  getTooltipItems: (items) => items
-                      .map(
-                        (item) => LineTooltipItem(
-                          '${item.y.toStringAsFixed(1)}$suffix',
-                          const TextStyle(color: Colors.white),
-                        ),
-                      )
-                      .toList(),
-                ),
-              ),
-              lineBarsData: [
-                LineChartBarData(
-                  spots: spots,
-                  color: emerald,
-                  barWidth: 3,
-                  isCurved: true,
-                  dotData: const FlDotData(show: false),
-                  belowBarData: BarAreaData(
-                    show: true,
-                    color: emerald.withValues(alpha: .08),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _CanonicalMetricChart extends StatelessWidget {
-  const _CanonicalMetricChart({required this.metric, required this.points});
-
-  final Map<String, dynamic> metric;
-  final List<Map<String, dynamic>> points;
-
-  @override
-  Widget build(BuildContext context) {
-    final available = points.where((point) => point['value'] is num).toList();
-    final title =
-        metric['display_name_override']?.toString() ??
-        metric['display_name']?.toString() ??
-        metric['metric_code']?.toString() ??
-        'Metrica';
-    if (available.isEmpty) {
-      return Card(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
-              const SizedBox(height: 8),
-              Text(
-                metric['is_derived'] == true
-                    ? 'Sin datos derivados. Verifica calibracion y primera lectura valida.'
-                    : 'Canal configurado sin lecturas en el periodo.',
-                style: const TextStyle(color: muted),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-    final suffix = _canonicalSuffix(metric['canonical_unit']?.toString());
-    final values = available.length > 40
-        ? available.sublist(available.length - 40)
-        : available;
-    final spots = values.asMap().entries.map((entry) {
-      return FlSpot(
-        entry.key.toDouble(),
-        (entry.value['value'] as num).toDouble(),
-      );
-    }).toList();
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(14, 14, 16, 12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
-            const SizedBox(height: 3),
-            Text(
-              '${metric['channel_key']} | ${available.length} lecturas',
-              style: const TextStyle(color: muted, fontSize: 11),
-            ),
-            const SizedBox(height: 12),
-            SizedBox(
-              height: 190,
-              child: LineChart(
-                LineChartData(
-                  gridData: const FlGridData(
-                    show: true,
-                    drawVerticalLine: false,
-                  ),
-                  titlesData: const FlTitlesData(
-                    topTitles: AxisTitles(
-                      sideTitles: SideTitles(showTitles: false),
-                    ),
-                    rightTitles: AxisTitles(
-                      sideTitles: SideTitles(showTitles: false),
-                    ),
-                    bottomTitles: AxisTitles(
-                      sideTitles: SideTitles(showTitles: false),
-                    ),
-                  ),
-                  borderData: FlBorderData(show: false),
-                  lineTouchData: LineTouchData(
-                    touchTooltipData: LineTouchTooltipData(
-                      getTooltipItems: (items) => items
-                          .map(
-                            (item) => LineTooltipItem(
-                              '${item.y.toStringAsFixed(1)}$suffix',
-                              const TextStyle(color: Colors.white),
-                            ),
-                          )
-                          .toList(),
-                    ),
-                  ),
-                  lineBarsData: [
-                    LineChartBarData(
-                      spots: spots,
-                      color: emerald,
-                      barWidth: 3,
-                      isCurved: true,
-                      dotData: const FlDotData(show: false),
-                      belowBarData: BarAreaData(
-                        show: true,
-                        color: emerald.withValues(alpha: .08),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            if (available.any((point) => point['source'] == 'legacy_fallback'))
-              const Padding(
-                padding: EdgeInsets.only(top: 8),
-                child: Text(
-                  'Serie legacy conservada durante conciliacion P1.5.',
-                  style: TextStyle(
-                    color: Color(0xFF92400E),
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-String _canonicalSuffix(String? unit) {
-  switch (unit) {
-    case 'degC':
-      return ' C';
-    case 'percent':
-      return '%';
-    case 'mV':
-      return ' mV';
-    case 'mm':
-      return ' mm';
+Map<String, dynamic> _mobileThresholds(
+  String? metricCode,
+  Map<String, dynamic> values,
+) {
+  switch (metricCode) {
+    case 'GRAIN_TEMPERATURE_C':
+      return {
+        'max': values['grain_temperature'],
+        'criticalMax': values['critical_temperature'],
+      };
+    case 'AMBIENT_RELATIVE_HUMIDITY_PCT':
+      return {
+        'max': values['ambient_humidity'],
+        'criticalMax': values['critical_humidity'],
+      };
+    case 'LEVEL_PERCENT':
+      return {
+        'min': values['level_percent_low'],
+        'max': values['level_percent_high'],
+      };
+    case 'SOIL_MOISTURE_PCT':
+      return {
+        'min': values['soil_moisture_low'],
+        'max': values['soil_moisture_high'],
+      };
+    case 'BATTERY_VOLTAGE_MV':
+      return {
+        'min': values['battery_voltage'] is num
+            ? (values['battery_voltage'] as num) * 1000
+            : null,
+      };
     default:
-      return unit == null ? '' : ' $unit';
+      return const {};
   }
 }
 
@@ -2241,6 +2210,25 @@ Future<void> _downloadPdf(
   await _run(context, () async {
     await context.read<AppStore>().downloadWeeklyPdf(unit);
   }, 'Reporte descargado.');
+}
+
+Future<void> _downloadReportPdf(
+  BuildContext context,
+  Map<String, dynamic> unit, {
+  required String period,
+  required String documentType,
+}) async {
+  await _run(
+    context,
+    () async {
+      await context.read<AppStore>().downloadReportPdf(
+        unit,
+        period: period,
+        documentType: documentType,
+      );
+    },
+    documentType == 'logbook' ? 'Bitacora descargada.' : 'Reporte descargado.',
+  );
 }
 
 Future<void> _run(

@@ -12,11 +12,13 @@ from app.models import (
     DeviceDashboardPreference,
     MetricDefinition,
     MetricReading,
+    ThresholdConfig,
     User,
     utc_now,
 )
 from app.schemas import (
     DashboardMetricOut,
+    DeviceChartContextOut,
     DeviceDashboardSchemaOut,
     MetricReadingsOut,
     SensorChannelCreateIn,
@@ -24,6 +26,7 @@ from app.schemas import (
     SensorChannelUpdateIn,
 )
 from app.services.audit import record_audit_event
+from app.services.chart_context import build_device_chart_context
 from app.services.device_capabilities import channel_accepts_metric, channel_metric_codes
 from app.services.telemetry import sensor_profile
 from app.services.telemetry_queries import query_metric_readings
@@ -140,6 +143,23 @@ def get_dashboard_schema(
                     chart_type_override=preference.chart_type_override if preference else None,
                 )
             )
+    configs = list(
+        db.scalars(
+            select(ThresholdConfig).where(
+                ThresholdConfig.company_id == device.company_id,
+                ThresholdConfig.is_active.is_(True),
+            )
+        ).all()
+    )
+    applicable = [
+        item
+        for item in configs
+        if item.device_id in {None, device.id} and item.storage_unit_id in {None, device.storage_unit_id}
+    ]
+    applicable.sort(
+        key=lambda item: (item.device_id == device.id, item.storage_unit_id == device.storage_unit_id)
+    )
+    thresholds = {item.metric: item.value for item in applicable}
     return DeviceDashboardSchemaOut(
         registry_version=REGISTRY_VERSION,
         capabilities_version=device.capabilities_version,
@@ -150,6 +170,7 @@ def get_dashboard_schema(
         template_code=device.template_code,
         channels=[_channel_out(item, technical=technical) for item in visible_channels],
         metrics=sorted(metrics, key=lambda item: (item.display_order, item.channel_key)),
+        thresholds=thresholds,
     )
 
 
@@ -193,6 +214,25 @@ def get_metric_readings(
         resolution=resolution,
         limit=limit,
         order=order,
+    )
+
+
+@router.get("/{device_id}/chart-context", response_model=DeviceChartContextOut)
+def get_device_chart_context(
+    device_id: int,
+    from_: datetime | None = Query(default=None, alias="from"),
+    to: datetime | None = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> DeviceChartContextOut:
+    require_device_access(db, current_user, device_id)
+    if from_ is not None and to is not None and from_ >= to:
+        raise HTTPException(status_code=422, detail="El inicio del periodo debe ser anterior al final.")
+    return build_device_chart_context(
+        db,
+        device_id=device_id,
+        from_=from_,
+        to=to,
     )
 
 

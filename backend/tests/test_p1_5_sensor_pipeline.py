@@ -1,7 +1,7 @@
 import hashlib
 import hmac
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
 
@@ -12,6 +12,7 @@ from app.models import (
     DeviceChannel,
     MetricDefinition,
     MetricReading,
+    OperationalLog,
     SensorReading,
     TelemetryEvent,
 )
@@ -42,7 +43,7 @@ def _signed_headers(body: bytes, nonce: str):
     }
 
 
-def _post_event(client, *, sequence=1, metrics=None, nonce=None):
+def _post_event(client, *, sequence=1, metrics=None, nonce=None, sampled_at=None):
     request_nonce = nonce or f"p1-5-{sequence}"
     payload = {
         "gateway_id": GATEWAY_ID,
@@ -55,7 +56,7 @@ def _post_event(client, *, sequence=1, metrics=None, nonce=None):
                 "boot_id": 7001,
                 "sequence": sequence,
                 "sample_counter": sequence,
-                "sampled_at": datetime.now(timezone.utc).isoformat(),
+                "sampled_at": (sampled_at or datetime.now(timezone.utc)).isoformat(),
                 "time_quality": "SYNCED",
                 "firmware_version": "1.5.0",
                 "protocol_version": 4,
@@ -176,6 +177,7 @@ def test_dashboard_schema_and_series_are_exact_per_channel_and_role(client, db_s
     metric_codes = {item["metric_code"] for item in schema.json()["metrics"]}
     assert "GRAIN_TEMPERATURE_C" in metric_codes
     assert "SIGNAL_RSSI_DBM" not in metric_codes
+    assert schema.json()["thresholds"]["grain_temperature"] == 30.0
     series = client.get(
         f"/api/devices/{device.id}/metrics/GRAIN_TEMPERATURE_C/readings",
         params={"channel_key": "grain_temp_1", "resolution": "raw"},
@@ -217,6 +219,104 @@ def test_hiding_chart_preserves_metric_history(client, db_session):
         headers=_headers(client),
     )
     assert len(series.json()["points"]) == 1
+
+
+def test_aggregated_series_preserves_extremes_and_reports_real_gaps(client, db_session):
+    device = _prepare_device(db_session)
+    device.expected_reading_interval_minutes = 15
+    db_session.commit()
+    start = datetime.now(timezone.utc).replace(minute=5, second=0, microsecond=0) - timedelta(hours=2)
+    for sequence, sampled_at, value in (
+        (4201, start, 20.0),
+        (4202, start + timedelta(minutes=10), 40.0),
+        (4203, start + timedelta(hours=2), 30.0),
+    ):
+        response = _post_event(
+            client,
+            sequence=sequence,
+            sampled_at=sampled_at,
+            metrics=[
+                {
+                    "channel_key": "grain_temp_1",
+                    "metric_code": "GRAIN_TEMPERATURE_C",
+                    "raw_value": value,
+                    "unit": "degC",
+                    "quality": "VALID",
+                }
+            ],
+        )
+        assert response.status_code == 200
+
+    response = client.get(
+        f"/api/devices/{device.id}/metrics/GRAIN_TEMPERATURE_C/readings",
+        params={
+            "channel_key": "grain_temp_1",
+            "resolution": "1h",
+            "from": start.isoformat(),
+            "to": (start + timedelta(hours=3)).isoformat(),
+            "order": "asc",
+        },
+        headers=_headers(client),
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["summary"]["maximum"] == 40.0
+    assert payload["summary"]["sample_count"] == 3
+    assert payload["points"][0]["bucket_min"] == 20.0
+    assert payload["points"][0]["bucket_max"] == 40.0
+    assert payload["points"][0]["sample_count"] == 2
+    assert len(payload["gaps"]) == 1
+    assert payload["gaps"][0]["duration_seconds"] == 6600
+
+
+def test_chart_context_returns_device_events_and_actions(client, db_session):
+    device = _prepare_device(db_session)
+    sampled_at = datetime.now(timezone.utc) - timedelta(minutes=20)
+    _post_event(
+        client,
+        sequence=4204,
+        sampled_at=sampled_at,
+        metrics=[
+            {
+                "channel_key": "grain_temp_1",
+                "metric_code": "GRAIN_TEMPERATURE_C",
+                "raw_value": 36.0,
+                "unit": "degC",
+                "quality": "VALID",
+            }
+        ],
+    )
+    alert = db_session.scalar(select(Alert).where(Alert.device_id == device.id))
+    db_session.add(
+        OperationalLog(
+            company_id=device.company_id,
+            site_id=device.site_id,
+            storage_unit_id=device.storage_unit_id,
+            device_id=device.id,
+            alert_id=alert.id,
+            category="corrective_action",
+            action_taken="Aireacion preventiva",
+            operator_name="Tecnico asignado",
+            notes="Temperatura en descenso.",
+            timestamp=sampled_at + timedelta(minutes=8),
+        )
+    )
+    db_session.commit()
+
+    response = client.get(
+        f"/api/devices/{device.id}/chart-context",
+        params={
+            "from": (sampled_at - timedelta(minutes=5)).isoformat(),
+            "to": (sampled_at + timedelta(hours=1)).isoformat(),
+        },
+        headers=_headers(client, "cliente@silo-demo.local", "cliente123"),
+    )
+
+    assert response.status_code == 200
+    assert response.json()["events"][0]["metric_code"] == "GRAIN_TEMPERATURE_C"
+    assert response.json()["events"][0]["severity"] in {"warning", "critical"}
+    assert response.json()["actions"][0]["title"] == "Aireacion preventiva"
 
 
 def test_alert_is_traced_to_canonical_metric_and_channel(client, db_session):

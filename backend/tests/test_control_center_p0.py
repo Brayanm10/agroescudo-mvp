@@ -206,3 +206,30 @@ def test_agro_assistant_accepts_partial_field_sensor_readings(client, db_session
     assert any("Humedad ambiente: 78.2" in fact for fact in body["facts"])
     assert any("Humedad de suelo: 46.0" in fact for fact in body["facts"])
     assert all("None" not in fact for fact in body["facts"])
+
+
+def test_agro_assistant_keeps_follow_up_context_and_suggests_questions(client, db_session):
+    storage_unit = db_session.scalar(select(StorageUnit))
+    headers = _auth_headers(client, "cliente@silo-demo.local", "cliente123")
+    first = client.post(
+        "/api/agro-assistant/messages",
+        headers=headers,
+        json={"storage_unit_id": storage_unit.id, "message": "Como evolucionaron temperatura y humedad?"},
+    )
+    assert first.status_code == 200, first.text
+    first_body = first.json()
+    assert first_body["context_window"] == "30d"
+    assert first_body["risk_level"] in {"critical", "attention", "stable", "insufficient_data"}
+    assert first_body["suggested_questions"]
+
+    follow_up = client.post(
+        "/api/agro-assistant/messages",
+        headers=headers,
+        json={
+            "storage_unit_id": storage_unit.id,
+            "conversation_id": first_body["conversation_id"],
+            "message": "Y que hago ahora?",
+        },
+    )
+    assert follow_up.status_code == 200, follow_up.text
+    assert follow_up.json()["answer"]

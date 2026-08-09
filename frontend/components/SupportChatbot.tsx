@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useMemo, useState } from "react";
-import { Bot, CheckCircle2, Database, LoaderCircle, RefreshCw, Send, UserCircle, WifiOff } from "lucide-react";
+import { Bot, BrainCircuit, CheckCircle2, Database, LoaderCircle, RefreshCw, Send, TrendingUp, UserCircle, WifiOff } from "lucide-react";
 import { formatDateTime, formatNumber } from "@/lib/format";
 import { askAgroAssistant } from "@/lib/api";
 import type { AppData, ViewKey } from "@/lib/types";
@@ -14,12 +14,16 @@ type ChatMessage = {
   actions?: string[];
   source?: "online" | "local";
   notice?: string;
+  riskLevel?: "critical" | "attention" | "stable" | "insufficient_data";
+  contextWindow?: string;
 };
 
 const suggestions = [
   "Que silo necesita atencion?",
   "Que hago ante una alerta critica?",
   "Hay sensores desconectados?",
+  "Como evolucionaron temperatura y humedad?",
+  "Cual es el nivel estimado del silo?",
   "Como descargo el reporte?",
   "Como registro mantenimiento?",
   "Como cambio mi contrasena?"
@@ -37,6 +41,8 @@ export function SupportChatbot({
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [selectedUnitId, setSelectedUnitId] = useState<number | null>(null);
+  const [conversationId, setConversationId] = useState<number | null>(null);
+  const [suggestedQuestions, setSuggestedQuestions] = useState(suggestions);
   const [lastFailedQuestion, setLastFailedQuestion] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>(() => [
     {
@@ -52,6 +58,8 @@ export function SupportChatbot({
     const nextId = value ? Number(value) : null;
     const nextData = dataForStorageUnit(data, nextId);
     setSelectedUnitId(nextId);
+    setConversationId(null);
+    setSuggestedQuestions(suggestions);
     setLastFailedQuestion(null);
     setMessages([{ id: Date.now(), role: "assistant", text: openingMessage(nextData), source: "local" }]);
   }
@@ -69,14 +77,18 @@ export function SupportChatbot({
     setLastFailedQuestion(null);
     setBusy(true);
     try {
-      const response = await askAgroAssistant(token, question, selectedUnitId);
+      const response = await askAgroAssistant(token, question, selectedUnitId, conversationId);
+      setConversationId(response.conversation_id);
+      if (response.suggested_questions.length) setSuggestedQuestions(response.suggested_questions);
       setMessages((current) => [...current, {
         id: Date.now() + 1,
         role: "assistant",
         text: response.answer,
         facts: response.facts,
         actions: response.recommended_actions,
-        source: "online"
+        source: "online",
+        riskLevel: response.risk_level,
+        contextWindow: response.context_window
       }]);
     } catch (cause) {
       const fallback = answerQuestion(question, scopedData, context);
@@ -115,7 +127,7 @@ export function SupportChatbot({
               </div>
             </div>
             <p className="section-subtitle">
-              Analiza alertas, lecturas, conectividad y procedimientos visibles para tu rol. No inventa datos ni reemplaza una inspeccion tecnica.
+              Cruza alertas, tendencias, lecturas, conectividad y bitacora de los ultimos 30 dias. Mantiene el contexto de la conversacion y no reemplaza una inspeccion tecnica.
             </p>
           </div>
           <label className="block text-xs font-black uppercase tracking-[0.12em] text-slate-500">
@@ -133,7 +145,7 @@ export function SupportChatbot({
           <ContextMetric label="Sin conexion" value={String(context.disconnectedDevices)} warning={context.disconnectedDevices > 0} />
         </div>
         <div className="mt-4 flex gap-2 overflow-x-auto pb-1 sm:flex-wrap">
-          {suggestions.map((item) => (
+          {suggestedQuestions.map((item) => (
             <button
               key={item}
               type="button"
@@ -162,6 +174,15 @@ export function SupportChatbot({
               }`}
             >
               <p className="whitespace-pre-line">{message.text}</p>
+              {message.source === "online" ? (
+                <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3">
+                  <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.1em] text-emerald-800">
+                    <BrainCircuit size={12} /> Análisis contextual
+                  </span>
+                  {message.contextWindow ? <span className="text-[10px] font-bold uppercase tracking-[0.1em] text-slate-400">Ventana {message.contextWindow}</span> : null}
+                  {message.riskLevel ? <RiskLabel value={message.riskLevel} /> : null}
+                </div>
+              ) : null}
               {message.facts?.length ? (
                 <div className="mt-3 border-t border-slate-100 pt-3">
                   <p className="flex items-center gap-1.5 text-[10px] font-black uppercase tracking-[0.12em] text-emerald-800"><Database size={13} />Datos verificados</p>
@@ -210,11 +231,12 @@ export function SupportChatbot({
           </button>
         ) : null}
         <form onSubmit={submit} className="grid gap-2 sm:grid-cols-[1fr_auto]">
-          <input
+          <textarea
             value={input}
             onChange={(event) => setInput(event.target.value)}
-            className="input"
-            placeholder="Escribe una pregunta operativa..."
+            className="input min-h-12 resize-y py-3"
+            rows={2}
+            placeholder="Pregunta por una tendencia, silo, sensor, alerta, bitacora o reporte..."
           />
           <button type="submit" className="btn-primary min-w-36 shrink-0 justify-center" disabled={!input.trim() || busy}>
             {busy ? <LoaderCircle className="mr-2 animate-spin" size={16} aria-hidden="true" /> : <Send className="mr-2" size={16} aria-hidden="true" />}
@@ -224,6 +246,17 @@ export function SupportChatbot({
       </div>
     </section>
   );
+}
+
+function RiskLabel({ value }: { value: NonNullable<ChatMessage["riskLevel"]> }) {
+  const labels = {
+    critical: ["Riesgo critico", "bg-red-50 text-red-700"],
+    attention: ["Requiere atencion", "bg-amber-50 text-amber-800"],
+    stable: ["Operacion estable", "bg-emerald-50 text-emerald-800"],
+    insufficient_data: ["Datos insuficientes", "bg-slate-100 text-slate-600"]
+  } as const;
+  const [label, tone] = labels[value];
+  return <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.1em] ${tone}`}><TrendingUp size={12} />{label}</span>;
 }
 
 function ContextMetric({ label, value, critical = false, warning = false }: { label: string; value: string; critical?: boolean; warning?: boolean }) {

@@ -56,6 +56,7 @@ import { ReportDownloadButton } from "@/components/reports/ReportDownloadButton"
 import { SiloLevelIndicator } from "@/components/telemetry/SiloLevelIndicator";
 import { CalibrationWizard } from "@/components/telemetry/CalibrationWizard";
 import { DynamicDeviceDashboard } from "@/components/telemetry/DynamicDeviceDashboard";
+import { TimeRangeControl } from "@/components/telemetry/TimeRangeControl";
 import {
   ComparisonView,
   EvidenceOperationsView,
@@ -67,7 +68,7 @@ import {
   PilotMetricsView,
   SystemHealthView
 } from "@/components/p1/PilotOperationsViews";
-import { canViewDeviceDiagnostics, deviceProfile, nodeSelectionPath, periodStart, replaceNodeReadings, storageOperation, storageUnitSelectionPath } from "@/lib/telemetry";
+import { canViewDeviceDiagnostics, deviceProfile, nodeSelectionPath, periodStart, replaceNodeReadings, storageOperation, storageUnitSelectionPath, telemetryRangeLabel, type TelemetryRange, type TelemetryResolution } from "@/lib/telemetry";
 import {
   ApiError,
   acknowledgeAlert,
@@ -95,7 +96,7 @@ import {
   getDeviceSummary,
   getNotificationDeliveries,
   getThresholds,
-  getWeeklyReport,
+  getPeriodReport,
   loadAppData,
   login,
   previewInvite,
@@ -116,7 +117,7 @@ import {
   verifyEmail
 } from "@/lib/api";
 import { formatDateTime, formatNumber, statusFromAlerts } from "@/lib/format";
-import type { Alert, AppData, Company, Device, DeviceSummary, DeviceWithApiKey, NotificationDelivery, OperationalLog, Pilot, Reading, StorageUnit, StorageUnitInsight, Thresholds, User, UserRole, ViewKey, WeeklyReport } from "@/lib/types";
+import type { Alert, AppData, Company, Device, DeviceChartAction, DeviceChartEvent, DeviceSummary, DeviceWithApiKey, NotificationDelivery, OperationalLog, Pilot, Reading, ReportDocumentType, ReportPeriod, StorageUnit, StorageUnitInsight, Thresholds, User, UserRole, ViewKey, WeeklyReport } from "@/lib/types";
 
 const TOKEN_KEY = "agroescudo_token";
 
@@ -1971,7 +1972,8 @@ function StorageUnitDetail({
   const [loadingNode, setLoadingNode] = useState(false);
   const [nodeError, setNodeError] = useState<string | null>(null);
   const [nodeReload, setNodeReload] = useState(0);
-  const [period, setPeriod] = useState<"24h" | "7d" | "30d" | "custom">("7d");
+  const [period, setPeriod] = useState<TelemetryRange>("7d");
+  const [resolution, setResolution] = useState<TelemetryResolution>("auto");
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
 
@@ -1997,6 +1999,11 @@ function StorageUnitDetail({
     setReadings([]);
     setSummary(null);
     window.history.replaceState({}, "", nodeSelectionPath(window.location.href, deviceId));
+    if (period === "custom" && (!customFrom || !customTo || new Date(customFrom) >= new Date(customTo))) {
+      setLoadingNode(false);
+      setNodeError("Selecciona un rango válido: la fecha inicial debe ser anterior a la fecha final.");
+      return () => controller.abort();
+    }
     const dateOptions =
       period === "custom"
         ? {
@@ -2062,24 +2069,19 @@ function StorageUnitDetail({
           ) : null}
         </div>
       </div>
-      <div className="panel flex flex-wrap items-end gap-3 p-3">
-        <label>
-          <span className="mb-1 block text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">Periodo</span>
-          <select value={period} onChange={(event) => setPeriod(event.target.value as typeof period)} className="input w-auto">
-            <option value="24h">Últimas 24 horas</option>
-            <option value="7d">Últimos 7 días</option>
-            <option value="30d">Últimos 30 días</option>
-            <option value="custom">Rango personalizado</option>
-          </select>
-        </label>
-        {period === "custom" ? (
-          <>
-            <label><span className="mb-1 block text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">Desde</span><input className="input" type="datetime-local" value={customFrom} onChange={(event) => setCustomFrom(event.target.value)} /></label>
-            <label><span className="mb-1 block text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">Hasta</span><input className="input" type="datetime-local" value={customTo} onChange={(event) => setCustomTo(event.target.value)} /></label>
-          </>
-        ) : null}
-        <p className="pb-2 text-xs font-semibold text-slate-500">{readings.length} lecturas del nodo seleccionado. Las series de otros nodos no se combinan.</p>
-      </div>
+      <TimeRangeControl
+        range={period}
+        resolution={resolution}
+        customFrom={customFrom}
+        customTo={customTo}
+        onRangeChange={setPeriod}
+        onResolutionChange={setResolution}
+        onCustomFromChange={setCustomFrom}
+        onCustomToChange={setCustomTo}
+      />
+      <p className="-mt-2 px-1 text-xs font-semibold text-slate-500">
+        {telemetryRangeLabel(period, customFrom || undefined, customTo || undefined)} · {readings.length} lecturas del nodo seleccionado. Las series de otros nodos no se combinan.
+      </p>
       {!unitDevices.length ? <EmptyState title="Unidad sin nodos" message="Asigna un sensor antes de consultar telemetria." /> : null}
       {loadingNode ? <LoadingState label="Cargando telemetria del nodo" /> : null}
       {nodeError ? <ErrorState message={nodeError} onRetry={() => setNodeReload((current) => current + 1)} /> : null}
@@ -2185,6 +2187,8 @@ function StorageUnitDetail({
         role={data.me.role}
         from={period === "custom" ? (customFrom ? new Date(customFrom).toISOString() : undefined) : periodStart(period)}
         to={period === "custom" && customTo ? new Date(customTo).toISOString() : undefined}
+        resolution={resolution}
+        rangeLabel={telemetryRangeLabel(period, customFrom || undefined, customTo || undefined)}
       />
       <section className="panel p-5">
         <p className="section-kicker">Trazabilidad</p>
@@ -2555,6 +2559,35 @@ function HistoryView({ data }: { data: AppData }) {
   const selected = data.storageUnits.find((unit) => unit.id === storageUnitId) || data.storageUnits[0] || null;
   const readings = deviceId ? data.readings.filter((reading) => reading.device_id === deviceId) : [];
   const alerts = deviceId ? data.alerts.filter((alert) => alert.device_id === deviceId) : [];
+  const logs = deviceId ? data.logs.filter((log) => log.device_id === deviceId) : [];
+  const chartEvents: DeviceChartEvent[] = alerts.map((alert) => ({
+    id: alert.id,
+    timestamp: alert.created_at,
+    event_type: alert.alert_type,
+    severity: alert.severity,
+    title: alert.title,
+    metric_code: chartMetricCode(alert),
+    observed_value: alert.observed_value,
+    threshold_value: alert.threshold_value,
+    status: alert.resolved_at ? "resolved" : alert.acknowledged_at ? "acknowledged" : "active"
+  }));
+  const chartActions: DeviceChartAction[] = logs.map((log) => ({
+    id: log.id,
+    timestamp: log.timestamp,
+    category: log.category,
+    title: log.action_taken,
+    result: log.notes || null,
+    operator_name: log.operator_name,
+    alert_id: log.alert_id
+  }));
+  const annotationsFor = (metricCode: string) => {
+    const events = chartEvents.filter((event) => event.metric_code === metricCode);
+    const eventIds = new Set(events.map((event) => event.id));
+    return {
+      events,
+      actions: chartActions.filter((action) => action.alert_id !== null && eventIds.has(action.alert_id))
+    };
+  };
 
   return (
     <section className="space-y-5">
@@ -2573,10 +2606,17 @@ function HistoryView({ data }: { data: AppData }) {
       </div>
       {readings.length ? (
         <div className="grid gap-4 xl:grid-cols-2">
-          <ReadingChart title="Tendencia temperatura grano" readings={readings} metric="grain_temperature" color="#047857" unit=" C" />
+          <div className="xl:col-span-2">
+            <ReadingChart title="Tendencia temperatura grano" readings={readings} metric="grain_temperature" color="#047857" unit=" C" {...annotationsFor("GRAIN_TEMPERATURE_C")} />
+          </div>
           <ReadingChart title="Tendencia temperatura ambiente" readings={readings} metric="ambient_temperature" color="#2563eb" unit=" C" />
-          <ReadingChart title="Tendencia humedad ambiente" readings={readings} metric="ambient_humidity" color="#d97706" unit="%" />
-          <ReadingChart title="Salud de bateria" readings={readings} metric="battery_voltage" color="#475569" unit=" V" threshold={3.5} />
+          <ReadingChart title="Tendencia humedad ambiente" readings={readings} metric="ambient_humidity" color="#d97706" unit="%" {...annotationsFor("AMBIENT_RELATIVE_HUMIDITY_PCT")} />
+          {readings.some((reading) => reading.level_percent !== null) ? (
+            <div className="xl:col-span-2">
+              <ReadingChart title="Tendencia nivel estimado" readings={readings} metric="level_percent" color="#0f766e" unit="%" {...annotationsFor("LEVEL_PERCENT")} />
+            </div>
+          ) : null}
+          <ReadingChart title="Salud de bateria" readings={readings} metric="battery_voltage" color="#475569" unit=" V" thresholds={{ min: 3.5 }} />
         </div>
       ) : (
         <EmptyState title="Sin lecturas historicas" message="Cuando el sensor sincronice datos, el historial aparecera aqui." />
@@ -2672,6 +2712,15 @@ function SupportView({ data, token, onNavigate }: { data: AppData; token: string
       </div>
     </section>
   );
+}
+
+function chartMetricCode(alert: Alert) {
+  const source = `${alert.metric || ""} ${alert.alert_type}`.toLowerCase();
+  if (source.includes("grain_temperature") || source.includes("temperatura_grano")) return "GRAIN_TEMPERATURE_C";
+  if (source.includes("ambient_humidity") || source.includes("humedad_ambiente")) return "AMBIENT_RELATIVE_HUMIDITY_PCT";
+  if (source.includes("level") || source.includes("nivel")) return "LEVEL_PERCENT";
+  if (source.includes("soil_moisture") || source.includes("humedad_suelo")) return "SOIL_MOISTURE_PERCENT";
+  return null;
 }
 
 function CompaniesAdminView({ data, token, onChanged }: { data: AppData; token: string; onChanged: () => void }) {
@@ -3601,6 +3650,10 @@ function ReportsView({ data, token }: { data: AppData; token: string }) {
   const reportDevices = data.devices.filter((device) => device.storage_unit_id === storageUnitId);
   const [deviceId, setDeviceId] = useState(reportDevices[0]?.id ?? 0);
   const [report, setReport] = useState<WeeklyReport | null>(null);
+  const [period, setPeriod] = useState<ReportPeriod>("weekly");
+  const [reportFrom, setReportFrom] = useState("");
+  const [reportTo, setReportTo] = useState("");
+  const [documentType, setDocumentType] = useState<ReportDocumentType>("full");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const selectedStorageUnit = storageUnits.find((unit) => unit.id === storageUnitId) || null;
@@ -3611,10 +3664,15 @@ function ReportsView({ data, token }: { data: AppData; token: string }) {
 
   async function loadReport(id = storageUnitId, nodeId = deviceId) {
     if (!id) return;
+    if (period === "custom" && (!reportFrom || !reportTo || new Date(reportFrom) >= new Date(reportTo))) {
+      setReport(null);
+      setError("Selecciona un rango válido para generar el reporte personalizado.");
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
-      setReport(await getWeeklyReport(token, id, nodeId || undefined));
+      setReport(await getPeriodReport(token, id, period, nodeId || undefined, period === "custom" ? { from: new Date(reportFrom).toISOString(), to: new Date(reportTo).toISOString() } : undefined));
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudo generar reporte.");
     } finally {
@@ -3629,19 +3687,19 @@ function ReportsView({ data, token }: { data: AppData; token: string }) {
       return;
     }
     loadReport(storageUnitId, nextDevice);
-  }, [storageUnitId, deviceId, data.devices]);
+  }, [storageUnitId, deviceId, period, reportFrom, reportTo, data.devices]);
 
   if (!storageUnits.length) {
-    return <EmptyState title="Sin storage units" message="No hay unidades para generar reporte semanal." />;
+    return <EmptyState title="Sin unidades monitoreadas" message="No hay unidades disponibles para generar reportes o bitacoras." />;
   }
 
   return (
     <section className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <p className="section-kicker">Reporte ejecutivo</p>
-          <h2 className="section-title">Reporte semanal</h2>
-          <p className="section-subtitle">Resumen listo para piloto comercial, seguimiento operativo y comite interno.</p>
+          <p className="section-kicker">Centro documental</p>
+          <h2 className="section-title">Reportes y bitacoras</h2>
+          <p className="section-subtitle">Genera evidencia diaria, semanal o mensual con metricas, tendencias, alertas y trazabilidad operativa.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <select value={storageUnitId} onChange={(event) => setStorageUnitId(Number(event.target.value))} className="input max-w-xs">
@@ -3649,6 +3707,16 @@ function ReportsView({ data, token }: { data: AppData; token: string }) {
           </select>
           <select value={deviceId} onChange={(event) => setDeviceId(Number(event.target.value))} className="input max-w-xs" aria-label="Nodo del reporte">
             {reportDevices.map((device) => <option key={device.id} value={device.id}>{device.name} / {device.external_id}</option>)}
+          </select>
+          <select value={period} onChange={(event) => setPeriod(event.target.value as ReportPeriod)} className="input max-w-44" aria-label="Periodo del reporte">
+            <option value="daily">Diario · 24 horas</option>
+            <option value="weekly">Semanal · 7 dias</option>
+            <option value="monthly">Mensual · 30 dias</option>
+            <option value="custom">Rango personalizado</option>
+          </select>
+          <select value={documentType} onChange={(event) => setDocumentType(event.target.value as ReportDocumentType)} className="input max-w-44" aria-label="Tipo de documento">
+            <option value="full">Informe completo</option>
+            <option value="logbook">Solo bitacora</option>
           </select>
           <ReportDownloadButton
             token={token}
@@ -3658,18 +3726,28 @@ function ReportsView({ data, token }: { data: AppData; token: string }) {
             alerts={selectedAlerts}
             logs={selectedLogs}
             report={report}
+            period={period}
+            documentType={documentType}
+            range={period === "custom" && reportFrom && reportTo ? { from: new Date(reportFrom).toISOString(), to: new Date(reportTo).toISOString() } : undefined}
+            disabled={period === "custom" && (!reportFrom || !reportTo || new Date(reportFrom) >= new Date(reportTo))}
           />
         </div>
       </div>
+      {period === "custom" ? (
+        <div className="panel grid gap-3 p-4 sm:grid-cols-2">
+          <label><span className="mb-1 block text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">Reporte desde</span><input className="input" type="datetime-local" value={reportFrom} onChange={(event) => setReportFrom(event.target.value)} /></label>
+          <label><span className="mb-1 block text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">Reporte hasta</span><input className="input" type="datetime-local" value={reportTo} onChange={(event) => setReportTo(event.target.value)} /></label>
+        </div>
+      ) : null}
       <section className="overflow-hidden rounded-[22px] bg-gradient-to-br from-emeraldInk via-emeraldDeep to-emerald-800 p-5 text-white shadow-glow">
         <div className="flex flex-wrap items-center justify-between gap-5">
           <div className="max-w-2xl">
             <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1.5 text-xs font-black uppercase tracking-[0.16em] text-emerald-50">
               <Sparkles size={14} aria-hidden="true" />
-              Estudio tecnico AgroEscudo
+              Documento {report?.period_label?.toLowerCase() || "operativo"} AgroEscudo
             </div>
-            <h3 className="mt-3 text-2xl font-black tracking-tight">PDF premium para decisiones, mantenimiento y evidencia.</h3>
-            <p className="mt-2 text-sm leading-6 text-white/75">Incluye portada corporativa, resumen, graficas, alertas, bitacora, consulta del sensor y recomendaciones operativas.</p>
+            <h3 className="mt-3 text-2xl font-black tracking-tight">Evidencia corporativa lista para cliente y operacion.</h3>
+            <p className="mt-2 text-sm leading-6 text-white/75">Portada ejecutiva, graficas por nodo, metricas, alertas, bitacora, conclusiones y bloque de validacion.</p>
           </div>
           <div className="grid gap-2 sm:grid-cols-3">
             <div className="rounded-2xl border border-white/10 bg-white/10 p-3">
@@ -3696,7 +3774,7 @@ function ReportsView({ data, token }: { data: AppData; token: string }) {
         <div className="panel p-5">
           <div className="mb-5 flex flex-wrap items-start justify-between gap-3 border-b border-slate-200 pb-5">
             <div>
-              <p className="section-kicker">AgroEscudo Weekly</p>
+              <p className="section-kicker">AgroEscudo {report.period_label}</p>
               <h3 className="text-2xl font-black tracking-tight text-slate-950">{report.storage_unit_name}</h3>
               <p className="mt-1 text-sm text-slate-500">{report.company_name} / {report.site_name}</p>
               <div className="mt-3"><PilotStatusBadge status={report.pilot_status} /></div>
@@ -3724,7 +3802,7 @@ function ReportsView({ data, token }: { data: AppData; token: string }) {
             <p className="section-kicker">Evidencia operativa</p>
             <h3 className="font-bold text-slate-950">Acciones registradas</h3>
             <div className="mt-3 space-y-2">
-              {report.operational_actions.length ? report.operational_actions.map((log) => <LogRow key={log.id} log={log} />) : <EmptyState title="Sin acciones en el periodo" message="No se registraron acciones operativas esta semana." />}
+              {report.operational_actions.length ? report.operational_actions.map((log) => <LogRow key={log.id} log={log} />) : <EmptyState title="Sin acciones en el periodo" message={`No se registraron acciones operativas en el periodo ${report.period_label.toLowerCase()}.`} />}
             </div>
           </div>
         </div>

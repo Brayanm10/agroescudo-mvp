@@ -6,16 +6,46 @@ from sqlalchemy.orm import Session
 from app.models import Alert, Company, Device, OperationalLog, SensorReading, Site, StorageUnit, ThresholdConfig
 from app.schemas import WeeklyNodeReportOut, WeeklyReportOut
 
+REPORT_PERIODS = {
+    "daily": (timedelta(days=1), "Diario"),
+    "weekly": (timedelta(days=7), "Semanal"),
+    "monthly": (timedelta(days=30), "Mensual"),
+}
+
 
 def build_weekly_report(db: Session, storage_unit_id: int, device_id: int | None = None) -> WeeklyReportOut | None:
+    return build_period_report(db, storage_unit_id, period="weekly", device_id=device_id)
+
+
+def build_period_report(
+    db: Session,
+    storage_unit_id: int,
+    *,
+    period: str = "weekly",
+    device_id: int | None = None,
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
+) -> WeeklyReportOut | None:
     storage_unit = db.get(StorageUnit, storage_unit_id)
     if storage_unit is None:
         return None
 
+    if period not in {*REPORT_PERIODS, "custom"}:
+        raise ValueError("Periodo de reporte no soportado.")
+
     site = db.get(Site, storage_unit.site_id)
     company = db.get(Company, storage_unit.company_id)
-    date_to = datetime.now(timezone.utc)
-    date_from = date_to - timedelta(days=7)
+    date_to = _as_utc(date_to or datetime.now(timezone.utc))
+    if period == "custom":
+        if date_from is None:
+            raise ValueError("El rango personalizado requiere fecha inicial.")
+        date_from = _as_utc(date_from)
+        if date_from >= date_to:
+            raise ValueError("La fecha inicial debe ser anterior a la fecha final.")
+        period_label = "Personalizado"
+    else:
+        delta, period_label = REPORT_PERIODS[period]
+        date_from = date_to - delta
 
     reading_stmt = (
         select(SensorReading)
@@ -41,13 +71,14 @@ def build_weekly_report(db: Session, storage_unit_id: int, device_id: int | None
     if device_id is not None:
         alert_filters.append(Alert.device_id == device_id)
     alerts_generated = db.scalar(select(func.count(Alert.id)).where(*alert_filters)) or 0
-    alerts_resolved = db.scalar(
-        select(func.count(Alert.id)).where(
-            *alert_filters,
-            Alert.resolved_at >= date_from,
-            Alert.resolved_at <= date_to,
-        )
-    ) or 0
+    resolved_filters = [
+        Alert.storage_unit_id == storage_unit_id,
+        Alert.resolved_at >= date_from,
+        Alert.resolved_at <= date_to,
+    ]
+    if device_id is not None:
+        resolved_filters.append(Alert.device_id == device_id)
+    alerts_resolved = db.scalar(select(func.count(Alert.id)).where(*resolved_filters)) or 0
 
     log_stmt = select(OperationalLog).where(
         OperationalLog.storage_unit_id == storage_unit_id,
@@ -65,13 +96,15 @@ def build_weekly_report(db: Session, storage_unit_id: int, device_id: int | None
     max_grain = _max_value(reading.grain_temperature for reading in readings)
     max_humidity = _max_value(reading.ambient_humidity for reading in readings)
     hours_out_of_range = estimate_hours_out_of_range(db, storage_unit, readings)
-    installation_count = _log_count(db, storage_unit_id, "installation", date_from, date_to)
-    maintenance_count = _log_count(db, storage_unit_id, "maintenance", date_from, date_to)
+    installation_count = _log_count(db, storage_unit_id, "installation", date_from, date_to, device_id)
+    maintenance_count = _log_count(db, storage_unit_id, "maintenance", date_from, date_to, device_id)
     from app.services.pilots import calculate_pilot_status
 
     selected_device = db.get(Device, device_id) if device_id is not None else None
     nodes = _node_reports(db, storage_unit_id, date_from, date_to, device_id)
     return WeeklyReportOut(
+        period=period,
+        period_label=period_label,
         company_name=company.name if company else "",
         site_name=site.name if site else "",
         storage_unit_name=storage_unit.name,
@@ -137,6 +170,10 @@ def _max_value(values) -> float | None:
     return max(present) if present else None
 
 
+def _as_utc(value: datetime) -> datetime:
+    return value.astimezone(timezone.utc) if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
+
+
 def estimate_hours_out_of_range(
     db: Session,
     storage_unit: StorageUnit,
@@ -150,27 +187,34 @@ def estimate_hours_out_of_range(
     if grain_threshold is None and humidity_threshold is None:
         return 0.0
 
-    out_count = sum(
-        1
-        for reading in readings
-        if (
-            grain_threshold is not None
-            and reading.grain_temperature is not None
-            and reading.grain_temperature > grain_threshold
-        )
-        or (
-            humidity_threshold is not None
-            and reading.ambient_humidity is not None
-            and reading.ambient_humidity > humidity_threshold
-        )
-    )
+    by_device: dict[int, list[SensorReading]] = {}
+    for reading in readings:
+        by_device.setdefault(reading.device_id, []).append(reading)
 
-    if len(readings) == 1:
-        return float(out_count)
-
-    span_hours = (readings[-1].timestamp - readings[0].timestamp).total_seconds() / 3600
-    avg_interval = max(span_hours / (len(readings) - 1), 1.0)
-    return round(out_count * avg_interval, 2)
+    observed_seconds = 0.0
+    for device_id, device_readings in by_device.items():
+        device = db.get(Device, device_id)
+        cadence_minutes = device.expected_reading_interval_minutes if device else None
+        if not cadence_minutes:
+            continue
+        ordered = sorted(device_readings, key=lambda item: item.timestamp)
+        maximum_gap = cadence_minutes * 60 * 2
+        for current, following in zip(ordered, ordered[1:]):
+            interval = (following.timestamp - current.timestamp).total_seconds()
+            if interval <= 0 or interval > maximum_gap:
+                continue
+            outside = (
+                grain_threshold is not None
+                and current.grain_temperature is not None
+                and current.grain_temperature > grain_threshold
+            ) or (
+                humidity_threshold is not None
+                and current.ambient_humidity is not None
+                and current.ambient_humidity > humidity_threshold
+            )
+            if outside:
+                observed_seconds += interval
+    return round(observed_seconds / 3600, 2)
 
 
 def _log_count(
@@ -179,15 +223,17 @@ def _log_count(
     category: str,
     date_from: datetime,
     date_to: datetime,
+    device_id: int | None = None,
 ) -> int:
-    return db.scalar(
-        select(func.count(OperationalLog.id)).where(
-            OperationalLog.storage_unit_id == storage_unit_id,
-            OperationalLog.category == category,
-            OperationalLog.timestamp >= date_from,
-            OperationalLog.timestamp <= date_to,
-        )
-    ) or 0
+    filters = [
+        OperationalLog.storage_unit_id == storage_unit_id,
+        OperationalLog.category == category,
+        OperationalLog.timestamp >= date_from,
+        OperationalLog.timestamp <= date_to,
+    ]
+    if device_id is not None:
+        filters.append(OperationalLog.device_id == device_id)
+    return db.scalar(select(func.count(OperationalLog.id)).where(*filters)) or 0
 
 
 def _threshold_value(db: Session, storage_unit: StorageUnit, metric: str) -> float | None:

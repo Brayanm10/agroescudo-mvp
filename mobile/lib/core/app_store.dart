@@ -205,12 +205,14 @@ class AppStore extends ChangeNotifier {
   Future<Map<String, dynamic>> askAssistant(
     String message, {
     int? storageUnitId,
+    int? conversationId,
   }) async {
     final authToken = token;
     if (authToken == null) throw ApiException('Sesion no disponible.', 401);
     final result = await _api.postJson('/api/agro-assistant/messages', {
       'message': message,
       'storage_unit_id': storageUnitId,
+      'conversation_id': conversationId,
     }, token: authToken);
     return _map(result);
   }
@@ -368,15 +370,26 @@ class AppStore extends ChangeNotifier {
   }
 
   Future<String> downloadWeeklyPdf(Map<String, dynamic> unit) async {
+    return downloadReportPdf(unit, period: 'weekly', documentType: 'full');
+  }
+
+  Future<String> downloadReportPdf(
+    Map<String, dynamic> unit, {
+    required String period,
+    required String documentType,
+  }) async {
     await _ensureOnline();
     final bytes = await _api.getBytes(
-      '/api/reports/weekly/pdf?storage_unit_id=${unit['id']}',
+      '/api/reports/period/pdf?storage_unit_id=${unit['id']}&period=$period&document_type=$documentType',
       token: token!,
     );
     final directory = await getApplicationDocumentsDirectory();
     final slug = _slug(unit['name']?.toString() ?? 'unidad');
     final day = DateTime.now().toIso8601String().substring(0, 10);
-    final file = File('${directory.path}/agroescudo-reporte-$slug-$day.pdf');
+    final kind = documentType == 'logbook' ? 'bitacora' : 'reporte';
+    final file = File(
+      '${directory.path}/agroescudo-$kind-$period-$slug-$day.pdf',
+    );
     await file.writeAsBytes(bytes, flush: true);
     await OpenFilex.open(file.path);
     return file.path;
@@ -442,13 +455,45 @@ class AppStore extends ChangeNotifier {
           (a, b) => _date(a['timestamp']).compareTo(_date(b['timestamp'])),
         );
 
-  Future<Map<String, dynamic>> loadDeviceTelemetry(int deviceId) async {
+  Future<Map<String, dynamic>> loadDeviceTelemetry(
+    int deviceId, {
+    String period = '24h',
+  }) async {
     final authToken = token;
     if (authToken == null) throw ApiException('Sesion no disponible.', 401);
+    final duration = switch (period) {
+      '30d' => const Duration(days: 30),
+      '7d' => const Duration(days: 7),
+      _ => const Duration(hours: 24),
+    };
+    final from = DateTime.now().toUtc().subtract(duration).toIso8601String();
+    final resolution = switch (period) {
+      '30d' => '1h',
+      '7d' => '15m',
+      _ => '5m',
+    };
+    final encodedFrom = Uri.encodeQueryComponent(from);
+    Future<dynamic> loadChartContext() async {
+      try {
+        return await _api.getJson(
+          '/api/devices/$deviceId/chart-context?from=$encodedFrom',
+          token: authToken,
+        );
+      } on ApiException catch (error) {
+        if (error.statusCode == 404) {
+          return const <String, dynamic>{
+            'events': <dynamic>[],
+            'actions': <dynamic>[],
+          };
+        }
+        rethrow;
+      }
+    }
+
     try {
       final results = await Future.wait([
         _api.getJson(
-          '/api/devices/$deviceId/readings?limit=500&order=asc',
+          '/api/devices/$deviceId/readings?limit=2000&order=asc&from=$encodedFrom',
           token: authToken,
         ),
         _api.getJson('/api/devices/$deviceId/summary', token: authToken),
@@ -456,6 +501,7 @@ class AppStore extends ChangeNotifier {
           '/api/devices/$deviceId/dashboard-schema',
           token: authToken,
         ),
+        loadChartContext(),
       ]);
       final dashboardSchema = Map<String, dynamic>.from(results[2] as Map);
       final dashboardMetrics = (dashboardSchema['metrics'] as List? ?? const [])
@@ -470,7 +516,7 @@ class AppStore extends ChangeNotifier {
         final encodedChannel = Uri.encodeQueryComponent(channelKey);
         final payload = await _api.getJson(
           '/api/devices/$deviceId/metrics/$encodedMetric/readings'
-          '?channel_key=$encodedChannel&resolution=raw&limit=500&order=asc',
+          '?channel_key=$encodedChannel&resolution=$resolution&limit=2000&order=asc&from=$encodedFrom',
           token: authToken,
         );
         metricSeries['$channelKey:$metricCode'] = Map<String, dynamic>.from(
@@ -484,6 +530,8 @@ class AppStore extends ChangeNotifier {
         'summary': Map<String, dynamic>.from(results[1] as Map),
         'dashboard_schema': dashboardSchema,
         'metric_series': metricSeries,
+        'chart_context': Map<String, dynamic>.from(results[3] as Map),
+        'period': period,
         'cached': false,
       };
     } on ApiException {
@@ -497,6 +545,11 @@ class AppStore extends ChangeNotifier {
         },
         'dashboard_schema': null,
         'metric_series': const <String, dynamic>{},
+        'chart_context': const <String, dynamic>{
+          'events': <dynamic>[],
+          'actions': <dynamic>[],
+        },
+        'period': period,
         'cached': true,
       };
     }
