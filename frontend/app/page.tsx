@@ -57,6 +57,7 @@ import { SiloLevelIndicator } from "@/components/telemetry/SiloLevelIndicator";
 import { CalibrationWizard } from "@/components/telemetry/CalibrationWizard";
 import { DynamicDeviceDashboard } from "@/components/telemetry/DynamicDeviceDashboard";
 import { TimeRangeControl } from "@/components/telemetry/TimeRangeControl";
+import { SentinelAdminView } from "@/components/sentinel/SentinelAdminView";
 import {
   ComparisonView,
   EvidenceOperationsView,
@@ -136,7 +137,7 @@ function loginErrorMessage(err: unknown) {
 
 function allowedViewsForRole(role: UserRole): ViewKey[] {
   const accountViews: ViewKey[] = ["profile", "changePassword", "preferences"];
-  if (role === "admin") return ["dashboard", "demo", "pilots", "companies", "storage", "silos", "fields", "sensors", "sites", "alerts", "logs", "maintenance", "installations", "evidence", "systemHealth", "gateways", "pilotMetrics", "comparison", "firmware", "exports", "history", "reports", "support", "users", "thresholds", "notifications", ...accountViews];
+  if (role === "admin") return ["dashboard", "demo", "pilots", "companies", "storage", "silos", "fields", "sensors", "sites", "alerts", "logs", "maintenance", "installations", "evidence", "systemHealth", "gateways", "sentinel", "pilotMetrics", "comparison", "firmware", "exports", "history", "reports", "support", "users", "thresholds", "notifications", ...accountViews];
   if (role === "technician") return ["silos", "fields", "sites", "sensors", "alerts", "maintenance", "installations", "evidence", "systemHealth", "gateways", "comparison", "firmware", "exports", "logs", "support", ...accountViews];
   return ["dashboard", "silos", "fields", "sites", "alerts", "history", "reports", "support", ...accountViews];
 }
@@ -367,6 +368,7 @@ export default function Home() {
       {viewAllowed && view === "evidence" ? <EvidenceOperationsView data={data} token={token} /> : null}
       {viewAllowed && view === "systemHealth" ? <SystemHealthView token={token} /> : null}
       {viewAllowed && view === "gateways" ? <SystemHealthView token={token} gatewayOnly /> : null}
+      {viewAllowed && view === "sentinel" ? <SentinelAdminView data={data} token={token} /> : null}
       {viewAllowed && view === "pilotMetrics" ? <PilotMetricsView data={data} token={token} /> : null}
       {viewAllowed && view === "comparison" ? <ComparisonView data={data} token={token} /> : null}
       {viewAllowed && view === "firmware" ? <FirmwareView data={data} token={token} /> : null}

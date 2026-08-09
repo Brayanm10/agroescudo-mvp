@@ -8,6 +8,7 @@ from app.api.deps import get_current_user, require_alert_access, require_role, r
 from app.db.session import get_db
 from app.models import Alert, User
 from app.schemas import AlertOut
+from app.services.sentinel import cancel_future_jobs
 
 router = APIRouter(prefix="/alerts", dependencies=[Depends(get_current_user)])
 
@@ -48,6 +49,7 @@ def acknowledge_alert(
     alert = require_alert_access(db, current_user, alert_id)
     if alert.acknowledged_at is None:
         alert.acknowledged_at = datetime.now(timezone.utc)
+    cancel_future_jobs(db, alert.id)
     db.commit()
     db.refresh(alert)
     return alert
@@ -63,6 +65,7 @@ def resolve_alert(
     alert.is_active = False
     if alert.resolved_at is None:
         alert.resolved_at = datetime.now(timezone.utc)
+    cancel_future_jobs(db, alert.id)
     db.commit()
     db.refresh(alert)
     return alert

@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from uuid import uuid4
 
 from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -428,6 +429,86 @@ class NotificationDelivery(Base):
     payload_version: Mapped[str] = mapped_column(String(32), default="v1")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
+
+
+class AlertContact(Base):
+    __tablename__ = "alert_contacts"
+    __table_args__ = (
+        Index("ix_alert_contacts_scope", "company_id", "storage_unit_id", "active"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    storage_unit_id: Mapped[int | None] = mapped_column(
+        ForeignKey("storage_units.id"), nullable=True, index=True
+    )
+    name: Mapped[str] = mapped_column(String(160))
+    phone_e164: Mapped[str] = mapped_column(String(20), index=True)
+    priority: Mapped[int] = mapped_column(Integer, default=1)
+    escalation_delay_minutes: Mapped[int] = mapped_column(Integer, default=0)
+    receive_sms: Mapped[bool] = mapped_column(Boolean, default=True)
+    receive_call: Mapped[bool] = mapped_column(Boolean, default=False)
+    minimum_severity: Mapped[str] = mapped_column(String(20), default="critical", index=True)
+    active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    consent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_by_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
+
+
+class SentinelDevice(Base):
+    __tablename__ = "sentinel_devices"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    device_uid: Mapped[str] = mapped_column(String(80), unique=True)
+    name: Mapped[str] = mapped_column(String(160))
+    token_hash: Mapped[str] = mapped_column(String(64))
+    active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    firmware_version: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    wifi_rssi: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    gsm_registered: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    sim_ready: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    last_ip: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    token_rotated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
+
+
+class SentinelJob(Base):
+    __tablename__ = "sentinel_jobs"
+    __table_args__ = (
+        Index("ix_sentinel_jobs_claim", "status", "not_before", "lease_until"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid4()))
+    sentinel_device_id: Mapped[int | None] = mapped_column(
+        ForeignKey("sentinel_devices.id"), nullable=True, index=True
+    )
+    alert_id: Mapped[int | None] = mapped_column(ForeignKey("alerts.id"), nullable=True, index=True)
+    alert_contact_id: Mapped[int] = mapped_column(ForeignKey("alert_contacts.id"), index=True)
+    notification_delivery_id: Mapped[int | None] = mapped_column(
+        ForeignKey("notification_deliveries.id"), nullable=True, index=True
+    )
+    job_type: Mapped[str] = mapped_column(String(16), index=True)
+    status: Mapped[str] = mapped_column(String(24), default="pending", index=True)
+    destination_phone: Mapped[str] = mapped_column(String(20))
+    message: Mapped[str] = mapped_column(String(500))
+    ring_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    idempotency_key: Mapped[str] = mapped_column(String(160), unique=True)
+    not_before: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True, index=True)
+    attempt_count: Mapped[int] = mapped_column(Integer, default=0)
+    max_attempts: Mapped[int] = mapped_column(Integer, default=3)
+    last_error_code: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    last_error_message: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    result_code: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class ThresholdConfig(Base):

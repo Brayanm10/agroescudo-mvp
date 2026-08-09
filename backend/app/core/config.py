@@ -25,6 +25,12 @@ class Settings(BaseSettings):
     telegram_bot_token: str | None = None
     notifications_dry_run: bool = Field(default=True, validation_alias=AliasChoices("NOTIFICATIONS_DRY_RUN", "notifications_dry_run"))
     notification_max_retries: int = 3
+    sentinel_poll_after_seconds: int = 60
+    sentinel_lease_seconds: int = 150
+    sentinel_offline_after_seconds: int = 180
+    sentinel_job_expiry_minutes: int = 60
+    sentinel_max_attempts: int = 3
+    sentinel_default_ring_seconds: int = 25
     fcm_enabled: bool = False
     firebase_project_id: str | None = None
     firebase_service_account_file: str | None = None

@@ -29,6 +29,7 @@ from app.schemas import IotBatchIn, IotBatchOut, IotBatchReadingIn, IotBatchResu
 from app.services.alert_engine import evaluate_alerts
 from app.services.calibration import CalibrationResult, apply_active_calibration, persist_metric
 from app.services.notifications import dispatch_alert_notifications
+from app.services.sentinel import queue_alert_jobs
 from app.services.normalized_telemetry import (
     apply_explicit_metrics_to_legacy,
     persist_normalized_telemetry,
@@ -118,6 +119,7 @@ def ingest_gateway_batch(
 
     for alert, sensor_reading in new_alerts:
         dispatch_alert_notifications(db, alert, sensor_reading)
+        queue_alert_jobs(db, alert)
     if new_alerts:
         db.commit()
 

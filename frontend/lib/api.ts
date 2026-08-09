@@ -1,5 +1,6 @@
 import type {
   Alert,
+  AlertContact,
   AiAlertRecommendation,
   AppData,
   Company,
@@ -37,6 +38,9 @@ import type {
   ReportDocumentType,
   ReportPeriod,
   Site,
+  SentinelDevice,
+  SentinelDeviceCreated,
+  SentinelJob,
   StorageUnitInsight,
   StorageUnit,
   Thresholds,
@@ -956,6 +960,55 @@ export function retryNotificationDelivery(token: string, deliveryId: number) {
     token,
     method: "POST"
   });
+}
+
+export function getAlertContacts(token: string) {
+  return request<AlertContact[]>("/api/alert-contacts", { token });
+}
+
+export function createAlertContact(
+  token: string,
+  payload: Omit<AlertContact, "id" | "verified_at" | "created_by_user_id" | "created_at" | "updated_at">
+) {
+  return request<AlertContact>("/api/alert-contacts", { token, method: "POST", body: payload });
+}
+
+export function updateAlertContact(token: string, contactId: number, payload: Partial<AlertContact>) {
+  return request<AlertContact>(`/api/alert-contacts/${contactId}`, { token, method: "PATCH", body: payload });
+}
+
+export function testAlertContact(token: string, contactId: number, channel: "sms" | "call") {
+  return request<SentinelJob>(`/api/alert-contacts/${contactId}/test`, {
+    token,
+    method: "POST",
+    body: { channel }
+  });
+}
+
+export function getSentinelDevices(token: string) {
+  return request<SentinelDevice[]>("/api/admin/sentinel/devices", { token });
+}
+
+export function createSentinelDevice(token: string, payload: { device_uid: string; name: string }) {
+  return request<SentinelDeviceCreated>("/api/admin/sentinel/devices", { token, method: "POST", body: payload });
+}
+
+export function rotateSentinelToken(token: string, deviceId: number) {
+  return request<SentinelDeviceCreated>(`/api/admin/sentinel/devices/${deviceId}/rotate-token`, {
+    token,
+    method: "POST"
+  });
+}
+
+export function setSentinelActive(token: string, deviceId: number, active: boolean) {
+  return request<SentinelDevice>(`/api/admin/sentinel/devices/${deviceId}/${active ? "activate" : "deactivate"}`, {
+    token,
+    method: "POST"
+  });
+}
+
+export function getSentinelJobs(token: string) {
+  return request<SentinelJob[]>("/api/admin/sentinel/jobs", { token });
 }
 
 export function getMaintenanceRecords(token: string, deviceId?: number) {

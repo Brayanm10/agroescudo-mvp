@@ -7,6 +7,7 @@ from starlette.requests import Request
 
 from app.api.routes import (
     admin,
+    alert_contacts,
     agro_assistant,
     ai,
     alerts,
@@ -32,6 +33,7 @@ from app.api.routes import (
     reports,
     telemetry,
     service_cases,
+    sentinel,
     sites,
     storage_units,
     users,
@@ -51,6 +53,7 @@ app.add_middleware(
 
 app.include_router(auth.router, prefix="/api", tags=["auth"])
 app.include_router(admin.router, prefix="/api", tags=["admin"])
+app.include_router(alert_contacts.router, prefix="/api", tags=["alert-contacts"])
 app.include_router(companies.router, prefix="/api", tags=["companies"])
 app.include_router(sites.router, prefix="/api", tags=["sites"])
 app.include_router(storage_units.router, prefix="/api", tags=["storage-units"])
@@ -79,6 +82,8 @@ app.include_router(firmware.router, prefix="/api", tags=["firmware"])
 app.include_router(firmware.device_router, prefix="/api", tags=["firmware"])
 app.include_router(agro_assistant.router, prefix="/api", tags=["agro-assistant"])
 app.include_router(education.router, prefix="/api", tags=["education"])
+app.include_router(sentinel.router, prefix="/api", tags=["sentinel"])
+app.include_router(sentinel.admin_router, prefix="/api", tags=["sentinel-admin"])
 
 
 @app.get("/health")

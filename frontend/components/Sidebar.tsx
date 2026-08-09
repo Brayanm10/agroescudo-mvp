@@ -21,6 +21,7 @@ import {
   MapPinned,
   Menu,
   Network,
+  Radio,
   ShieldCheck,
   SlidersHorizontal,
   Users,
@@ -67,6 +68,7 @@ const adminGroups: NavGroup[] = [
     items: [
       { key: "systemHealth", label: "Salud del sistema", icon: HeartPulse },
       { key: "gateways", label: "Gateways", icon: Network },
+      { key: "sentinel", label: "Sentinel", icon: Radio },
       { key: "firmware", label: "Firmware", icon: Cpu }
     ]
   },

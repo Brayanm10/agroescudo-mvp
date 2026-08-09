@@ -12,6 +12,7 @@ SiloSensor / CampoSensor -> LoRa cifrado -> Gateway -> HTTPS firmado -> AgroEscu
 - `agroescudo_campo_sensor_v4/agroescudo_campo_sensor_v4.ino`
 - `agroescudo_gateway_multinodo_v4/agroescudo_gateway_multinodo_v4.ino`
 - `libraries/AgroEscudoProtocol/`
+- `agroescudo_sentinel_v02/agroescudo_sentinel_v02.ino` para el relay GSM externo.
 
 Los sketches antiguos `agroescudo_node_lora` y
 `agroescudo_gateway_wifi_lora` se conservan solo como referencia legacy. No

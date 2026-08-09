@@ -674,10 +674,74 @@ export type ViewKey =
   | "reports"
   | "users"
   | "notifications"
+  | "sentinel"
   | "support"
   | "profile"
   | "changePassword"
   | "preferences";
+
+export type AlertContact = {
+  id: number;
+  company_id: number;
+  storage_unit_id: number | null;
+  name: string;
+  phone_e164: string;
+  priority: number;
+  escalation_delay_minutes: number;
+  receive_sms: boolean;
+  receive_call: boolean;
+  minimum_severity: "info" | "technical" | "warning" | "critical";
+  active: boolean;
+  consent_at: string | null;
+  verified_at: string | null;
+  created_by_user_id: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type SentinelDevice = {
+  id: number;
+  device_uid: string;
+  name: string;
+  active: boolean;
+  online: boolean;
+  last_seen_at: string | null;
+  firmware_version: string | null;
+  wifi_rssi: number | null;
+  gsm_registered: boolean | null;
+  sim_ready: boolean | null;
+  pending_jobs: number;
+  last_job_status: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type SentinelDeviceCreated = SentinelDevice & { token: string };
+
+export type SentinelJob = {
+  id: string;
+  sentinel_device_id: number | null;
+  alert_id: number | null;
+  alert_contact_id: number;
+  notification_delivery_id: number | null;
+  job_type: "sms" | "call";
+  status: string;
+  destination_phone: string;
+  message: string;
+  ring_seconds: number | null;
+  not_before: string;
+  expires_at: string | null;
+  claimed_at: string | null;
+  lease_until: string | null;
+  attempt_count: number;
+  max_attempts: number;
+  last_error_code: string | null;
+  last_error_message: string | null;
+  result_code: string | null;
+  created_at: string;
+  updated_at: string;
+  completed_at: string | null;
+};
 export type RiskStatus = "normal" | "warning" | "critical" | "technical";
 
 export type MaintenanceRecord = {

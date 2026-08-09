@@ -8,6 +8,7 @@ from app.schemas import ReadingIngestResponse, SensorReadingCreate
 from app.services.alert_engine import evaluate_alerts
 from app.services.calibration import CalibrationResult, apply_active_calibration, persist_metric
 from app.services.notifications import dispatch_alert_notifications
+from app.services.sentinel import queue_alert_jobs
 from app.services.telemetry import calculate_level_percent, validate_telemetry
 
 
@@ -141,6 +142,7 @@ def create_device_reading(db: Session, device: Device, payload: SensorReadingCre
     if new_alerts:
         for alert in new_alerts:
             dispatch_alert_notifications(db, alert, reading)
+            queue_alert_jobs(db, alert)
         db.commit()
         for alert in alerts:
             db.refresh(alert)

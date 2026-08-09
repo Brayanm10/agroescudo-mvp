@@ -352,6 +352,20 @@ def _risk_response_page(styles, alerts, logs, deliveries, device_names):
         Paragraph("Línea de respuesta del evento prioritario", styles["subsection"]),
         _response_timeline(styles, alerts[0], logs, deliveries),
     ])
+    sentinel_rows = [["Canal", "Fecha", "Contacto", "Resultado"]]
+    for delivery in [item for item in deliveries if item.channel in {"sms", "call"}][:8]:
+        sentinel_rows.append([
+            "SMS" if delivery.channel == "sms" else "Llamada",
+            _datetime(delivery.sent_at or delivery.attempted_at or delivery.created_at),
+            _masked_phone(delivery.destination),
+            _sentinel_delivery_label(delivery.status),
+        ])
+    if len(sentinel_rows) > 1:
+        elements.extend([
+            Spacer(1, 7 * mm),
+            Paragraph("Evidencia Sentinel", styles["subsection"]),
+            _table(styles, sentinel_rows, [28 * mm, 34 * mm, 42 * mm, 62 * mm], header=True),
+        ])
     return elements
 
 
@@ -843,6 +857,24 @@ def _alert_duration(alert):
         return "Sin dato"
     seconds = max(0, (alert.resolved_at - alert.created_at).total_seconds())
     return f"{seconds / 3600:.1f} h"
+
+
+def _masked_phone(value):
+    if not value:
+        return "Sin destino"
+    return f"{value[:4]}{'*' * max(4, len(value) - 7)}{value[-3:]}"
+
+
+def _sentinel_delivery_label(status):
+    return {
+        "pending": "Pendiente",
+        "claimed": "En ejecucion",
+        "submitted": "SMS aceptado por modem",
+        "attempted": "Llamada intentada",
+        "failed": "Fallo registrado",
+        "cancelled": "Cancelado",
+        "expired": "Expirado",
+    }.get(status, status)
 
 
 def _gap_count(readings, cadence_minutes):

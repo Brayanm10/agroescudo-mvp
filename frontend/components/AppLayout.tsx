@@ -21,6 +21,7 @@ const pageCopy: Record<ViewKey, { eyebrow: string; title: string }> = {
   evidence: { eyebrow: "Trazabilidad", title: "Evidencia operativa" },
   systemHealth: { eyebrow: "Infraestructura", title: "Salud del sistema" },
   gateways: { eyebrow: "Infraestructura", title: "Gateways del piloto" },
+  sentinel: { eyebrow: "Infraestructura", title: "AgroEscudo Sentinel" },
   pilotMetrics: { eyebrow: "Gestion", title: "Metricas de piloto" },
   comparison: { eyebrow: "Analisis", title: "Comparacion de periodos" },
   firmware: { eyebrow: "Trazabilidad tecnica", title: "Firmware instalado" },

@@ -1096,6 +1096,146 @@ class AdminNotificationTestIn(BaseModel):
     message: str = Field(default="Prueba AgroEscudo: canal de notificacion configurado para piloto.", max_length=500)
 
 
+class AlertContactCreate(BaseModel):
+    company_id: int
+    storage_unit_id: int | None = None
+    name: str = Field(min_length=2, max_length=160)
+    phone_e164: str = Field(min_length=8, max_length=20)
+    priority: int = Field(default=1, ge=1, le=20)
+    escalation_delay_minutes: int = Field(default=0, ge=0, le=1440)
+    receive_sms: bool = True
+    receive_call: bool = False
+    minimum_severity: Literal["info", "technical", "warning", "critical"] = "critical"
+    active: bool = True
+    consent_at: datetime | None = None
+
+
+class AlertContactUpdate(BaseModel):
+    storage_unit_id: int | None = None
+    name: str | None = Field(default=None, min_length=2, max_length=160)
+    phone_e164: str | None = Field(default=None, min_length=8, max_length=20)
+    priority: int | None = Field(default=None, ge=1, le=20)
+    escalation_delay_minutes: int | None = Field(default=None, ge=0, le=1440)
+    receive_sms: bool | None = None
+    receive_call: bool | None = None
+    minimum_severity: Literal["info", "technical", "warning", "critical"] | None = None
+    active: bool | None = None
+    consent_at: datetime | None = None
+
+
+class AlertContactOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    company_id: int
+    storage_unit_id: int | None = None
+    name: str
+    phone_e164: str
+    priority: int
+    escalation_delay_minutes: int
+    receive_sms: bool
+    receive_call: bool
+    minimum_severity: str
+    active: bool
+    consent_at: datetime | None = None
+    verified_at: datetime | None = None
+    created_by_user_id: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class AlertContactTestIn(BaseModel):
+    channel: Literal["sms", "call"] = "sms"
+
+
+class SentinelDeviceCreate(BaseModel):
+    device_uid: str = Field(pattern=r"^[a-zA-Z0-9][a-zA-Z0-9_-]{2,79}$")
+    name: str = Field(min_length=3, max_length=160)
+
+
+class SentinelDeviceOut(BaseModel):
+    id: int
+    device_uid: str
+    name: str
+    active: bool
+    online: bool
+    last_seen_at: datetime | None = None
+    firmware_version: str | None = None
+    wifi_rssi: int | None = None
+    gsm_registered: bool | None = None
+    sim_ready: bool | None = None
+    pending_jobs: int = 0
+    last_job_status: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class SentinelDeviceCreatedOut(SentinelDeviceOut):
+    token: str
+
+
+class SentinelPollIn(BaseModel):
+    device_uid: str = Field(min_length=3, max_length=80)
+    firmware_version: str | None = Field(default=None, max_length=40)
+    uptime_seconds: int = Field(default=0, ge=0)
+    wifi_rssi: int | None = Field(default=None, ge=-127, le=20)
+    gsm_registered: bool | None = None
+    sim_ready: bool | None = None
+
+
+class SentinelJobPayloadOut(BaseModel):
+    id: str
+    type: Literal["sms", "call"]
+    phone: str
+    message: str
+    ring_seconds: int | None = None
+    lease_until: datetime
+
+
+class SentinelPollOut(BaseModel):
+    server: Literal["online"] = "online"
+    database: Literal["online"] = "online"
+    server_time: datetime
+    critical_alerts: int
+    pending_jobs: int
+    poll_after_seconds: int
+    last_job_status: str | None = None
+    job: SentinelJobPayloadOut | None = None
+
+
+class SentinelJobResultIn(BaseModel):
+    status: Literal["submitted", "attempted", "failed"]
+    result_code: str = Field(min_length=2, max_length=80)
+    message: str | None = Field(default=None, max_length=500)
+
+
+class SentinelJobOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    sentinel_device_id: int | None = None
+    alert_id: int | None = None
+    alert_contact_id: int
+    notification_delivery_id: int | None = None
+    job_type: str
+    status: str
+    destination_phone: str
+    message: str
+    ring_seconds: int | None = None
+    not_before: datetime
+    expires_at: datetime | None = None
+    claimed_at: datetime | None = None
+    lease_until: datetime | None = None
+    attempt_count: int
+    max_attempts: int
+    last_error_code: str | None = None
+    last_error_message: str | None = None
+    result_code: str | None = None
+    created_at: datetime
+    updated_at: datetime
+    completed_at: datetime | None = None
+
+
 class AiAlertRecommendationOut(BaseModel):
     alert_id: int
     source: str

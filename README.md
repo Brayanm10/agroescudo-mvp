@@ -59,6 +59,9 @@ Frontend (`frontend/.env.local`, copiar desde `frontend/.env.example`):
 
 ## Documentacion De Auditoria Y Operacion
 
+- [AgroEscudo Sentinel v0.2](docs/AGROESCUDO_SENTINEL_V02.md): alta, seguridad, contactos, cola GSM, contratos y firmware.
+- [Auditoría final Sentinel v0.2](docs/AUDITORIA_FINAL_SENTINEL_V02.md): evidencia de pruebas, configuración pendiente, riesgos y criterio de salida del piloto.
+
 - [Auditoria final](docs/AUDITORIA_FINAL.md)
 - [Arquitectura del sistema](docs/ARQUITECTURA_SISTEMA.md)
 - [Arquitectura IoT](docs/ARQUITECTURA_IOT.md)
