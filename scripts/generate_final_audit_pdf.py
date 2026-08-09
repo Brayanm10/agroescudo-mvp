@@ -23,7 +23,7 @@ from reportlab.platypus import (
 ROOT = Path(__file__).resolve().parents[1]
 OUT_DIR = ROOT / "output" / "pdf"
 OUT_DIR.mkdir(parents=True, exist_ok=True)
-PDF_PATH = OUT_DIR / "AgroEscudo_Auditoria_Final_Control_Center_V1.pdf"
+PDF_PATH = OUT_DIR / "AgroEscudo_Auditoria_Final_Release_Piloto_2026-08-09.pdf"
 LOGO = ROOT / "frontend" / "public" / "brand" / "logo-horizontal-transparent.png"
 SHIELD = ROOT / "frontend" / "public" / "brand" / "shield-transparent.png"
 
@@ -200,7 +200,7 @@ def header_footer(canvas, doc):
     canvas.line(1.5 * cm, 1.25 * cm, width - 1.5 * cm, 1.25 * cm)
     canvas.setFont("Helvetica-Bold", 8)
     canvas.setFillColor(GREEN_DARK)
-    canvas.drawString(1.5 * cm, height - 1.05 * cm, "AgroEscudo - Auditoria final Control Center V1.0")
+    canvas.drawString(1.5 * cm, height - 1.05 * cm, "AgroEscudo - Auditoria final de release para piloto")
     canvas.setFont("Helvetica", 7)
     canvas.setFillColor(MUTED)
     canvas.drawRightString(width - 1.5 * cm, height - 1.05 * cm, "Documento tecnico para cierre de piloto comercial")
@@ -223,8 +223,8 @@ def build_story() -> list:
         story.append(img)
     story.append(Spacer(1, 1.1 * cm))
     story.append(p("Auditoria Final y Estado de Preparacion", styles["CoverTitle"]))
-    story.append(p("AgroEscudo Control Center V1.0 P0", styles["CoverTitle"]))
-    story.append(p("Backend FastAPI, dashboard web Next.js, app Flutter Android, IoT ingestion, reportes PDF, RBAC, Control Center y preparacion para piloto B2B.", styles["CoverSub"]))
+    story.append(p("Release de Piloto 2026.08", styles["CoverTitle"]))
+    story.append(p("FastAPI, Next.js, Flutter Android, telemetria por nodo, alertas, bitacora, calibracion, reportes PDF y graficos operativos premium.", styles["CoverSub"]))
     story.append(Spacer(1, 1.2 * cm))
     story.append(
         make_table(
@@ -233,7 +233,7 @@ def build_story() -> list:
                 ["Fecha de emision", datetime.now().strftime("%d/%m/%Y %H:%M")],
                 ["Preparado por", "AgroEscudo - revision tecnica asistida por Codex"],
                 ["Alcance", "Auditoria final de repositorio local y artefactos de release P0"],
-                ["Estado general", "Listo para smoke de piloto, con credenciales externas pendientes"],
+                ["Estado general", "Software desplegado y listo para piloto controlado"],
             ],
             [5 * cm, 11 * cm],
         )
@@ -257,9 +257,9 @@ def build_story() -> list:
     story.append(
         Table(
             [[
-                status_card("Backend", "78 passed", "pytest completo verificado"),
-                status_card("Frontend", "Build OK", "Next.js genera / y /control-room"),
-                status_card("Mobile", "APK OK", "51.38 MB, API Render"),
+                status_card("Backend", "133 passed", "pytest completo verificado"),
+                status_card("Frontend", "14 passed", "tests, lint y build verificados"),
+                status_card("Mobile", "APK OK", "68.92 MB, API Render"),
             ]],
             colWidths=[5.3 * cm, 5.3 * cm, 5.3 * cm],
         )
@@ -268,9 +268,9 @@ def build_story() -> list:
     story.append(
         Table(
             [[
-                status_card("Riesgo principal", "Credenciales", "Falta conectar proveedores reales", AMBER),
-                status_card("Smoke real", "Pendiente", "Android, Render/Vercel y cliente externo", AMBER),
-                status_card("Secretos", "Sin tokens reales", "Busqueda encontro placeholders", GREEN),
+                status_card("Riesgo principal", "Hardware", "Validacion fisica IoT pendiente", AMBER),
+                status_card("Nube", "Verificada", "Vercel y Render responden", GREEN),
+                status_card("Secretos", "0 firmas", "Diff limpio y artefactos ignorados", GREEN),
             ]],
             colWidths=[5.3 * cm, 5.3 * cm, 5.3 * cm],
         )
@@ -284,6 +284,7 @@ def build_story() -> list:
         ["Web", "Dashboard consume Control Center; login incluye crear cuenta, invitacion, recuperacion, verificacion y solicitud demo; Sala de Control fullscreen en /control-room."],
         ["Mobile", "APK release generado contra https://agroescudo-api.onrender.com; analyze sin issues; API_BASE_URL obligatorio en release."],
         ["IoT", "Se mantiene POST /api/readings y batch /api/iot/v1/ingest/batch. Firmware/documentacion Arduino preparada con placeholders de provisionamiento."],
+        ["Graficos", "Sistema AgroEscudo compartido por nodo: resumen, buckets con extremos, huecos, umbrales, eventos, acciones y nivel 2D en web, Flutter y PDF."],
         ["Documentacion", "Auditoria, plan, variables, endpoints, seguridad, checklist piloto, roadmap, notas de release y reporte de pruebas."],
     ]
     story.append(make_table(implemented, [4 * cm, 12.5 * cm]))
@@ -293,9 +294,9 @@ def build_story() -> list:
         make_table(
             [
                 ["Componente", "Tecnologia", "Estado"],
-                ["Backend API", "FastAPI, SQLAlchemy 2.0, Alembic, ReportLab", "Operativo local; preparado para Render y PostgreSQL."],
-                ["Base de datos", "SQLite local / PostgreSQL produccion", "SQLite verificado; PostgreSQL previsto en Render/Neon."],
-                ["Frontend web", "Next.js, React, TypeScript, Tailwind, Recharts", "Build OK; listo para Vercel con NEXT_PUBLIC_API_URL."],
+                ["Backend API", "FastAPI, SQLAlchemy 2.0, Alembic, ReportLab", "Operativo local y desplegado en Render."],
+                ["Base de datos", "SQLite local / PostgreSQL produccion", "SQLite verificado; PostgreSQL productivo conectado desde Render."],
+                ["Frontend web", "Next.js, React, TypeScript, Tailwind, Recharts", "Build OK y produccion Ready en Vercel."],
                 ["Mobile Android", "Flutter", "APK release generado contra API Render."],
                 ["IoT", "ESP32/LoRa/WiFi + endpoint batch HMAC", "Codigo/documentacion preparado; prueba fisica pendiente."],
                 ["Reportes", "PDF backend ReportLab y PDF web existente", "Reporte semanal y documentos tecnicos disponibles."],
@@ -316,7 +317,8 @@ def build_story() -> list:
                 ["Educacion", "GET /api/education/articles, POST /api/education/articles/{id}/complete"],
                 ["Asistente", "POST /api/agro-assistant/messages con reglas deterministicas P0"],
                 ["IoT", "POST /api/readings y POST /api/iot/v1/ingest/batch"],
-                ["Reportes", "GET /api/reports/weekly y /api/reports/weekly/pdf"],
+                ["Telemetria visual", "GET /api/devices/{id}/readings/metrics/{code} y /api/devices/{id}/chart-context"],
+                ["Reportes", "GET /api/reports/period, /api/reports/period/pdf y compatibilidad semanal"],
             ],
             [4 * cm, 12.5 * cm],
         )
@@ -328,12 +330,14 @@ def build_story() -> list:
         make_table(
             [
                 ["Prueba", "Comando", "Resultado"],
-                ["Backend", "py -3.13 -m pytest -p no:cacheprovider", "78 passed, 148 warnings conocidos."],
+                ["Backend", "py -3.13 -m pytest -p no:cacheprovider", "133 passed; warnings deprecados conocidos, sin fallos."],
                 ["Migracion", "py -3.13 -m alembic upgrade head", "Migracion 202607030001 aplicada."],
                 ["Seed", "py -3.13 -m app.seed", "Empresa piloto, 3 storage units, 3 devices, usuarios y thresholds."],
-                ["Frontend", "npm.cmd run build", "Build OK; rutas /, /_not-found, /control-room."],
+                ["Frontend", "npm.cmd run test / lint / build", "14 tests, ESLint limpio y build OK."],
                 ["Flutter analyze", "flutter analyze", "No issues found."],
-                ["APK release", "flutter build apk --release --dart-define=API_BASE_URL=https://agroescudo-api.onrender.com", "APK 51.38 MB generado."],
+                ["Flutter test", "flutter test", "3 tests passed."],
+                ["APK release", "flutter build apk --release --dart-define=API_BASE_URL=https://agroescudo-api.onrender.com", "APK 68.92 MB generado."],
+                ["PDF QA", "Render Poppler + pypdf", "Informe 10 paginas y bitacora 3 paginas sin cortes."],
             ],
             [3.2 * cm, 7 * cm, 6.3 * cm],
         )
@@ -343,9 +347,9 @@ def build_story() -> list:
         make_table(
             [
                 ["Campo", "Valor"],
-                ["Ruta", "dist/AgroEscudo-MVP-release.apk"],
-                ["Tamano", "51.38 MB"],
-                ["SHA-256", "9F2FAE364C0ACF45E46B951E79A1CCDE45FA141CE1DC5EC25EB06636E4D9569F"],
+                ["Ruta", "dist/AgroEscudo-Piloto-release.apk"],
+                ["Tamano", "68.92 MB"],
+                ["SHA-256", "A9E6D3B1C30EDE15CD24A057BE03450F0C78D37DCDE23D27B6FF86CC9BDA2257"],
                 ["API configurada", "https://agroescudo-api.onrender.com"],
             ],
             [4 * cm, 12.5 * cm],
@@ -395,13 +399,13 @@ def build_story() -> list:
     story.append(p("8. Lo que falta para estar bien conformado", styles["H1"]))
     remaining = [
         ["Prioridad", "Pendiente", "Resultado esperado"],
-        ["Alta", "Cargar credenciales reales en Render/Vercel: DATABASE_URL, JWT_SECRET, CORS_ORIGINS, PUBLIC_APP_URL.", "Backend publico estable y seguro."],
+        ["Alta", "Rotar y custodiar DATABASE_URL, JWT_SECRET, CORS_ORIGINS y PUBLIC_APP_URL antes de entregar accesos definitivos.", "Ambiente productivo estable y seguro."],
         ["Alta", "Configurar Resend o mantener EMAIL_ENABLED=false hasta tener dominio/cuenta.", "Signup, invitaciones y reset por correo real."],
         ["Alta", "Configurar S3 compatible para fotos y firmas.", "Evidencia de mantenimiento persistente, no dependiente del filesystem efimero."],
-        ["Alta", "Smoke manual: admin, tecnico, cliente, PDF, Control Room, APK Android, alertas.", "Checklist de piloto firmado."],
+        ["Alta", "Instalar APK en Android real y completar smoke admin, tecnico, cliente, PDF y alertas.", "Checklist de piloto firmado."],
         ["Media", "Activar WhatsApp/Telegram reales cuando haya tokens y templates.", "Notificacion externa a responsables."],
         ["Media", "Prueba fisica firmware LoRa/WiFi con nodos reales.", "Confirmacion end-to-end sensor -> gateway -> API -> alerta -> dashboard."],
-        ["Media", "Crear commit y tag agroescudo-control-center-v1.0.0.", "Release versionada y recuperable."],
+        ["Media", "Crear tag de release despues de aceptar el smoke Android final.", "Release versionada y recuperable."],
         ["Baja", "Pulir pantallas dedicadas para signup/invitacion/reset.", "Mejor UX comercial fuera del panel de login."],
     ]
     story.append(make_table(remaining, [2.3 * cm, 7 * cm, 7.2 * cm]))
@@ -409,15 +413,15 @@ def build_story() -> list:
     story.append(p("9. Checklist final recomendado", styles["H1"]))
     checklist = [
         "1. Crear backup de base productiva antes de migrar.",
-        "2. Configurar variables Render y ejecutar migraciones.",
-        "3. Configurar Vercel con NEXT_PUBLIC_API_URL apuntando a Render.",
+        "2. Confirmar variables Render y migraciones en el despliegue productivo.",
+        "3. Confirmar Vercel con NEXT_PUBLIC_API_URL apuntando a Render.",
         "4. Instalar APK en Android real y probar los tres roles.",
         "5. Verificar /control-room con sesion admin.",
         "6. Simular o recibir lectura critica y validar alerta.",
         "7. Registrar accion correctiva y mantenimiento.",
         "8. Descargar PDF semanal y revisar contenido.",
         "9. Validar que cliente no ve datos ajenos.",
-        "10. Crear commit, tag y guardar SHA del APK entregado.",
+        "10. Firmar checklist, crear tag y guardar SHA del APK entregado.",
     ]
     for item in checklist:
         story.append(p(item, styles["Body"]))
@@ -425,7 +429,7 @@ def build_story() -> list:
     story.append(Spacer(1, 0.5 * cm))
     story.append(
         p(
-            "<b>Conclusion:</b> AgroEscudo esta tecnicamente encaminado para piloto comercial P0. No debe declararse produccion final hasta completar credenciales externas, smoke manual de nube, prueba Android real y validacion fisica IoT.",
+            "<b>Conclusion:</b> AgroEscudo esta desplegado y tecnicamente listo para un piloto comercial controlado. La operacion desatendida requiere cerrar credenciales de proveedores, prueba Android real y validacion fisica IoT.",
             styles["Body"],
         )
     )
@@ -440,7 +444,7 @@ def main() -> None:
         leftMargin=1.5 * cm,
         topMargin=1.7 * cm,
         bottomMargin=1.5 * cm,
-        title="AgroEscudo Auditoria Final Control Center V1.0",
+        title="AgroEscudo Auditoria Final Release Piloto 2026.08",
         author="AgroEscudo",
     )
     doc.build(build_story(), onFirstPage=header_footer, onLaterPages=header_footer)

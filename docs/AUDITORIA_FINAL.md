@@ -24,6 +24,14 @@ La API, el dashboard web, la app Android, el RBAC, la telemetría por nodo, las 
 | Secretos en diff | Verificado | 0 firmas OpenAI, Google, GitHub, JWT o claves privadas |
 | Artefactos | Verificado | `.env`, `dist/`, APK, `mobile/build/`, `.next/` y `output/` ignorados |
 
+## Publicación Verificada
+
+- GitHub `main`: commit `34d70113ed0e932a397f075c675ec219832ceb84`.
+- Rama de release: `origin/codex/premium-charts-release` en el mismo commit.
+- Vercel producción: `https://agroescudobo.vercel.app` con estado `Ready` y HTTP 200.
+- Render API: `https://agroescudo-api.onrender.com/health` con `status=ok`.
+- Smoke Render: login admin válido y `GET /api/devices/{id}/chart-context` operativo.
+
 ## Cambios Cerrados En Esta Release
 
 - Sistema visual propietario de gráficos AgroEscudo para Recharts y FL Chart.
