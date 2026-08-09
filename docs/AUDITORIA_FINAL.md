@@ -26,8 +26,8 @@ La API, el dashboard web, la app Android, el RBAC, la telemetría por nodo, las 
 
 ## Publicación Verificada
 
-- GitHub `main`: commit `34d70113ed0e932a397f075c675ec219832ceb84`.
-- Rama de release: `origin/codex/premium-charts-release` en el mismo commit.
+- GitHub `main` y `origin/codex/premium-charts-release`: release funcional y auditoría publicadas.
+- Tag reproducible: `agroescudo-pilot-2026.08`.
 - Vercel producción: `https://agroescudobo.vercel.app` con estado `Ready` y HTTP 200.
 - Render API: `https://agroescudo-api.onrender.com/health` con `status=ok`.
 - Smoke Render: login admin válido y `GET /api/devices/{id}/chart-context` operativo.
