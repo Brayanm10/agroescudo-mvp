@@ -1,7 +1,14 @@
 # Auditoría final AgroEscudo Sentinel v0.2
 
-Fecha de corte: 2026-08-09  
-Rama de trabajo: `codex/sentinel-v0.2-release`
+Fecha de corte: 2026-08-13
+
+## Publicación verificada
+
+- Web productiva: `https://agroescudobo.vercel.app` - HTTP 200.
+- API productiva: `https://agroescudo-api.onrender.com`.
+- Base productiva: PostgreSQL - `/api/health/db` responde `status=ok`.
+- Endpoint Sentinel productivo: `/api/admin/sentinel/devices` responde 200 para admin.
+- Código fuente: rama `main` en `Brayanm10/agroescudo-mvp`.
 
 ## Dictamen ejecutivo
 
@@ -62,8 +69,8 @@ flowchart LR
 | Firmware RAM | 50.016 / 327.680 bytes (15,3%) |
 | Firmware flash | 1.118.928 / 1.310.720 bytes (85,4%) |
 
-APK local de entrega: `dist/AgroEscudo-Sentinel-Piloto-release.apk`  
-Tamaño: 68,92 MB  
+APK local de entrega: `dist/AgroEscudo-Sentinel-Piloto-release.apk`
+Tamaño: 68,92 MB
 SHA-256: `A9E6D3B1C30EDE15CD24A057BE03450F0C78D37DCDE23D27B6FF86CC9BDA2257`
 
 ## Configuración que debe aportar el responsable del piloto

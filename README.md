@@ -61,6 +61,7 @@ Frontend (`frontend/.env.local`, copiar desde `frontend/.env.example`):
 
 - [AgroEscudo Sentinel v0.2](docs/AGROESCUDO_SENTINEL_V02.md): alta, seguridad, contactos, cola GSM, contratos y firmware.
 - [Auditoría final Sentinel v0.2](docs/AUDITORIA_FINAL_SENTINEL_V02.md): evidencia de pruebas, configuración pendiente, riesgos y criterio de salida del piloto.
+- [Flujos de trabajo del piloto](docs/FLUJOS_DE_TRABAJO_PILOTO.md): registro, aprobación, alta, enlace Wi-Fi/LoRa, alertas, roles y cierre con evidencia.
 
 - [Auditoria final](docs/AUDITORIA_FINAL.md)
 - [Arquitectura del sistema](docs/ARQUITECTURA_SISTEMA.md)
