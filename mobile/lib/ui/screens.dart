@@ -150,11 +150,254 @@ class _LoginScreenState extends State<LoginScreen> {
                   : const Icon(Icons.login),
               label: Text(store.loading ? 'Ingresando...' : 'Ingresar'),
             ),
+            const SizedBox(height: 10),
+            OutlinedButton.icon(
+              onPressed: store.loading ? null : () => context.go('/signup'),
+              icon: const Icon(Icons.person_add_alt_1_outlined),
+              label: const Text('Crear cuenta para mi operacion'),
+            ),
             const SizedBox(height: 22),
           ],
         ),
       ),
     );
+  }
+}
+
+class SignupScreen extends StatefulWidget {
+  const SignupScreen({super.key});
+
+  @override
+  State<SignupScreen> createState() => _SignupScreenState();
+}
+
+class _SignupScreenState extends State<SignupScreen> {
+  final responsibleName = TextEditingController();
+  final workEmail = TextEditingController();
+  final commercialName = TextEditingController();
+  final phone = TextEditingController();
+  final city = TextEditingController();
+  final password = TextEditingController();
+  final emergencyName = TextEditingController();
+  final emergencyPhone = TextEditingController();
+  bool receiveCall = false;
+  bool hidePassword = true;
+  String? notice;
+
+  @override
+  void dispose() {
+    responsibleName.dispose();
+    workEmail.dispose();
+    commercialName.dispose();
+    phone.dispose();
+    city.dispose();
+    password.dispose();
+    emergencyName.dispose();
+    emergencyPhone.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final store = context.watch<AppStore>();
+    return Scaffold(
+      appBar: AppBar(title: const Text('Crear cuenta cliente')),
+      body: SafeArea(
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(22, 22, 22, 30),
+          children: [
+            const _SectionTitle(
+              eyebrow: 'ALTA PARA PILOTO',
+              title: 'Tu operacion en AgroEscudo',
+              subtitle:
+                  'Un solo formulario. El equipo AgroEscudo validara la cuenta antes de activar el monitoreo.',
+            ),
+            TextField(
+              controller: responsibleName,
+              textCapitalization: TextCapitalization.words,
+              decoration: const InputDecoration(
+                labelText: 'Nombre del responsable *',
+                prefixIcon: Icon(Icons.person_outline),
+              ),
+            ),
+            const SizedBox(height: 11),
+            TextField(
+              controller: commercialName,
+              textCapitalization: TextCapitalization.words,
+              decoration: const InputDecoration(
+                labelText: 'Empresa o acopio *',
+                prefixIcon: Icon(Icons.business_outlined),
+              ),
+            ),
+            const SizedBox(height: 11),
+            TextField(
+              controller: workEmail,
+              keyboardType: TextInputType.emailAddress,
+              decoration: const InputDecoration(
+                labelText: 'Correo de trabajo *',
+                prefixIcon: Icon(Icons.alternate_email),
+              ),
+            ),
+            const SizedBox(height: 11),
+            TextField(
+              controller: phone,
+              keyboardType: TextInputType.phone,
+              decoration: const InputDecoration(
+                labelText: 'Telefono de contacto',
+                prefixIcon: Icon(Icons.phone_outlined),
+              ),
+            ),
+            const SizedBox(height: 11),
+            TextField(
+              controller: city,
+              textCapitalization: TextCapitalization.words,
+              decoration: const InputDecoration(
+                labelText: 'Ciudad',
+                prefixIcon: Icon(Icons.location_on_outlined),
+              ),
+            ),
+            const SizedBox(height: 11),
+            TextField(
+              controller: password,
+              obscureText: hidePassword,
+              decoration: InputDecoration(
+                labelText: 'Contrasena *',
+                helperText: 'Minimo 8 caracteres, una letra y un numero.',
+                prefixIcon: const Icon(Icons.lock_outline),
+                suffixIcon: IconButton(
+                  onPressed: () => setState(() => hidePassword = !hidePassword),
+                  icon: Icon(
+                    hidePassword ? Icons.visibility_off : Icons.visibility,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            Container(
+              padding: const EdgeInsets.all(15),
+              decoration: BoxDecoration(
+                color: const Color(0xfffff8e7),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xffead59d)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Row(
+                    children: [
+                      Icon(Icons.emergency_outlined, color: amber),
+                      SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          'Contacto de urgencia Sentinel (opcional)',
+                          style: TextStyle(fontWeight: FontWeight.w800),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 5),
+                  const Text(
+                    'Se utilizará solo ante alertas críticas. Completa ambos campos o déjalos vacíos.',
+                    style: TextStyle(color: muted, height: 1.35),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: emergencyName,
+                    textCapitalization: TextCapitalization.words,
+                    decoration: const InputDecoration(
+                      labelText: 'Responsable de urgencia',
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: emergencyPhone,
+                    keyboardType: TextInputType.phone,
+                    decoration: const InputDecoration(
+                      labelText: 'Numero internacional',
+                      hintText: '+59170000000',
+                    ),
+                  ),
+                  SwitchListTile.adaptive(
+                    contentPadding: EdgeInsets.zero,
+                    value: receiveCall,
+                    onChanged: (value) => setState(() => receiveCall = value),
+                    title: const Text(
+                      'Autorizar llamada automatica',
+                      style: TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    subtitle: const Text('El SMS crítico permanece activado.'),
+                  ),
+                ],
+              ),
+            ),
+            if (store.error != null) ...[
+              const SizedBox(height: 12),
+              _Notice(text: store.error!, danger: true),
+            ],
+            if (notice != null) ...[
+              const SizedBox(height: 12),
+              _Notice(text: notice!),
+            ],
+            const SizedBox(height: 16),
+            ElevatedButton.icon(
+              onPressed: store.loading ? null : _submit,
+              icon: store.loading
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.shield_outlined),
+              label: Text(
+                store.loading ? 'Enviando solicitud...' : 'Solicitar mi cuenta',
+              ),
+            ),
+            TextButton(
+              onPressed: store.loading ? null : () => context.go('/login'),
+              child: const Text('Ya tengo cuenta'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _submit() async {
+    final hasEmergencyName = emergencyName.text.trim().isNotEmpty;
+    final hasEmergencyPhone = emergencyPhone.text.trim().isNotEmpty;
+    if (responsibleName.text.trim().isEmpty ||
+        commercialName.text.trim().isEmpty ||
+        workEmail.text.trim().isEmpty ||
+        password.text.isEmpty) {
+      _toast(context, 'Completa los campos obligatorios.');
+      return;
+    }
+    if (hasEmergencyName != hasEmergencyPhone) {
+      _toast(
+        context,
+        'Completa nombre y numero de urgencia, o deja ambos vacios.',
+      );
+      return;
+    }
+    try {
+      final message = await context.read<AppStore>().signupCompany(
+        responsibleName: responsibleName.text.trim(),
+        workEmail: workEmail.text.trim(),
+        commercialName: commercialName.text.trim(),
+        password: password.text,
+        phone: phone.text.trim().isEmpty ? null : phone.text.trim(),
+        city: city.text.trim().isEmpty ? null : city.text.trim(),
+        emergencyContactName: hasEmergencyName
+            ? emergencyName.text.trim()
+            : null,
+        emergencyPhone: hasEmergencyPhone ? emergencyPhone.text.trim() : null,
+        emergencyReceiveCall: receiveCall,
+      );
+      if (!mounted) return;
+      setState(() => notice = message);
+    } on ApiException {
+      // AppStore exposes the user-facing message.
+    }
   }
 }
 
@@ -285,15 +528,27 @@ class DashboardScreen extends StatelessWidget {
         : store.activeAlerts.isNotEmpty
         ? 'Seguimiento requerido'
         : 'Operacion estable';
+    final monitoredDays = _continuityDays(store);
+    final fullName = store.me?['full_name']?.toString().trim();
     return _Page(
       children: [
         _SectionTitle(
           eyebrow: _roleLabel(store.role),
           title: store.role == 'client'
-              ? 'Portal del propietario'
+              ? 'Hola${fullName?.isNotEmpty == true ? ', $fullName' : ''}'
               : 'Centro operativo',
-          subtitle: 'Estado consolidado del monitoreo postcosecha.',
+          subtitle: store.role == 'client'
+              ? 'Esto es lo más importante de tu operación hoy.'
+              : 'Estado consolidado del monitoreo postcosecha.',
         ),
+        if (store.role == 'client') ...[
+          _ContinuityPanel(
+            days: monitoredDays,
+            monitoredUnits: store.units.length,
+            activeAlerts: store.activeAlerts.length,
+          ),
+          const SizedBox(height: 14),
+        ],
         _RiskPanel(
           title: state,
           critical: critical > 0,
@@ -353,6 +608,16 @@ class DashboardScreen extends StatelessWidget {
             text:
                 'Gestiona mantenimiento, checklist, QR y evidencia desde campo.',
             onTap: () => _showInstallation(context),
+          ),
+        ],
+        if (store.role == 'client' || store.role == 'admin') ...[
+          const SizedBox(height: 12),
+          _ActionCard(
+            icon: Icons.emergency_outlined,
+            title: 'Contacto de urgencia Sentinel',
+            text:
+                'Define quién recibe el SMS o la llamada cuando exista una alerta crítica.',
+            onTap: () => _showEmergencyContact(context),
           ),
         ],
       ],
@@ -1022,14 +1287,21 @@ class MoreScreen extends StatelessWidget {
         ),
         _MoreTile(
           icon: Icons.picture_as_pdf_outlined,
-          title: 'Reportes semanales',
-          subtitle: 'Descarga evidencia tecnica en PDF.',
+          title: 'Reportes y bitacoras PDF',
+          subtitle: 'Descarga evidencia diaria, semanal o mensual.',
           onTap: () => _openMobileTool(
             context,
             title: 'Reportes',
             child: const ReportsScreen(),
           ),
         ),
+        if (store.role == 'client' || store.role == 'admin')
+          _MoreTile(
+            icon: Icons.emergency_outlined,
+            title: 'Contacto de urgencia',
+            subtitle: 'Configura SMS y llamada Sentinel para alertas criticas.',
+            onTap: () => _showEmergencyContact(context),
+          ),
         if (store.canOperate)
           _MoreTile(
             icon: Icons.build_outlined,
@@ -1625,6 +1897,83 @@ class _RiskPanel extends StatelessWidget {
   }
 }
 
+class _ContinuityPanel extends StatelessWidget {
+  const _ContinuityPanel({
+    required this.days,
+    required this.monitoredUnits,
+    required this.activeAlerts,
+  });
+
+  final int days;
+  final int monitoredUnits;
+  final int activeAlerts;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: darkGreen,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xff2a705d)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 52,
+            height: 52,
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: .1),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: const Icon(
+              Icons.shield_outlined,
+              color: Color(0xffe4bd58),
+              size: 29,
+            ),
+          ),
+          const SizedBox(width: 13),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'CONTINUIDAD OPERATIVA',
+                  style: TextStyle(
+                    color: Color(0xffb9d8cd),
+                    fontSize: 10,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: .9,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  days > 0
+                      ? '$days dia${days == 1 ? '' : 's'} monitoreado${days == 1 ? '' : 's'}'
+                      : 'Monitoreo listo para iniciar',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 19,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  '$monitoredUnits unidad${monitoredUnits == 1 ? '' : 'es'} · $activeAlerts alerta${activeAlerts == 1 ? '' : 's'} activa${activeAlerts == 1 ? '' : 's'}',
+                  style: const TextStyle(
+                    color: Color(0xffd7e8e1),
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _Metric extends StatelessWidget {
   const _Metric({required this.label, required this.value, required this.icon});
 
@@ -2087,6 +2436,176 @@ class _Notice extends StatelessWidget {
   Color get dangerColor => const Color(0xff9d2018);
 }
 
+Future<void> _showEmergencyContact(BuildContext context) async {
+  final rootContext = context;
+  final store = context.read<AppStore>();
+  var scopeId = 0;
+  var receiveCall = false;
+  var saving = false;
+  Map<String, dynamic>? selectedContact;
+  final name = TextEditingController();
+  final phone = TextEditingController();
+
+  Map<String, dynamic>? contactForScope(int value) {
+    for (final contact in store.alertContacts) {
+      final contactScope = contact['storage_unit_id'] as int? ?? 0;
+      if (contactScope == value) return contact;
+    }
+    return null;
+  }
+
+  void loadScope(int value) {
+    scopeId = value;
+    selectedContact = contactForScope(value);
+    name.text =
+        selectedContact?['name']?.toString() ??
+        store.me?['full_name']?.toString() ??
+        '';
+    phone.text = selectedContact?['phone_e164']?.toString() ?? '';
+    receiveCall = selectedContact?['receive_call'] == true;
+  }
+
+  loadScope(scopeId);
+  await showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    builder: (sheetContext) => StatefulBuilder(
+      builder: (context, setSheetState) => Padding(
+        padding: EdgeInsets.only(
+          left: 18,
+          right: 18,
+          top: 18,
+          bottom: MediaQuery.of(context).viewInsets.bottom + 18,
+        ),
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            const _SectionTitle(
+              eyebrow: 'PROTECCION SENTINEL',
+              title: 'Contacto de urgencia',
+              subtitle:
+                  'Sentinel usará este número ante una alerta crítica. Puedes aplicarlo a toda la operación o a un silo específico.',
+            ),
+            DropdownButtonFormField<int>(
+              initialValue: scopeId,
+              decoration: const InputDecoration(labelText: 'Aplicar a'),
+              items: [
+                const DropdownMenuItem(
+                  value: 0,
+                  child: Text('Toda mi operacion'),
+                ),
+                ...store.units.map(
+                  (unit) => DropdownMenuItem(
+                    value: unit['id'] as int,
+                    child: Text(unit['name']?.toString() ?? 'Unidad'),
+                  ),
+                ),
+              ],
+              onChanged: (value) => setSheetState(() => loadScope(value ?? 0)),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: name,
+              textCapitalization: TextCapitalization.words,
+              decoration: const InputDecoration(
+                labelText: 'Nombre del responsable *',
+                prefixIcon: Icon(Icons.person_outline),
+              ),
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: phone,
+              keyboardType: TextInputType.phone,
+              decoration: const InputDecoration(
+                labelText: 'Numero internacional *',
+                hintText: '+59170000000',
+                prefixIcon: Icon(Icons.phone_outlined),
+              ),
+            ),
+            SwitchListTile.adaptive(
+              contentPadding: EdgeInsets.zero,
+              value: receiveCall,
+              onChanged: (value) => setSheetState(() => receiveCall = value),
+              title: const Text(
+                'Llamada automatica',
+                style: TextStyle(fontWeight: FontWeight.w800),
+              ),
+              subtitle: const Text(
+                'El SMS de alerta crítica permanece activado.',
+              ),
+            ),
+            const _Notice(
+              text:
+                  'Usa formato E.164 (+591...). El número solo se utilizará para avisos operativos autorizados.',
+            ),
+            const SizedBox(height: 14),
+            ElevatedButton.icon(
+              onPressed: saving
+                  ? null
+                  : () async {
+                      if (name.text.trim().isEmpty ||
+                          phone.text.trim().isEmpty) {
+                        _toast(
+                          context,
+                          'Completa nombre y numero de urgencia.',
+                        );
+                        return;
+                      }
+                      Map<String, dynamic>? unit;
+                      if (scopeId != 0) {
+                        for (final item in store.units) {
+                          if (item['id'] == scopeId) {
+                            unit = item;
+                            break;
+                          }
+                        }
+                      }
+                      final companyId =
+                          (unit?['company_id'] ??
+                                  store.me?['company_id'] ??
+                                  (store.companies.isNotEmpty
+                                      ? store.companies.first['id']
+                                      : null))
+                              as int?;
+                      if (companyId == null) {
+                        _toast(context, 'No se pudo identificar la empresa.');
+                        return;
+                      }
+                      setSheetState(() => saving = true);
+                      try {
+                        await store.saveEmergencyContact(
+                          contactId: selectedContact?['id'] as int?,
+                          companyId: companyId,
+                          storageUnitId: scopeId == 0 ? null : scopeId,
+                          name: name.text.trim(),
+                          phone: phone.text.trim(),
+                          receiveCall: receiveCall,
+                        );
+                        if (!sheetContext.mounted) return;
+                        Navigator.pop(sheetContext);
+                        if (rootContext.mounted) {
+                          _toast(
+                            rootContext,
+                            'Contacto de urgencia actualizado.',
+                          );
+                        }
+                      } on ApiException catch (exception) {
+                        if (context.mounted) _toast(context, exception.message);
+                        setSheetState(() => saving = false);
+                      }
+                    },
+              icon: const Icon(Icons.shield_outlined),
+              label: Text(saving ? 'Guardando...' : 'Guardar contacto'),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+  name.dispose();
+  phone.dispose();
+}
+
 Future<void> _showLogForm(
   BuildContext context, {
   Map<String, dynamic>? initialUnit,
@@ -2260,6 +2779,16 @@ DateTime _parse(dynamic value) =>
     DateTime.fromMillisecondsSinceEpoch(0);
 String _date(dynamic value) => formatDate.format(_parse(value).toLocal());
 String _num(dynamic value) => value is num ? value.toStringAsFixed(1) : '--';
+int _continuityDays(AppStore store) {
+  var maximum = 0;
+  for (final pilot in store.pilots) {
+    final value = pilot['days_monitored'];
+    if (value is num && value.toInt() > maximum) maximum = value.toInt();
+  }
+  if (maximum == 0 && store.readings.isNotEmpty) return 1;
+  return maximum;
+}
+
 String _capacity(Map<String, dynamic> unit) => unit['capacity_tons'] == null
     ? 'Capacidad no registrada'
     : '${_num(unit['capacity_tons'])} t';

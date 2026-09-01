@@ -44,6 +44,7 @@ class AppStore extends ChangeNotifier {
   List<Map<String, dynamic>> get activeAlerts => _list('active_alerts');
   List<Map<String, dynamic>> get logs => _list('logs');
   List<Map<String, dynamic>> get pilots => _list('pilots');
+  List<Map<String, dynamic>> get alertContacts => _list('alert_contacts');
   List<Map<String, dynamic>> get maintenanceRecords =>
       _list('maintenance_records');
   List<Map<String, dynamic>> get installationChecklists =>
@@ -93,6 +94,49 @@ class AppStore extends ChangeNotifier {
     }
   }
 
+  Future<String> signupCompany({
+    required String responsibleName,
+    required String workEmail,
+    required String commercialName,
+    required String password,
+    String? phone,
+    String? city,
+    String? emergencyContactName,
+    String? emergencyPhone,
+    bool emergencyReceiveCall = false,
+  }) async {
+    loading = true;
+    error = null;
+    notifyListeners();
+    try {
+      final result = await _api.postJson('/api/auth/signup/company', {
+        'responsible_name': responsibleName,
+        'work_email': workEmail,
+        'phone': phone,
+        'commercial_name': commercialName,
+        'city': city,
+        'sector': 'acopiador',
+        'estimated_sites': 1,
+        'estimated_storage_units': 1,
+        'password': password,
+        'language': 'es',
+        'consent_terms': true,
+        'consent_privacy': true,
+        'emergency_contact_name': emergencyContactName,
+        'emergency_phone': emergencyPhone,
+        'emergency_receive_call': emergencyReceiveCall,
+      });
+      return _map(result)['message']?.toString() ??
+          'Solicitud recibida. Revisa tu correo para continuar.';
+    } on ApiException catch (exception) {
+      error = exception.message;
+      rethrow;
+    } finally {
+      loading = false;
+      notifyListeners();
+    }
+  }
+
   Future<void> checkConnection() async {
     loading = true;
     error = null;
@@ -126,6 +170,7 @@ class AppStore extends ChangeNotifier {
         _api.getJson('/api/alerts/active', token: authToken),
         _api.getJson('/api/operational-logs', token: authToken),
         _api.getJson('/api/pilots', token: authToken),
+        _api.getJson('/api/alert-contacts', token: authToken),
       ]);
       me = _map(results[0]);
       data = {
@@ -138,6 +183,7 @@ class AppStore extends ChangeNotifier {
         'active_alerts': results[7],
         'logs': results[8],
         'pilots': results[9],
+        'alert_contacts': results[10],
       };
       cached = false;
       await _saveCache();
@@ -416,6 +462,39 @@ class AppStore extends ChangeNotifier {
       'destination': destination,
       'minimum_severity': minimumSeverity,
     }, token: token);
+  }
+
+  Future<void> saveEmergencyContact({
+    int? contactId,
+    required int companyId,
+    int? storageUnitId,
+    required String name,
+    required String phone,
+    required bool receiveCall,
+  }) async {
+    await _ensureOnline();
+    final payload = {
+      'storage_unit_id': storageUnitId,
+      'name': name,
+      'phone_e164': phone,
+      'priority': 1,
+      'escalation_delay_minutes': 0,
+      'receive_sms': true,
+      'receive_call': receiveCall,
+      'minimum_severity': 'critical',
+      'active': true,
+      if (contactId == null) 'company_id': companyId,
+    };
+    if (contactId == null) {
+      await _api.postJson('/api/alert-contacts', payload, token: token);
+    } else {
+      await _api.patchJson(
+        '/api/alert-contacts/$contactId',
+        token: token,
+        body: payload,
+      );
+    }
+    await refresh();
   }
 
   Future<Map<String, dynamic>> aiRecommendationForAlert(int alertId) async {

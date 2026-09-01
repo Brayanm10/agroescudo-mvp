@@ -42,6 +42,7 @@ from app.schemas import (
 )
 from app.services.audit import record_audit_event
 from app.services.email import EmailConfigurationError, send_transactional_email
+from app.services.sentinel import upsert_alert_contact
 
 router = APIRouter()
 
@@ -141,6 +142,19 @@ def signup_company(payload: SignupCompanyIn, db: Session = Depends(get_db)) -> S
     )
     db.add(user)
     db.flush()
+    if payload.emergency_phone and payload.emergency_contact_name:
+        try:
+            upsert_alert_contact(
+                db,
+                company_id=company.id,
+                storage_unit_id=None,
+                name=payload.emergency_contact_name,
+                phone_e164=payload.emergency_phone,
+                created_by_user_id=user.id,
+                receive_call=payload.emergency_receive_call,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
     request = OrganizationRequest(
         company_id=company.id,
         requester_user_id=user.id,

@@ -196,6 +196,15 @@ class StorageUnitCreate(BaseModel):
     crop_type: str | None = Field(default=None, max_length=120)
     assigned_technician_id: int | None = None
     assigned_client_id: int | None = None
+    emergency_contact_name: str | None = Field(default=None, min_length=2, max_length=160)
+    emergency_phone: str | None = Field(default=None, min_length=8, max_length=20)
+    emergency_receive_call: bool = False
+
+    @model_validator(mode="after")
+    def validate_emergency_contact(self):
+        if bool(self.emergency_contact_name) != bool(self.emergency_phone):
+            raise ValueError("Completa nombre y telefono del contacto de urgencia, o deja ambos vacios.")
+        return self
 
 
 class StorageUnitUpdate(BaseModel):
@@ -940,11 +949,20 @@ class PilotCreate(BaseModel):
     client_email: str = Field(min_length=3, max_length=255)
     client_full_name: str = Field(min_length=1, max_length=160)
     client_password: str = Field(min_length=8)
+    emergency_contact_name: str | None = Field(default=None, min_length=2, max_length=160)
+    emergency_phone: str | None = Field(default=None, min_length=8, max_length=20)
+    emergency_receive_call: bool = False
 
     @field_validator("client_password")
     @classmethod
     def validate_client_password(cls, value: str) -> str:
         return _validate_new_password(value)
+
+    @model_validator(mode="after")
+    def validate_emergency_contact(self):
+        if bool(self.emergency_contact_name) != bool(self.emergency_phone):
+            raise ValueError("Completa nombre y telefono del contacto de urgencia, o deja ambos vacios.")
+        return self
 
 
 class PilotAssignmentsIn(BaseModel):
@@ -1273,6 +1291,9 @@ class SignupCompanyIn(BaseModel):
     responsible_name: str = Field(min_length=1, max_length=160)
     work_email: str = Field(min_length=3, max_length=255)
     phone: str | None = Field(default=None, max_length=80)
+    emergency_contact_name: str | None = Field(default=None, min_length=2, max_length=160)
+    emergency_phone: str | None = Field(default=None, min_length=8, max_length=20)
+    emergency_receive_call: bool = False
     commercial_name: str = Field(min_length=1, max_length=160)
     legal_name: str | None = Field(default=None, max_length=160)
     tax_id: str | None = Field(default=None, max_length=64)
@@ -1292,6 +1313,12 @@ class SignupCompanyIn(BaseModel):
     @classmethod
     def validate_signup_password(cls, value: str) -> str:
         return _validate_new_password(value)
+
+    @model_validator(mode="after")
+    def validate_emergency_contact(self):
+        if bool(self.emergency_contact_name) != bool(self.emergency_phone):
+            raise ValueError("Completa nombre y telefono del contacto de urgencia, o deja ambos vacios.")
+        return self
 
 
 class SignupCompanyOut(BaseModel):

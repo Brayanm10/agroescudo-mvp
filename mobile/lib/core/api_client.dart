@@ -187,6 +187,9 @@ class ApiClient {
         message = response.reasonPhrase!;
       }
     }
+    if ({400, 401, 403, 404, 409, 422}.contains(response.statusCode)) {
+      return ApiException(message, response.statusCode);
+    }
     return ApiException(
       _httpErrorMessage(path, uri, response.statusCode, message),
       response.statusCode,

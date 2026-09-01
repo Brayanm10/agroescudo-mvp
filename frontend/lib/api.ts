@@ -145,6 +145,9 @@ export function signupCompany(payload: {
   responsible_name: string;
   work_email: string;
   phone?: string | null;
+  emergency_contact_name?: string | null;
+  emergency_phone?: string | null;
+  emergency_receive_call?: boolean;
   commercial_name: string;
   legal_name?: string | null;
   tax_id?: string | null;
@@ -363,6 +366,9 @@ export function createPilot(
     client_email: string;
     client_full_name: string;
     client_password: string;
+    emergency_contact_name?: string | null;
+    emergency_phone?: string | null;
+    emergency_receive_call?: boolean;
   }
 ) {
   return request<Pilot>("/api/pilots", { token, method: "POST", body: payload });
@@ -833,6 +839,9 @@ export function createAdminStorageUnit(
     crop_type?: string | null;
     assigned_technician_id?: number | null;
     assigned_client_id?: number | null;
+    emergency_contact_name?: string | null;
+    emergency_phone?: string | null;
+    emergency_receive_call?: boolean;
   }
 ) {
   return request<StorageUnit>("/api/admin/storage-units", { token, method: "POST", body: payload });

@@ -20,12 +20,15 @@ class AgroEscudoApp extends StatelessWidget {
         refreshListenable: store,
         initialLocation: '/app',
         redirect: (_, state) {
-          final loggingIn = state.matchedLocation == '/login';
-          if (!store.authenticated) return loggingIn ? null : '/login';
-          return loggingIn ? '/app' : null;
+          final publicRoute =
+              state.matchedLocation == '/login' ||
+              state.matchedLocation == '/signup';
+          if (!store.authenticated) return publicRoute ? null : '/login';
+          return publicRoute ? '/app' : null;
         },
         routes: [
           GoRoute(path: '/login', builder: (_, _) => const LoginScreen()),
+          GoRoute(path: '/signup', builder: (_, _) => const SignupScreen()),
           GoRoute(path: '/app', builder: (_, _) => const MobileShell()),
         ],
       );

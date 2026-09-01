@@ -30,6 +30,53 @@ def normalize_phone_e164(value: str) -> str:
     return compact
 
 
+def upsert_alert_contact(
+    db: Session,
+    *,
+    company_id: int,
+    storage_unit_id: int | None,
+    name: str,
+    phone_e164: str,
+    created_by_user_id: int,
+    receive_call: bool = False,
+) -> AlertContact:
+    """Create or refresh one operational contact without duplicating Sentinel recipients."""
+    normalized_phone = normalize_phone_e164(phone_e164)
+    contact = db.scalar(
+        select(AlertContact).where(
+            AlertContact.company_id == company_id,
+            AlertContact.storage_unit_id == storage_unit_id,
+            AlertContact.phone_e164 == normalized_phone,
+        )
+    )
+    if contact is None:
+        contact = AlertContact(
+            company_id=company_id,
+            storage_unit_id=storage_unit_id,
+            name=name.strip(),
+            phone_e164=normalized_phone,
+            priority=1,
+            escalation_delay_minutes=0,
+            receive_sms=True,
+            receive_call=receive_call,
+            minimum_severity="critical",
+            active=True,
+            consent_at=utc_now(),
+            created_by_user_id=created_by_user_id,
+        )
+        db.add(contact)
+    else:
+        contact.name = name.strip()
+        contact.receive_sms = True
+        contact.receive_call = receive_call
+        contact.minimum_severity = "critical"
+        contact.active = True
+        contact.consent_at = utc_now()
+        contact.created_by_user_id = created_by_user_id
+    db.flush()
+    return contact
+
+
 def mask_phone(value: str | None) -> str | None:
     if not value:
         return value

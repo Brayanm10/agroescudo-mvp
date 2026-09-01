@@ -69,6 +69,9 @@ Usa las cuentas internas creadas por el seed y cambia las contrasenas iniciales 
 11. Cerrar sesion.
 12. Iniciar sesion con cliente.
 13. Confirmar que ve su informacion operativa y no opciones administrativas.
+14. En cliente, revisar `Continuidad operativa` en Inicio.
+15. Abrir `Contacto de urgencia`, guardar un numero E.164 y confirmar que aparece al volver a abrirlo.
+16. Verificar que una unidad nueva pueda registrar su responsable Sentinel sin pasos adicionales.
 
 ## Si Render Esta Dormido
 

@@ -18,6 +18,7 @@ from app.schemas import (
     StorageUnitOut,
 )
 from app.services.telemetry import reading_out_for_user
+from app.services.sentinel import upsert_alert_contact
 
 router = APIRouter(prefix="/storage-units", dependencies=[Depends(get_current_user)])
 
@@ -42,7 +43,7 @@ def list_storage_units(
 @router.post("", response_model=StorageUnitOut, status_code=status.HTTP_201_CREATED)
 def create_storage_unit(
     payload: StorageUnitCreate,
-    _: User = Depends(require_role("admin")),
+    current_user: User = Depends(require_role("admin")),
     db: Session = Depends(get_db),
 ) -> StorageUnit:
     site = db.get(Site, payload.site_id)
@@ -65,6 +66,20 @@ def create_storage_unit(
         assigned_client_id=payload.assigned_client_id,
     )
     db.add(storage_unit)
+    db.flush()
+    if payload.emergency_phone and payload.emergency_contact_name:
+        try:
+            upsert_alert_contact(
+                db,
+                company_id=storage_unit.company_id,
+                storage_unit_id=storage_unit.id,
+                name=payload.emergency_contact_name,
+                phone_e164=payload.emergency_phone,
+                created_by_user_id=current_user.id,
+                receive_call=payload.emergency_receive_call,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
     db.commit()
     db.refresh(storage_unit)
     return storage_unit

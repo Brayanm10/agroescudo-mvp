@@ -6,7 +6,7 @@ from sqlalchemy import func, select
 
 from app import seed as seed_module
 from app.core.security import hash_password, verify_password
-from app.models import Alert, Company, Device, NotificationDelivery, NotificationPreference, OperationalLog, PushDeviceToken, SensorReading, Site, StorageUnit, User
+from app.models import Alert, AlertContact, Company, Device, NotificationDelivery, NotificationPreference, OperationalLog, PushDeviceToken, SensorReading, Site, StorageUnit, User
 
 
 def valid_payload(**overrides):
@@ -750,6 +750,9 @@ def test_admin_can_create_complete_pilot(client, db_session):
             "client_email": "cliente@acopio-sur.local",
             "client_full_name": "Responsable Acopio Sur",
             "client_password": "cliente456",
+            "emergency_contact_name": "Jefe de planta",
+            "emergency_phone": "+59170000021",
+            "emergency_receive_call": True,
         },
     )
 
@@ -762,6 +765,12 @@ def test_admin_can_create_complete_pilot(client, db_session):
     assert body["technician_name"] == "Tecnico AgroEscudo"
     assert body["client_name"] == "Responsable Acopio Sur"
     assert body["status"] == "pendiente de instalacion"
+    contact = db_session.scalar(
+        select(AlertContact).where(AlertContact.storage_unit_id == body["storage_unit_id"])
+    )
+    assert contact is not None
+    assert contact.phone_e164 == "+59170000021"
+    assert contact.receive_call is True
 
     login = client.post(
         "/api/auth/login",

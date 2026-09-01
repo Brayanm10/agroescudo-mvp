@@ -1,7 +1,7 @@
 from sqlalchemy import select
 
 from app.core.security import verify_password
-from app.models import Device, EducationArticle, SensorReading, StorageUnit, User, utc_now
+from app.models import AlertContact, Device, EducationArticle, SensorReading, StorageUnit, User, utc_now
 
 
 def _auth_headers(client, email="admin@agroescudo.local", password="admin123"):
@@ -15,6 +15,9 @@ def test_signup_company_email_verify_and_pending_approval(client, db_session):
         "responsible_name": "Laura Rojas",
         "work_email": "laura@nuevoacopio.bo",
         "phone": "+59170000010",
+        "emergency_contact_name": "Responsable turno noche",
+        "emergency_phone": "+59170000011",
+        "emergency_receive_call": True,
         "commercial_name": "Nuevo Acopio Piloto",
         "legal_name": "Nuevo Acopio Piloto S.R.L.",
         "tax_id": "NAP-001",
@@ -43,6 +46,12 @@ def test_signup_company_email_verify_and_pending_approval(client, db_session):
     user = db_session.scalar(select(User).where(User.email == "laura@nuevoacopio.bo"))
     assert user.status == "PENDING_APPROVAL"
     assert user.email_verified_at is not None
+    contact = db_session.scalar(select(AlertContact).where(AlertContact.company_id == body["company_id"]))
+    assert contact is not None
+    assert contact.storage_unit_id is None
+    assert contact.phone_e164 == "+59170000011"
+    assert contact.receive_sms is True
+    assert contact.receive_call is True
 
     login_response = client.post("/api/auth/login", json={"email": "laura@nuevoacopio.bo", "password": "Piloto123"})
     assert login_response.status_code == 403

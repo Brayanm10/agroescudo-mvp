@@ -37,6 +37,7 @@ from app.services.audit import record_audit_event
 from app.services.calibration import create_calibration
 from app.services.device_capabilities import sync_device_channels
 from app.services.telemetry import validate_device_unit_compatibility
+from app.services.sentinel import upsert_alert_contact
 
 router = APIRouter(prefix="/admin", dependencies=[Depends(require_role("admin"))])
 
@@ -156,15 +157,37 @@ def list_admin_storage_units(company_id: int | None = None, db: Session = Depend
 
 
 @router.post("/storage-units", response_model=StorageUnitOut, status_code=status.HTTP_201_CREATED)
-def create_admin_storage_unit(payload: StorageUnitCreate, db: Session = Depends(get_db)) -> StorageUnit:
+def create_admin_storage_unit(
+    payload: StorageUnitCreate,
+    current_user: User = Depends(require_role("admin")),
+    db: Session = Depends(get_db),
+) -> StorageUnit:
     company = _get_company(db, payload.company_id)
     _require_active_company(company)
     site = _get_site(db, payload.site_id)
     if site.company_id != company.id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El sitio no pertenece a la empresa seleccionada.")
     _validate_assignees(db, payload.company_id, payload.assigned_technician_id, payload.assigned_client_id)
-    unit = StorageUnit(**payload.model_dump())
+    unit = StorageUnit(
+        **payload.model_dump(
+            exclude={"emergency_contact_name", "emergency_phone", "emergency_receive_call"}
+        )
+    )
     db.add(unit)
+    db.flush()
+    if payload.emergency_phone and payload.emergency_contact_name:
+        try:
+            upsert_alert_contact(
+                db,
+                company_id=unit.company_id,
+                storage_unit_id=unit.id,
+                name=payload.emergency_contact_name,
+                phone_e164=payload.emergency_phone,
+                created_by_user_id=current_user.id,
+                receive_call=payload.emergency_receive_call,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
     db.commit()
     db.refresh(unit)
     return unit

@@ -610,6 +610,9 @@ function SignupCompanyForm({ busy, onSubmit }: { busy: boolean; onSubmit: (actio
             responsible_name: formValue(data, "responsible_name"),
             work_email: formValue(data, "work_email"),
             phone: formValue(data, "phone") || null,
+            emergency_contact_name: formValue(data, "emergency_contact_name") || null,
+            emergency_phone: formValue(data, "emergency_phone") || null,
+            emergency_receive_call: formValue(data, "emergency_receive_call") === "on",
             commercial_name: formValue(data, "commercial_name"),
             legal_name: formValue(data, "legal_name") || null,
             tax_id: formValue(data, "tax_id") || null,
@@ -638,6 +641,18 @@ function SignupCompanyForm({ busy, onSubmit }: { busy: boolean; onSubmit: (actio
         <PublicField label="Sitios" name="estimated_sites" type="number" />
         <PublicField label="Silos/Galpones" name="estimated_storage_units" type="number" />
       </div>
+      <fieldset className="rounded-xl border border-amber-200 bg-amber-50/60 p-3">
+        <legend className="px-2 text-[10px] font-black uppercase tracking-[0.14em] text-amber-800">Urgencias Sentinel · opcional</legend>
+        <p className="mb-3 text-xs leading-5 text-slate-600">Se usará solo ante alertas críticas. Completa ambos campos en formato internacional.</p>
+        <div className="grid gap-2 sm:grid-cols-2">
+          <PublicField label="Responsable de urgencia" name="emergency_contact_name" />
+          <PublicField label="Numero +591..." name="emergency_phone" type="tel" placeholder="+59170000000" />
+        </div>
+        <label className="mt-3 flex items-center gap-2 text-xs font-bold text-slate-700">
+          <input type="checkbox" name="emergency_receive_call" className="h-4 w-4 accent-emerald-700" />
+          Autorizar también llamada automática de Sentinel
+        </label>
+      </fieldset>
       <PublicField label="Password" name="password" type="password" required />
       <textarea name="use_case" className="input min-h-20 text-sm" placeholder="Caso de uso del piloto" />
       <button type="submit" disabled={busy} className="btn-primary w-full py-2">{busy ? "Enviando..." : "Enviar solicitud de cuenta"}</button>
@@ -1445,7 +1460,10 @@ function PilotsView({ data, token, onChanged }: { data: AppData; token: string; 
     technician_user_id: technicians[0]?.id || 0,
     client_email: "",
     client_full_name: "",
-    client_password: ""
+    client_password: "",
+    emergency_contact_name: "",
+    emergency_phone: "",
+    emergency_receive_call: false
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1485,7 +1503,10 @@ function PilotsView({ data, token, onChanged }: { data: AppData; token: string; 
         device_token: "",
         client_email: "",
         client_full_name: "",
-        client_password: ""
+        client_password: "",
+        emergency_contact_name: "",
+        emergency_phone: "",
+        emergency_receive_call: false
       }));
       onChanged();
     } catch (err) {
@@ -1537,6 +1558,12 @@ function PilotsView({ data, token, onChanged }: { data: AppData; token: string; 
               <Field label="Nombre usuario cliente"><input required value={form.client_full_name} onChange={(event) => update("client_full_name", event.target.value)} className="input" /></Field>
               <Field label="Email usuario cliente"><input required type="email" value={form.client_email} onChange={(event) => update("client_email", event.target.value)} className="input" /></Field>
               <Field label="Password inicial"><input required type="password" minLength={8} value={form.client_password} onChange={(event) => update("client_password", event.target.value)} className="input" placeholder="Minimo 8, letra y numero" /></Field>
+              <Field label="Responsable de urgencia"><input value={form.emergency_contact_name} onChange={(event) => update("emergency_contact_name", event.target.value)} className="input" placeholder="Nombre completo" /></Field>
+              <Field label="Numero urgencia E.164"><input type="tel" value={form.emergency_phone} onChange={(event) => update("emergency_phone", event.target.value)} className="input" placeholder="+59170000000" /></Field>
+              <label className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-slate-700 sm:col-span-2">
+                <input type="checkbox" checked={form.emergency_receive_call} onChange={(event) => setForm((current) => ({ ...current, emergency_receive_call: event.target.checked }))} className="h-4 w-4 accent-emerald-700" />
+                En alerta crítica: enviar SMS y autorizar llamada automática Sentinel
+              </label>
             </PilotFormGroup>
             {error ? <p className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm font-medium text-red-800">{error}</p> : null}
             {notice ? <p className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm font-medium text-emerald-800">{notice}</p> : null}
@@ -2838,7 +2865,10 @@ function StorageUnitsAdminView({ data, token, onChanged }: { data: AppData; toke
     crop_type: "",
     location: "",
     assigned_technician_id: technicians[0]?.id ?? 0,
-    assigned_client_id: clients[0]?.id ?? 0
+    assigned_client_id: clients[0]?.id ?? 0,
+    emergency_contact_name: "",
+    emergency_phone: "",
+    emergency_receive_call: false
   });
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -2873,9 +2903,12 @@ function StorageUnitsAdminView({ data, token, onChanged }: { data: AppData; toke
         crop_type: form.crop_type || null,
         location: form.location || null,
         assigned_technician_id: form.assigned_technician_id || null,
-        assigned_client_id: form.assigned_client_id || null
+        assigned_client_id: form.assigned_client_id || null,
+        emergency_contact_name: form.emergency_contact_name || null,
+        emergency_phone: form.emergency_phone || null,
+        emergency_receive_call: form.emergency_receive_call
       });
-      setForm((current) => ({ ...current, name: "", capacity_tons: "", surface_hectares: "", crop_type: "", location: "" }));
+      setForm((current) => ({ ...current, name: "", capacity_tons: "", surface_hectares: "", crop_type: "", location: "", emergency_contact_name: "", emergency_phone: "", emergency_receive_call: false }));
     }, "Unidad operativa creada correctamente.");
   }
 
@@ -2929,6 +2962,12 @@ function StorageUnitsAdminView({ data, token, onChanged }: { data: AppData; toke
         )}
         <Field label={form.operation_type === "field" ? "Cultivo" : "Producto almacenado"}><input value={form.crop_type} onChange={(event) => setForm({ ...form, crop_type: event.target.value })} className="input" /></Field>
         <Field label="Ubicacion fisica"><input value={form.location} onChange={(event) => setForm({ ...form, location: event.target.value })} className="input" /></Field>
+        <Field label="Responsable de urgencia"><input value={form.emergency_contact_name} onChange={(event) => setForm({ ...form, emergency_contact_name: event.target.value })} className="input" placeholder="Opcional" /></Field>
+        <Field label="Numero urgencia E.164"><input type="tel" value={form.emergency_phone} onChange={(event) => setForm({ ...form, emergency_phone: event.target.value })} className="input" placeholder="+59170000000" /></Field>
+        <label className="flex items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-slate-700 lg:col-span-2">
+          <input type="checkbox" checked={form.emergency_receive_call} onChange={(event) => setForm({ ...form, emergency_receive_call: event.target.checked })} className="h-4 w-4 accent-emerald-700" />
+          Autorizar llamada Sentinel además del SMS en alertas críticas
+        </label>
         <div className="flex items-end"><button disabled={busy || !form.site_id} type="submit" className="btn-primary h-12 w-full"><Factory className="mr-2" size={16} />Crear unidad</button></div>
       </form>
       <div className="grid gap-4 xl:grid-cols-3">

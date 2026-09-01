@@ -8,6 +8,7 @@ from app.db.session import get_db
 from app.models import Alert, Company, Device, OperationalLog, SensorReading, Site, StorageUnit, ThresholdConfig, User
 from app.schemas import OperationalDataDeleteOut, PilotAssignmentsIn, PilotCreate, PilotOut
 from app.services.pilots import build_pilot_summary
+from app.services.sentinel import upsert_alert_contact
 
 router = APIRouter(prefix="/pilots", dependencies=[Depends(get_current_user)])
 
@@ -35,7 +36,7 @@ def get_pilot(
 @router.post("", response_model=PilotOut, status_code=status.HTTP_201_CREATED)
 def create_pilot(
     payload: PilotCreate,
-    _: User = Depends(require_role("admin")),
+    current_user: User = Depends(require_role("admin")),
     db: Session = Depends(get_db),
 ) -> PilotOut:
     technician = _get_role_user(db, payload.technician_user_id, "technician", "Technician not found")
@@ -93,6 +94,19 @@ def create_pilot(
         db.flush()
     storage_unit.assigned_technician_id = technician.id
     storage_unit.assigned_client_id = client.id
+    if payload.emergency_phone and payload.emergency_contact_name:
+        try:
+            upsert_alert_contact(
+                db,
+                company_id=company.id,
+                storage_unit_id=storage_unit.id,
+                name=payload.emergency_contact_name,
+                phone_e164=payload.emergency_phone,
+                created_by_user_id=current_user.id,
+                receive_call=payload.emergency_receive_call,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
 
     device = db.scalar(select(Device).where(Device.external_id == payload.device_external_id))
     if device is not None and device.storage_unit_id != storage_unit.id:
