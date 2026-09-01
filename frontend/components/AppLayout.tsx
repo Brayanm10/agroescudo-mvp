@@ -54,7 +54,14 @@ export function AppLayout({
   onRefresh: () => void;
   children: ReactNode;
 }) {
-  const copy = pageCopy[current];
+  const copy =
+    current === "dashboard" && user.role === "client"
+      ? { eyebrow: "Portal cliente", title: "Mi operacion hoy" }
+      : current === "sites" && user.role === "client"
+        ? { eyebrow: "Monitoreo", title: "Mi operacion" }
+        : current === "sites" && user.role === "technician"
+          ? { eyebrow: "Operacion tecnica", title: "Unidades asignadas" }
+          : pageCopy[current];
 
   return (
     <div className="min-h-screen bg-field lg:flex">

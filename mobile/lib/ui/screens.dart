@@ -496,7 +496,7 @@ class _MobileShellState extends State<MobileShell> {
           ),
           NavigationDestination(
             icon: Icon(Icons.sensors_outlined),
-            label: 'Unidades',
+            label: 'Mi operacion',
           ),
           NavigationDestination(
             icon: Icon(Icons.warning_amber),
@@ -528,7 +528,6 @@ class DashboardScreen extends StatelessWidget {
         : store.activeAlerts.isNotEmpty
         ? 'Seguimiento requerido'
         : 'Operacion estable';
-    final monitoredDays = _continuityDays(store);
     final fullName = store.me?['full_name']?.toString().trim();
     return _Page(
       children: [
@@ -541,14 +540,6 @@ class DashboardScreen extends StatelessWidget {
               ? 'Esto es lo más importante de tu operación hoy.'
               : 'Estado consolidado del monitoreo postcosecha.',
         ),
-        if (store.role == 'client') ...[
-          _ContinuityPanel(
-            days: monitoredDays,
-            monitoredUnits: store.units.length,
-            activeAlerts: store.activeAlerts.length,
-          ),
-          const SizedBox(height: 14),
-        ],
         _RiskPanel(
           title: state,
           critical: critical > 0,
@@ -557,48 +548,55 @@ class DashboardScreen extends StatelessWidget {
               : 'Sin eventos criticos pendientes en este momento.',
         ),
         const SizedBox(height: 14),
-        GridView.count(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          crossAxisCount: 2,
-          childAspectRatio: 1.5,
-          mainAxisSpacing: 10,
-          crossAxisSpacing: 10,
-          children: [
-            _Metric(
-              label: 'SITIOS',
-              value: '${store.sites.length}',
-              icon: Icons.location_on_outlined,
-            ),
-            _Metric(
-              label: 'UNIDADES',
-              value: '${store.units.length}',
-              icon: Icons.warehouse_outlined,
-            ),
-            _Metric(
-              label: 'DISPOSITIVOS',
-              value: '${store.devices.length}',
-              icon: Icons.sensors_outlined,
-            ),
-            _Metric(
-              label: 'ALERTAS ACTIVAS',
-              value: '${store.activeAlerts.length}',
-              icon: Icons.warning_amber,
-            ),
-          ],
-        ),
+        if (store.role != 'client')
+          GridView.count(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            crossAxisCount: 2,
+            childAspectRatio: 1.5,
+            mainAxisSpacing: 10,
+            crossAxisSpacing: 10,
+            children: [
+              _Metric(
+                label: 'SITIOS',
+                value: '${store.sites.length}',
+                icon: Icons.location_on_outlined,
+              ),
+              _Metric(
+                label: 'UNIDADES',
+                value: '${store.units.length}',
+                icon: Icons.warehouse_outlined,
+              ),
+              _Metric(
+                label: 'DISPOSITIVOS',
+                value: '${store.devices.length}',
+                icon: Icons.sensors_outlined,
+              ),
+              _Metric(
+                label: 'ALERTAS ACTIVAS',
+                value: '${store.activeAlerts.length}',
+                icon: Icons.warning_amber,
+              ),
+            ],
+          ),
         const SizedBox(height: 20),
         const _BlockTitle('Ultima evidencia recibida'),
         if (latest == null)
           const _Empty('Todavia no hay lecturas disponibles.')
         else
-          _ReadingSummary(reading: latest, showSignal: store.role != 'client'),
+          _ReadingSummary(
+            reading: latest,
+            showSignal: store.role != 'client',
+            showBattery: store.role != 'client',
+          ),
         const SizedBox(height: 20),
         const _BlockTitle('Atencion prioritaria'),
         if (store.activeAlerts.isEmpty)
           const _Empty('No existen alertas activas.')
         else
-          ...store.activeAlerts.take(3).map((item) => _AlertTile(alert: item)),
+          ...store.activeAlerts
+              .take(store.role == 'client' ? 2 : 3)
+              .map((item) => _AlertTile(alert: item)),
         if (store.role == 'technician') ...[
           const SizedBox(height: 20),
           const _BlockTitle('Operacion tecnica'),
@@ -610,7 +608,7 @@ class DashboardScreen extends StatelessWidget {
             onTap: () => _showInstallation(context),
           ),
         ],
-        if (store.role == 'client' || store.role == 'admin') ...[
+        if (store.role == 'admin') ...[
           const SizedBox(height: 12),
           _ActionCard(
             icon: Icons.emergency_outlined,
@@ -639,20 +637,26 @@ class UnitsScreen extends StatelessWidget {
         .toList();
     return _Page(
       children: [
-        const _SectionTitle(
-          eyebrow: 'ACTIVOS MONITOREADOS',
-          title: 'Silos y campo',
-          subtitle:
-              'Productos separados, telemetria por nodo y valores calibrados.',
+        _SectionTitle(
+          eyebrow: store.role == 'client'
+              ? 'MI OPERACION'
+              : 'ACTIVOS MONITOREADOS',
+          title: store.role == 'client'
+              ? 'Unidades monitoreadas'
+              : 'Unidades asignadas',
+          subtitle: store.role == 'client'
+              ? 'Consulta el estado y la ultima actualizacion de cada unidad.'
+              : 'Telemetria por nodo y valores calibrados para operacion tecnica.',
         ),
         if (store.units.isEmpty)
           const _Empty('No hay unidades asignadas a este usuario.')
         else ...[
-          if (storageUnits.isNotEmpty) const _BlockTitle('SiloSensor'),
+          if (storageUnits.isNotEmpty && store.role != 'client')
+            const _BlockTitle('Almacenamiento'),
           ...storageUnits.map((unit) => _unitCard(context, store, unit)),
           if (fieldUnits.isNotEmpty) ...[
             const SizedBox(height: 16),
-            const _BlockTitle('CampoSensor'),
+            if (store.role != 'client') const _BlockTitle('Campo'),
           ],
           ...fieldUnits.map((unit) => _unitCard(context, store, unit)),
         ],
@@ -778,6 +782,7 @@ class _UnitDetailScreenState extends State<UnitDetailScreen> {
               item['device_id'] == deviceId),
     );
     final field = _deviceProfile(selectedDevice) == 'field_sensor';
+    final isClient = store.role == 'client';
 
     return Scaffold(
       appBar: AppBar(title: Text(unit['name']?.toString() ?? 'Unidad')),
@@ -810,9 +815,13 @@ class _UnitDetailScreenState extends State<UnitDetailScreen> {
           return _Page(
             children: [
               _SectionTitle(
-                eyebrow: field ? 'CAMPOSENSOR' : 'SILOSENSOR',
+                eyebrow: isClient
+                    ? 'MI OPERACION'
+                    : (field ? 'SENSOR DE CAMPO' : 'SENSOR DE ALMACENAMIENTO'),
                 title: unit['name']?.toString() ?? 'Unidad monitoreada',
-                subtitle: field
+                subtitle: isClient
+                    ? 'Estado, tendencias, alertas y acciones registradas.'
+                    : field
                     ? '${_surface(unit)} monitoreadas. Datos calibrados por nodo.'
                     : '${_capacity(unit)} de capacidad instalada. Datos calibrados por nodo.',
               ),
@@ -827,7 +836,10 @@ class _UnitDetailScreenState extends State<UnitDetailScreen> {
                         (device) => DropdownMenuItem<int>(
                           value: device['id'] as int,
                           child: Text(
-                            '${device['name']} / ${device['external_id']}',
+                            isClient
+                                ? device['name']?.toString() ??
+                                      'Punto monitoreado'
+                                : '${device['name']} / ${device['external_id']}',
                           ),
                         ),
                       )
@@ -912,13 +924,12 @@ class _UnitDetailScreenState extends State<UnitDetailScreen> {
                         value: '${_num(latest['level_percent'])}%',
                         icon: Icons.straighten_outlined,
                       ),
-                    _Metric(
-                      label: 'BATERIA',
-                      value: store.role == 'client'
-                          ? _batteryState(latest['battery_voltage'])
-                          : '${_num(latest['battery_voltage'])} V',
-                      icon: Icons.battery_4_bar,
-                    ),
+                    if (!isClient)
+                      _Metric(
+                        label: 'BATERIA',
+                        value: '${_num(latest['battery_voltage'])} V',
+                        icon: Icons.battery_4_bar,
+                      ),
                     if (store.role != 'client')
                       _Metric(
                         label: 'SENAL',
@@ -929,21 +940,27 @@ class _UnitDetailScreenState extends State<UnitDetailScreen> {
                       ),
                   ],
                 ),
-              const SizedBox(height: 18),
-              const _BlockTitle('Estado de calibracion'),
-              if (calibrations.isEmpty)
-                const _Empty(
-                  'Calibracion pendiente o lectura legacy sin version.',
-                )
-              else
-                ...calibrations.map(
-                  (item) => _CalibrationStatus(
-                    calibration: Map<String, dynamic>.from(item as Map),
+              if (!isClient) ...[
+                const SizedBox(height: 18),
+                const _BlockTitle('Estado de calibracion'),
+                if (calibrations.isEmpty)
+                  const _Empty(
+                    'Calibracion pendiente o lectura legacy sin version.',
+                  )
+                else
+                  ...calibrations.map(
+                    (item) => _CalibrationStatus(
+                      calibration: Map<String, dynamic>.from(item as Map),
+                    ),
                   ),
-                ),
+              ],
               if (dashboardMetrics.isNotEmpty) ...[
                 const SizedBox(height: 20),
-                const _BlockTitle('Series por sensor y canal'),
+                _BlockTitle(
+                  isClient
+                      ? 'Tendencias del periodo'
+                      : 'Series por sensor y canal',
+                ),
                 ...dashboardMetrics.map((item) {
                   final metric = Map<String, dynamic>.from(item as Map);
                   final key =
@@ -1897,83 +1914,6 @@ class _RiskPanel extends StatelessWidget {
   }
 }
 
-class _ContinuityPanel extends StatelessWidget {
-  const _ContinuityPanel({
-    required this.days,
-    required this.monitoredUnits,
-    required this.activeAlerts,
-  });
-
-  final int days;
-  final int monitoredUnits;
-  final int activeAlerts;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: darkGreen,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xff2a705d)),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 52,
-            height: 52,
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: .1),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: const Icon(
-              Icons.shield_outlined,
-              color: Color(0xffe4bd58),
-              size: 29,
-            ),
-          ),
-          const SizedBox(width: 13),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'CONTINUIDAD OPERATIVA',
-                  style: TextStyle(
-                    color: Color(0xffb9d8cd),
-                    fontSize: 10,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: .9,
-                  ),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  days > 0
-                      ? '$days dia${days == 1 ? '' : 's'} monitoreado${days == 1 ? '' : 's'}'
-                      : 'Monitoreo listo para iniciar',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 19,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  '$monitoredUnits unidad${monitoredUnits == 1 ? '' : 'es'} · $activeAlerts alerta${activeAlerts == 1 ? '' : 's'} activa${activeAlerts == 1 ? '' : 's'}',
-                  style: const TextStyle(
-                    color: Color(0xffd7e8e1),
-                    fontSize: 12,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _Metric extends StatelessWidget {
   const _Metric({required this.label, required this.value, required this.icon});
 
@@ -2014,10 +1954,15 @@ class _Metric extends StatelessWidget {
 }
 
 class _ReadingSummary extends StatelessWidget {
-  const _ReadingSummary({required this.reading, required this.showSignal});
+  const _ReadingSummary({
+    required this.reading,
+    required this.showSignal,
+    required this.showBattery,
+  });
 
   final Map<String, dynamic> reading;
   final bool showSignal;
+  final bool showBattery;
 
   @override
   Widget build(BuildContext context) {
@@ -2044,10 +1989,11 @@ class _ReadingSummary extends StatelessWidget {
                   'Humedad',
                   '${_num(reading['ambient_humidity'])}%',
                 ),
-                _InlineValue(
-                  'Bateria',
-                  '${_num(reading['battery_voltage'])} V',
-                ),
+                if (showBattery)
+                  _InlineValue(
+                    'Bateria',
+                    '${_num(reading['battery_voltage'])} V',
+                  ),
                 if (showSignal)
                   _InlineValue(
                     'Senal',
@@ -2112,7 +2058,10 @@ class _AlertTile extends StatelessWidget {
               children: [
                 _StatusBadge(
                   value: active
-                      ? alert['severity']?.toString() ?? 'warning'
+                      ? store.role == 'client' &&
+                                alert['severity'] == 'technical'
+                            ? 'warning'
+                            : alert['severity']?.toString() ?? 'warning'
                       : 'resolved',
                 ),
                 const Spacer(),
@@ -2124,12 +2073,16 @@ class _AlertTile extends StatelessWidget {
             ),
             const SizedBox(height: 9),
             Text(
-              alert['title']?.toString() ?? 'Alerta operativa',
+              store.role == 'client'
+                  ? _clientAlertTitle(alert)
+                  : alert['title']?.toString() ?? 'Alerta operativa',
               style: const TextStyle(fontWeight: FontWeight.w800),
             ),
             const SizedBox(height: 3),
             Text(
-              alert['message']?.toString() ?? '',
+              store.role == 'client'
+                  ? _clientAlertMessage(alert)
+                  : alert['message']?.toString() ?? '',
               style: const TextStyle(color: muted, height: 1.35),
             ),
             if (actions && active) ...[
@@ -2779,14 +2732,22 @@ DateTime _parse(dynamic value) =>
     DateTime.fromMillisecondsSinceEpoch(0);
 String _date(dynamic value) => formatDate.format(_parse(value).toLocal());
 String _num(dynamic value) => value is num ? value.toStringAsFixed(1) : '--';
-int _continuityDays(AppStore store) {
-  var maximum = 0;
-  for (final pilot in store.pilots) {
-    final value = pilot['days_monitored'];
-    if (value is num && value.toInt() > maximum) maximum = value.toInt();
-  }
-  if (maximum == 0 && store.readings.isNotEmpty) return 1;
-  return maximum;
+String _clientAlertTitle(Map<String, dynamic> alert) {
+  return switch (alert['severity']?.toString()) {
+    'critical' => 'Condicion critica',
+    'technical' => 'Monitoreo temporalmente limitado',
+    _ => 'Condicion fuera de rango',
+  };
+}
+
+String _clientAlertMessage(Map<String, dynamic> alert) {
+  return switch (alert['severity']?.toString()) {
+    'critical' =>
+      'La unidad requiere revision prioritaria y seguimiento de la accion tomada.',
+    'technical' =>
+      'El equipo tecnico debe revisar el sensor o su conectividad.',
+    _ => 'Revisa la recomendacion operativa y el seguimiento registrado.',
+  };
 }
 
 String _capacity(Map<String, dynamic> unit) => unit['capacity_tons'] == null
@@ -2808,13 +2769,6 @@ String _deviceProfile(Map<String, dynamic>? device) =>
     device?['device_type']?.toString().toLowerCase() == 'field_sensor'
     ? 'field_sensor'
     : 'silo_sensor';
-
-String _batteryState(dynamic value) {
-  if (value is! num) return 'Sin dato';
-  if (value < 3.5) return 'Baja';
-  if (value < 3.75) return 'Atencion';
-  return 'Adecuada';
-}
 
 String _roleLabel(String role) {
   return switch (role) {

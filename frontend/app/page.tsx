@@ -137,9 +137,9 @@ function loginErrorMessage(err: unknown) {
 
 function allowedViewsForRole(role: UserRole): ViewKey[] {
   const accountViews: ViewKey[] = ["profile", "changePassword", "preferences"];
-  if (role === "admin") return ["dashboard", "demo", "pilots", "companies", "storage", "silos", "fields", "sensors", "sites", "alerts", "logs", "maintenance", "installations", "evidence", "systemHealth", "gateways", "sentinel", "pilotMetrics", "comparison", "firmware", "exports", "history", "reports", "support", "users", "thresholds", "notifications", ...accountViews];
-  if (role === "technician") return ["silos", "fields", "sites", "sensors", "alerts", "maintenance", "installations", "evidence", "systemHealth", "gateways", "comparison", "firmware", "exports", "logs", "support", ...accountViews];
-  return ["dashboard", "silos", "fields", "sites", "alerts", "history", "reports", "support", ...accountViews];
+  if (role === "admin") return ["dashboard", "demo", "pilots", "companies", "storage", "sensors", "sites", "alerts", "logs", "maintenance", "installations", "evidence", "systemHealth", "gateways", "sentinel", "pilotMetrics", "comparison", "firmware", "exports", "history", "reports", "support", "users", "thresholds", "notifications", ...accountViews];
+  if (role === "technician") return ["sites", "sensors", "alerts", "maintenance", "installations", "evidence", "systemHealth", "gateways", "comparison", "firmware", "exports", "logs", "support", ...accountViews];
+  return ["dashboard", "sites", "alerts", "reports", "support", ...accountViews];
 }
 
 function defaultViewForRole(role: UserRole): ViewKey {
@@ -803,6 +803,10 @@ function DashboardView({
   onNavigate: (view: ViewKey) => void;
   canCreateLog: boolean;
 }) {
+  if (data.me.role === "client") {
+    return <ClientDashboardView data={data} onNavigate={onNavigate} />;
+  }
+
   const latest = data.readings[0];
   const status = statusFromAlerts(data.activeAlerts);
   const criticalCount = data.activeAlerts.filter((alert) => alert.severity === "critical").length;
@@ -824,27 +828,6 @@ function DashboardView({
   return (
     <div className="space-y-6">
       <ControlCenterPanel data={data} onNavigate={onNavigate} />
-
-      <section className="grid gap-4 md:grid-cols-2">
-        <ProductPortfolioCard
-          title="SiloSensor"
-          description="Riesgo postcosecha, nivel y condición ambiental por nodo."
-          units={data.storageUnits.filter((unit) => storageOperation(unit) === "storage")}
-          devices={data.devices.filter((device) => deviceProfile(device) === "silo_sensor")}
-          alerts={data.activeAlerts}
-          icon={Factory}
-          onOpen={() => onNavigate("silos")}
-        />
-        <ProductPortfolioCard
-          title="CampoSensor"
-          description="Humedad de suelo calibrada y condición ambiental de parcela."
-          units={data.storageUnits.filter((unit) => storageOperation(unit) === "field")}
-          devices={data.devices.filter((device) => deviceProfile(device) === "field_sensor")}
-          alerts={data.activeAlerts}
-          icon={Sprout}
-          onOpen={() => onNavigate("fields")}
-        />
-      </section>
 
       <section className="grid gap-4 xl:grid-cols-[1.2fr_0.9fr]">
         <div className="panel overflow-hidden">
@@ -977,6 +960,93 @@ function DashboardView({
         ) : (
           <EmptyState title="Sin alertas registradas" message="Cuando un sensor supere umbrales, las alertas apareceran aqui." />
         )}
+      </section>
+    </div>
+  );
+}
+
+function clientAlertCopy(alert: Alert) {
+  if (alert.severity === "critical") {
+    return { title: "Condicion critica", detail: "La unidad requiere revision prioritaria y seguimiento de la accion tomada." };
+  }
+  if (alert.severity === "technical") {
+    return { title: "Monitoreo temporalmente limitado", detail: "El equipo tecnico debe revisar el sensor o su conectividad." };
+  }
+  return { title: "Condicion fuera de rango", detail: "Revisa la recomendacion operativa y el seguimiento registrado." };
+}
+
+function ClientDashboardView({ data, onNavigate }: { data: AppData; onNavigate: (view: ViewKey) => void }) {
+  const criticalCount = data.activeAlerts.filter((alert) => alert.severity === "critical").length;
+  const overallState = criticalCount ? "critical" : data.activeAlerts.length ? "warning" : "normal";
+  const headline = criticalCount
+    ? "Hay una condicion que requiere atencion"
+    : data.activeAlerts.length
+      ? "Tu operacion requiere seguimiento"
+      : "Tu operacion se encuentra estable";
+
+  return (
+    <div className="space-y-5">
+      <section className={`rounded-[18px] border p-5 shadow-panel ${overallState === "critical" ? "border-red-200 bg-red-50" : overallState === "warning" ? "border-amber-200 bg-amber-50" : "border-emerald-200 bg-emerald-50"}`}>
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <p className="section-kicker">Estado de hoy</p>
+            <h2 className="mt-1 text-2xl font-black tracking-tight text-slate-950">{headline}</h2>
+            <p className="mt-2 text-sm text-slate-600">{data.storageUnits.length} unidad(es) monitoreada(s) y {data.activeAlerts.length} alerta(s) activa(s).</p>
+          </div>
+          <StatusBadge status={overallState} />
+        </div>
+      </section>
+
+      <section className="panel overflow-hidden">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 p-5">
+          <div>
+            <p className="section-kicker">Mi operacion</p>
+            <h2 className="section-title">Unidades monitoreadas</h2>
+          </div>
+          <button type="button" onClick={() => onNavigate("sites")} className="btn-secondary">Ver detalle</button>
+        </div>
+        <div className="divide-y divide-slate-100">
+          {data.storageUnits.slice(0, 4).map((unit) => {
+            const alerts = data.activeAlerts.filter((alert) => alert.storage_unit_id === unit.id);
+            const state = statusFromAlerts(alerts);
+            const latest = data.readings.find((reading) => reading.storage_unit_id === unit.id);
+            return (
+              <button key={unit.id} type="button" onClick={() => {
+                window.history.replaceState({}, "", storageUnitSelectionPath(window.location.href, unit.id));
+                onNavigate("sites");
+              }} className="flex w-full items-center justify-between gap-4 p-5 text-left transition hover:bg-slate-50">
+                <div>
+                  <p className="font-black text-slate-950">{unit.name}</p>
+                  <p className="mt-1 text-sm text-slate-500">{latest ? `Ultima actualizacion: ${formatDateTime(latest.timestamp)}` : "Esperando primera lectura"}</p>
+                </div>
+                <StatusBadge status={state} />
+              </button>
+            );
+          })}
+          {!data.storageUnits.length ? <div className="p-5"><EmptyState title="Sin unidades asignadas" message="Tu administrador debe asociar una unidad a esta cuenta." /></div> : null}
+        </div>
+      </section>
+
+      {data.activeAlerts.length ? (
+        <section className="panel p-5">
+          <div className="flex items-center justify-between gap-3">
+            <div><p className="section-kicker">Atencion</p><h2 className="section-title">Lo que debes revisar</h2></div>
+            <button type="button" onClick={() => onNavigate("alerts")} className="btn-secondary">Ver alertas</button>
+          </div>
+          <div className="mt-4 grid gap-3 md:grid-cols-2">
+            {data.activeAlerts.slice(0, 2).map((alert) => {
+              const copy = clientAlertCopy(alert);
+              const unit = data.storageUnits.find((item) => item.id === alert.storage_unit_id);
+              return <article key={alert.id} className="rounded-xl border border-slate-200 bg-slate-50 p-4"><p className="font-black text-slate-950">{copy.title}</p><p className="mt-1 text-sm font-semibold text-slate-600">{unit?.name || "Unidad monitoreada"}</p><p className="mt-2 text-sm leading-6 text-slate-600">{copy.detail}</p></article>;
+            })}
+          </div>
+        </section>
+      ) : null}
+
+      <section className="grid gap-3 sm:grid-cols-3">
+        <button type="button" onClick={() => onNavigate("sites")} className="btn-secondary justify-center py-3">Mi operacion</button>
+        <button type="button" onClick={() => onNavigate("reports")} className="btn-secondary justify-center py-3">Descargar reporte</button>
+        <button type="button" onClick={() => onNavigate("support")} className="btn-secondary justify-center py-3">Consultar AgroAsistente</button>
       </section>
     </div>
   );
@@ -1914,6 +1984,7 @@ function SitesView({
   canCreateLog: boolean;
   operationType?: "storage" | "field";
 }) {
+  const isClient = data.me.role === "client";
   const visibleUnits = operationType ? data.storageUnits.filter((unit) => storageOperation(unit) === operationType) : data.storageUnits;
   const visibleSiteIds = new Set(visibleUnits.map((unit) => unit.site_id));
   const visibleSites = data.sites.filter((site) => visibleSiteIds.has(site.id));
@@ -1926,8 +1997,10 @@ function SitesView({
     else if (!visibleUnits.some((unit) => unit.id === selectedId)) setSelectedId(visibleUnits[0]?.id ?? null);
   }, [data.storageUnits, operationType, selectedId]);
 
-  const productTitle = operationType === "field" ? "Campo monitoreado" : operationType === "storage" ? "Silos y almacenes" : "Sitios";
-  const productSubtitle = operationType === "field"
+  const productTitle = isClient ? "Unidades monitoreadas" : operationType === "field" ? "Campo monitoreado" : operationType === "storage" ? "Silos y almacenes" : "Unidades asignadas";
+  const productSubtitle = isClient
+    ? "Consulta el estado actual, las alertas y la evidencia de cada unidad desde un solo lugar."
+    : operationType === "field"
     ? "Parcelas con CampoSensor, humedad de suelo calibrada y condiciones ambientales."
     : operationType === "storage"
       ? "Silos, galpones y almacenes con telemetría postcosecha por nodo."
@@ -1937,7 +2010,7 @@ function SitesView({
     <div className="space-y-6">
       <section className="panel overflow-hidden">
         <div className="border-b border-slate-200/80 p-5">
-          <p className="section-kicker">Red operativa</p>
+          <p className="section-kicker">{isClient ? "Mi operacion" : "Red operativa"}</p>
           <h2 className="section-title">{productTitle}</h2>
           <p className="section-subtitle">{productSubtitle}</p>
         </div>
@@ -1947,7 +2020,7 @@ function SitesView({
               <thead className="table-head">
                 <tr>
                   <th className="px-4 py-3">Sitio</th>
-                  <th className="px-4 py-3">Empresa</th>
+                  {!isClient ? <th className="px-4 py-3">Empresa</th> : null}
                   <th className="px-4 py-3">Ubicacion</th>
                   <th className="px-4 py-3">Estado</th>
                   <th className="px-4 py-3">Unidades</th>
@@ -1960,7 +2033,7 @@ function SitesView({
                   return (
                     <tr key={site.id} className="transition hover:bg-slate-50">
                       <td className="px-4 py-3 font-semibold text-slate-950">{site.name}</td>
-                      <td className="px-4 py-3 text-slate-700">{data.companies.find((company) => company.id === site.company_id)?.name || "Sin empresa"}</td>
+                      {!isClient ? <td className="px-4 py-3 text-slate-700">{data.companies.find((company) => company.id === site.company_id)?.name || "Sin empresa"}</td> : null}
                       <td className="px-4 py-3 text-slate-700">{site.location || "Sin ubicacion"}</td>
                       <td className="px-4 py-3"><StatusBadge status={statusFromAlerts(siteAlerts)} /></td>
                       <td className="px-4 py-3 text-slate-700">{units.length}</td>
@@ -2070,6 +2143,7 @@ function StorageUnitDetail({
   const unitStatus = statusFromAlerts(alerts);
   const insight = data.insights.find((item) => item.storage_unit_id === selected.id);
   const profile = deviceProfile(device);
+  const isClient = data.me.role === "client";
   const canSeeDiagnostics = canViewDeviceDiagnostics(data.me.role);
   const isOnline = Boolean(device?.last_seen_at && Date.now() - new Date(device.last_seen_at).getTime() < 120 * 60 * 1000);
   const hasMetric = (metric: keyof Reading) => readings.some((reading) => typeof reading[metric] === "number");
@@ -2078,20 +2152,20 @@ function StorageUnitDetail({
     <section className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <p className="section-kicker">Centro del producto</p>
-          <h2 className="section-title">Detalle de silo / galpon</h2>
-          <p className="section-subtitle">Lectura rapida de riesgo, sensores, alertas y acciones operativas.</p>
+          <p className="section-kicker">{isClient ? "Mi operacion" : "Centro de monitoreo"}</p>
+          <h2 className="section-title">Detalle de la unidad</h2>
+          <p className="section-subtitle">{isClient ? "Estado, tendencias, alertas y acciones registradas." : "Lectura de riesgo, sensores, alertas y acciones operativas."}</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <select value={selected.id} onChange={(event) => onSelect(Number(event.target.value))} className="input max-w-xs">
             {data.storageUnits.map((unit) => <option key={unit.id} value={unit.id}>{unit.name}</option>)}</select>
           {unitDevices.length > 1 ? (
             <label className="min-w-64">
-              <span className="sr-only">Nodo monitoreado</span>
+              <span className="sr-only">{isClient ? "Punto monitoreado" : "Nodo monitoreado"}</span>
               <select value={deviceId} onChange={(event) => setDeviceId(Number(event.target.value))} className="input">
                 {unitDevices.map((item) => {
                   const online = item.last_seen_at && Date.now() - new Date(item.last_seen_at).getTime() < 120 * 60 * 1000;
-                  return <option key={item.id} value={item.id}>{item.name} / {item.external_id} / {item.device_type} / {online ? "online" : "offline"}</option>;
+                  return <option key={item.id} value={item.id}>{isClient ? item.name : `${item.name} / ${item.external_id} / ${item.device_type} / ${online ? "online" : "offline"}`}</option>;
                 })}
               </select>
             </label>
@@ -2109,7 +2183,7 @@ function StorageUnitDetail({
         onCustomToChange={setCustomTo}
       />
       <p className="-mt-2 px-1 text-xs font-semibold text-slate-500">
-        {telemetryRangeLabel(period, customFrom || undefined, customTo || undefined)} · {readings.length} lecturas del nodo seleccionado. Las series de otros nodos no se combinan.
+        {isClient ? `Periodo: ${telemetryRangeLabel(period, customFrom || undefined, customTo || undefined)}` : `${telemetryRangeLabel(period, customFrom || undefined, customTo || undefined)} · ${readings.length} lecturas del nodo seleccionado. Las series de otros nodos no se combinan.`}
       </p>
       {!unitDevices.length ? <EmptyState title="Unidad sin nodos" message="Asigna un sensor antes de consultar telemetria." /> : null}
       {loadingNode ? <LoadingState label="Cargando telemetria del nodo" /> : null}
@@ -2125,7 +2199,7 @@ function StorageUnitDetail({
             <div>
               <p className="section-kicker">Unidad monitoreada</p>
               <h3 className="mt-1 text-2xl font-black tracking-tight text-slate-950">{selected.name}</h3>
-              <p className="mt-1 text-sm text-slate-600">{site?.name || "Sin sitio"} / {device.external_id} / {profile === "field_sensor" ? "CampoSensor" : "SiloSensor"}</p>
+              <p className="mt-1 text-sm text-slate-600">{isClient ? (site?.name || "Sitio monitoreado") : `${site?.name || "Sin sitio"} / ${device.external_id} / ${profile === "field_sensor" ? "Sensor de campo" : "Sensor de almacenamiento"}`}</p>
             </div>
             <StatusBadge status={unitStatus} />
           </div>
@@ -2136,8 +2210,8 @@ function StorageUnitDetail({
             <Metric icon={Activity} label="Humedad ambiente" value={formatNumber(latest?.ambient_humidity, "%")} />
             {profile === "field_sensor" && latest?.soil_temperature_c !== null ? <Metric icon={Thermometer} label="Temp. suelo" value={formatNumber(latest?.soil_temperature_c, " C")} /> : null}
             {profile === "silo_sensor" ? <Metric icon={Gauge} label="Nivel estimado" value={formatNumber(latest?.level_percent, "%")} /> : null}
-            {profile === "silo_sensor" ? <Metric icon={Radio} label="Distancia" value={formatNumber(latest?.level_distance_cm, " cm")} /> : null}
-            <Metric icon={Battery} label="Bateria" value={formatNumber(latest?.battery_voltage, " V", 2)} />
+            {profile === "silo_sensor" && !isClient ? <Metric icon={Radio} label="Distancia" value={formatNumber(latest?.level_distance_cm, " cm")} /> : null}
+            {!isClient ? <Metric icon={Battery} label="Bateria" value={formatNumber(latest?.battery_voltage, " V", 2)} /> : null}
             {canSeeDiagnostics ? <Metric icon={Wifi} label="Senal" value={latest?.signal_quality === null || latest?.signal_quality === undefined ? "Sin dato" : `${latest.signal_quality} dBm`} /> : null}
             <Metric icon={Radio} label="Ultima lectura" value={latest ? formatDateTime(latest.timestamp) : "Sin dato"} />
           </div>
@@ -2189,16 +2263,16 @@ function StorageUnitDetail({
             {alerts.length ? alerts.map((alert) => (
               <div key={alert.id} className={`rounded-xl border p-3 shadow-soft ${alert.severity === "critical" ? "border-red-200 bg-red-50" : "border-slate-200 bg-slate-50"}`}>
                 <div className="flex items-center justify-between gap-3">
-                  <p className="font-semibold text-slate-950">{alert.title}</p>
+                <p className="font-semibold text-slate-950">{isClient ? clientAlertCopy(alert).title : alert.title}</p>
                   <StatusBadge status={alert.severity === "critical" ? "critical" : alert.severity === "warning" ? "warning" : "technical"} />
                 </div>
-                <p className="mt-1 text-sm text-slate-500">{alert.message}</p>
+                <p className="mt-1 text-sm text-slate-500">{isClient ? clientAlertCopy(alert).detail : alert.message}</p>
               </div>
             )) : <EmptyState title="Unidad sin alertas activas" message="No hay condiciones fuera de rango en este momento." />}
           </div>
         </div>
       </div>
-      {profile === "silo_sensor" ? (
+      {!isClient && profile === "silo_sensor" ? (
         <div className="grid gap-4 xl:grid-cols-[0.8fr_1.2fr]">
           <SiloLevelIndicator
             percent={latest?.level_percent ?? null}
@@ -2209,7 +2283,7 @@ function StorageUnitDetail({
           />
           <CalibrationWizard token={token} device={device} role={data.me.role} onChanged={() => setNodeReload((current) => current + 1)} />
         </div>
-      ) : <CalibrationWizard token={token} device={device} role={data.me.role} onChanged={() => setNodeReload((current) => current + 1)} />}
+      ) : !isClient ? <CalibrationWizard token={token} device={device} role={data.me.role} onChanged={() => setNodeReload((current) => current + 1)} /> : null}
       <DynamicDeviceDashboard
         token={token}
         deviceId={device.id}
@@ -2255,6 +2329,7 @@ function AlertsView({
   onResolve?: (alert: Alert) => void;
   busyAlertId: number | null;
 }) {
+  const isClient = data.me.role === "client";
   const [status, setStatus] = useState("all");
   const [severity, setSeverity] = useState("all");
   const alerts = data.alerts.filter((alert) => {
@@ -2267,9 +2342,9 @@ function AlertsView({
     <section className="space-y-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <p className="section-kicker">Gestion operativa</p>
+          <p className="section-kicker">{isClient ? "Mi operacion" : "Gestion operativa"}</p>
           <h2 className="section-title">Alertas</h2>
-          <p className="section-subtitle">Prioriza condiciones criticas, acknowledge y resolucion sin perder trazabilidad.</p>
+          <p className="section-subtitle">{isClient ? "Consulta condiciones que requieren atención y su estado de seguimiento." : "Prioriza condiciones criticas, reconocimiento y resolucion sin perder trazabilidad."}</p>
         </div>
         <div className="flex flex-wrap gap-2 rounded-xl border border-slate-200 bg-white p-2 shadow-soft">
           <select value={status} onChange={(event) => setStatus(event.target.value)} className="input w-auto">
@@ -2279,13 +2354,30 @@ function AlertsView({
           </select>
           <select value={severity} onChange={(event) => setSeverity(event.target.value)} className="input w-auto">
             <option value="all">Todas las severidades</option>
-            <option value="critical">Critical</option>
-            <option value="warning">Warning</option>
-            <option value="technical">Tecnica</option>
+            <option value="critical">Criticas</option>
+            <option value="warning">En atencion</option>
+            {!isClient ? <option value="technical">Tecnicas</option> : null}
           </select>
         </div>
       </div>
-      {alerts.length ? (
+      {alerts.length && isClient ? (
+        <div className="grid gap-3 md:grid-cols-2">
+          {alerts.map((alert) => {
+            const copy = clientAlertCopy(alert);
+            const unit = data.storageUnits.find((item) => item.id === alert.storage_unit_id);
+            return (
+              <article key={alert.id} className="panel p-5">
+                <div className="flex items-start justify-between gap-3">
+                  <div><p className="font-black text-slate-950">{copy.title}</p><p className="mt-1 text-sm font-semibold text-slate-500">{unit?.name || "Unidad monitoreada"}</p></div>
+                  <StatusBadge status={!alert.is_active ? "normal" : alert.severity === "critical" ? "critical" : "warning"} />
+                </div>
+                <p className="mt-3 text-sm leading-6 text-slate-600">{copy.detail}</p>
+                <p className="mt-3 text-xs font-semibold text-slate-500">{formatDateTime(alert.created_at)}</p>
+              </article>
+            );
+          })}
+        </div>
+      ) : alerts.length ? (
         <AlertTable alerts={alerts} devices={data.devices} storageUnits={data.storageUnits} onAcknowledge={onAcknowledge} onResolve={onResolve} busyAlertId={busyAlertId} />
       ) : (
         <EmptyState title="Sin alertas para el filtro" message="Ajusta los filtros o espera nuevas lecturas fuera de rango." />
@@ -2916,8 +3008,8 @@ function StorageUnitsAdminView({ data, token, onChanged }: { data: AppData; toke
     <section className="space-y-5">
       <div>
         <p className="section-kicker">Activo monitoreado</p>
-        <h2 className="section-title">Silos, galpones y parcelas</h2>
-        <p className="section-subtitle">Clasifica cada unidad para que SiloSensor y CampoSensor utilicen variables compatibles.</p>
+        <h2 className="section-title">Unidades monitoreadas</h2>
+        <p className="section-subtitle">Registra cada almacenamiento o parcela y asígnale sus responsables.</p>
       </div>
       {error ? <ErrorState message={error} /> : null}
       {message ? <p className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-bold text-emerald-800">{message}</p> : null}
@@ -3073,7 +3165,7 @@ function SensorsAdminView({ data, token, onChanged }: { data: AppData; token: st
                 }}
                 className={`rounded-xl border p-4 text-left transition ${form.device_type === profile ? "border-emerald-500 bg-emerald-50 text-emerald-950" : "border-slate-200 bg-white text-slate-600 hover:border-emerald-200"}`}
               >
-                <p className="font-black">{profile === "field_sensor" ? "CampoSensor" : "SiloSensor"}</p>
+                <p className="font-black">{profile === "field_sensor" ? "Sensor de campo" : "Sensor de almacenamiento"}</p>
                 <p className="mt-1 text-xs leading-5">{profile === "field_sensor" ? "ADC raw de humedad de suelo, ambiente y temperatura de suelo." : "Temperatura de grano, ambiente, nivel ultrasónico y batería."}</p>
               </button>
             ))}

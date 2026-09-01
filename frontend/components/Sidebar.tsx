@@ -13,7 +13,6 @@ import {
   FileDown,
   GitCompareArrows,
   HeartPulse,
-  Sprout,
   Factory,
   Headphones,
   History,
@@ -43,8 +42,7 @@ const adminGroups: NavGroup[] = [
     title: "Operacion",
     items: [
       { key: "companies", label: "Empresas y sitios", icon: Building2 },
-      { key: "silos", label: "Silos", icon: Factory },
-      { key: "fields", label: "Campo", icon: Sprout },
+      { key: "storage", label: "Unidades monitoreadas", icon: Factory },
       { key: "sensors", label: "Dispositivos", icon: Cpu },
       { key: "alerts", label: "Alertas e incidentes", icon: AlertTriangle },
       { key: "logs", label: "Bitacora", icon: ClipboardList },
@@ -91,10 +89,8 @@ const clientGroups: NavGroup[] = [
     title: "Portal cliente",
     items: [
       { key: "dashboard", label: "Inicio", icon: LayoutDashboard },
-      { key: "silos", label: "Mis silos", icon: Factory },
-      { key: "fields", label: "Mi campo", icon: Sprout },
+      { key: "sites", label: "Mi operacion", icon: Factory },
       { key: "alerts", label: "Alertas", icon: AlertTriangle },
-      { key: "history", label: "Historial", icon: History },
       { key: "reports", label: "Reportes", icon: BarChart3 },
       { key: "support", label: "AgroAsistente", icon: Headphones }
     ]
@@ -105,8 +101,7 @@ const technicianGroups: NavGroup[] = [
   {
     title: "Operacion tecnica",
     items: [
-      { key: "silos", label: "Silos asignados", icon: Factory },
-      { key: "fields", label: "Campo asignado", icon: Sprout },
+      { key: "sites", label: "Unidades asignadas", icon: Factory },
       { key: "sensors", label: "Dispositivos", icon: Cpu },
       { key: "alerts", label: "Alertas tecnicas", icon: AlertTriangle },
       { key: "maintenance", label: "Mantenimiento", icon: Wrench },

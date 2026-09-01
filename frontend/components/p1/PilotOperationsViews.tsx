@@ -777,7 +777,7 @@ export function FirmwareView({ data, token }: { data: AppData; token: string }) 
       {error ? <ErrorState message={error} onRetry={load} /> : null}
       {data.me.role === "admin" ? (
         <form onSubmit={submit} className="panel grid gap-4 p-5 lg:grid-cols-5">
-          <Field label="Producto"><select className="input" value={form.device_type} onChange={(event) => setForm({ ...form, device_type: event.target.value })}><option value="silo_sensor">SiloSensor</option><option value="field_sensor">CampoSensor</option></select></Field>
+          <Field label="Uso del sensor"><select className="input" value={form.device_type} onChange={(event) => setForm({ ...form, device_type: event.target.value })}><option value="silo_sensor">Almacenamiento</option><option value="field_sensor">Campo</option></select></Field>
           <Field label="Version *"><input className="input" value={form.version} onChange={(event) => setForm({ ...form, version: event.target.value })} placeholder="1.2.0" /></Field>
           <Field label="SHA-256"><input className="input" value={form.checksum} onChange={(event) => setForm({ ...form, checksum: event.target.value })} placeholder="64 caracteres" /></Field>
           <Field label="Notas"><input className="input" value={form.release_notes} onChange={(event) => setForm({ ...form, release_notes: event.target.value })} /></Field>
