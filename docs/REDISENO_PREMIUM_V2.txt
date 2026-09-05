@@ -51,6 +51,28 @@ ESTADO DE LA LIMPIEZA
 BLOQUEADO POR CREDENCIALES Y BACKUP DE PRODUCCION.
 El reset destructivo no fue ejecutado sobre Render/Neon.
 
+VALIDACION FINAL
+- Backend: 150 pruebas aprobadas. Sin fallos.
+- Frontend: lint aprobado, 18 pruebas aprobadas y build Next.js aprobado.
+- Flutter: analyze sin problemas, 4 pruebas aprobadas y APK release generado.
+- Control Center: corregida comparacion entre timestamps SQLite sin zona horaria y UTC.
+- Git diff: sin errores de whitespace, secretos, APK ni backups versionados.
+
+ANDROID
+- Version: 1.3.0+5.
+- APK local: dist/AgroEscudo-Mobile-1.3.0-Premium.apk
+- Tamano: 69.28 MB.
+- SHA-256: 28135680325E0A1F31350C6D771CA957EDACF41A4473E5C34389B3D80F2565FB
+- El directorio dist y mobile/build estan ignorados por Git.
+
+DESPLIEGUE
+- Implementacion publicada en main: 3b16b52.
+- Backend Render verificado en HTTP 200.
+- GET /api/monitoring/summary verificado con JWT en produccion.
+- Frontend Vercel verificado en HTTP 200 con el bundle premium activo.
+- URL web: https://agroescudobo.vercel.app
+- URL API: https://agroescudo-api.onrender.com
+
 RIESGOS Y PENDIENTES
 - Configurar expected_reading_interval_minutes para calcular cobertura y racha.
 - Validar el reset execute sobre una copia restaurada antes de usarlo en produccion.
