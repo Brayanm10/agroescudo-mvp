@@ -1,0 +1,58 @@
+AGROESCUDO - REDISENO PREMIUM V2
+Fecha: 2026-09-05
+Commit inicial: 6e85007
+
+ANTES
+- Home cliente basada en bloques de igual peso visual.
+- Semaforo correcto, pero no interactivo.
+- SiloSensor y CampoSensor compartian una presentacion casi identica.
+- Cobertura y continuidad existian parcialmente en metricas internas, no como resumen comun.
+- El seed siempre recreaba activos de demostracion.
+
+DESPUES
+- Saludo por hora y nombre real.
+- Hero operativo con NORMAL, PRECAUCION, CRITICO y SIN DATOS.
+- Estado vacio independiente cuando el usuario tiene cero unidades.
+- Semaforo interactivo que filtra unidades.
+- Filtro Todos / SiloSensor / CampoSensor.
+- Tarjetas diferenciadas por familia, metricas compatibles y tendencia solo con historial suficiente.
+- Cobertura, continuidad, actividad reciente e hitos calculados por FastAPI.
+- Home tecnica enfocada en asignaciones y prioridades.
+- Android comparte estados, cobertura, continuidad y familias de producto.
+
+BACKEND
+- Nuevo GET /api/monitoring/summary protegido por JWT y alcance RBAC.
+- MONITORING_COVERAGE_TARGET_PCT define el minimo diario, por defecto 90%.
+- La cobertura solo se calcula si todos los dispositivos elegibles tienen cadencia configurada.
+- La racha mide continuidad de telemetria; no representa dias sin incidentes.
+- No se modificaron lecturas historicas ni umbrales.
+
+SEED
+- SEED_DEMO_DATA=false por defecto.
+- Las cuentas base pueden inicializarse sin recrear silos, sensores ni telemetria demo.
+- Para un entorno demostrativo aislado: SEED_DEMO_DATA=true.
+
+RESET OPERATIVO
+- Script: backend/scripts/reset_operational_data.py
+- Dry-run local ejecutado. No modifico datos.
+- Conteos detectados: 5 usuarios protegidos, 4 unidades, 4 dispositivos, 12 lecturas.
+- El modo execute crea primero un backup SQLite.
+- PostgreSQL exige --backup-confirmed.
+
+Comandos:
+  cd backend
+  py -3.13 scripts/reset_operational_data.py --dry-run
+  py -3.13 scripts/reset_operational_data.py --execute --yes-really-reset
+
+Produccion PostgreSQL:
+  py -3.13 scripts/reset_operational_data.py --execute --yes-really-reset --backup-confirmed "BACKUP_NEON_VERIFICADO"
+
+ESTADO DE LA LIMPIEZA
+BLOQUEADO POR CREDENCIALES Y BACKUP DE PRODUCCION.
+El reset destructivo no fue ejecutado sobre Render/Neon.
+
+RIESGOS Y PENDIENTES
+- Configurar expected_reading_interval_minutes para calcular cobertura y racha.
+- Validar el reset execute sobre una copia restaurada antes de usarlo en produccion.
+- Verificar visualmente con datos reales de ambas familias.
+- Las pruebas fisicas de sensores no forman parte de este cambio.

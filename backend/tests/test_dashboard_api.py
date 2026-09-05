@@ -187,6 +187,7 @@ def test_change_password_success(client):
 
 
 def test_seed_is_idempotent_and_leaves_pilot_operational_data_clean(client, db_session, monkeypatch):
+    monkeypatch.setenv("SEED_DEMO_DATA", "true")
     admin = db_session.scalar(select(User).where(User.email == "admin@agroescudo.local"))
     admin.hashed_password = hash_password("old-password")
     admin.role = "client"
@@ -363,6 +364,30 @@ def test_insights_return_insufficient_data_without_readings(client):
     assert response.status_code == 200
     assert response.json()["status"] in {"insufficient_data", "offline"}
     assert response.json()["recommendations"] == ["No hay suficientes lecturas recientes para emitir una recomendacion confiable."]
+
+
+def test_insights_keep_old_active_alert_in_operational_status(client, db_session):
+    device = db_session.scalar(select(Device).where(Device.external_id == "SILO-001"))
+    db_session.add(
+        Alert(
+            company_id=device.company_id,
+            site_id=device.site_id,
+            storage_unit_id=device.storage_unit_id,
+            device_id=device.id,
+            alert_type="ambient_humidity_high",
+            severity="warning",
+            title="Humedad elevada pendiente",
+            message="La alerta sigue activa.",
+            is_active=True,
+            created_at=datetime.now(timezone.utc) - timedelta(days=10),
+        )
+    )
+    db_session.commit()
+
+    response = client.get("/api/storage-units/1/insights?period=24h", headers=auth_headers(client))
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "attention"
 
 
 def test_list_active_alerts(client):

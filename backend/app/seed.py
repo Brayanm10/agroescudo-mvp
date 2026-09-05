@@ -71,51 +71,51 @@ def seed() -> None:
             phone_whatsapp="+59170000002",
             telegram_chat_id="100002",
         )
-        site = _ensure_site(db, company.id)
-
-        demo_assets = [
-            ("Silo Maiz Seco 01", "silo", 500.0, "Maiz seco", "Sector norte - bateria 1", "SILO-001", "Nodo Silo Maiz 001", "secret-token"),
-            ("Galpon Sorgo 02", "galpon", 300.0, "Sorgo", "Galpon ventilado - ala este", "GALPON-001", "Nodo Galpon Sorgo 001", "secret-token-galpon-001"),
-            ("Almacen Balanceado 03", "almacen", 150.0, "Alimento balanceado", "Almacen cerrado - zona despacho", "SILO-002", "Nodo Almacen Balanceado 002", "secret-token-silo-002"),
-        ]
         assets: dict[str, tuple[StorageUnit, Device]] = {}
-        for name, unit_type, capacity, crop_type, location, external_id, device_name, device_token in demo_assets:
-            storage_unit, device = _ensure_asset(
-                db,
-                company,
-                site,
-                technician,
-                client,
-                name=name,
-                unit_type=unit_type,
-                capacity_tons=capacity,
-                crop_type=crop_type,
-                location=location,
-                external_id=external_id,
-                device_name=device_name,
-                device_token=device_token,
-            )
-            assets[external_id] = (storage_unit, device)
-            sync_device_channels(
-                db,
-                device,
-                template_code="SILO_SENSOR_WITH_LEVEL" if external_id == "SILO-001" else "SILO_SENSOR_BASE",
-            )
-            _ensure_thresholds(db, company.id, storage_unit.id)
+        seed_demo_data = os.getenv("SEED_DEMO_DATA", "false").lower() == "true"
+        if seed_demo_data:
+            site = _ensure_site(db, company.id)
+            demo_assets = [
+                ("Silo Maiz Seco 01", "silo", 500.0, "Maiz seco", "Sector norte - bateria 1", "SILO-001", "Nodo Silo Maiz 001", "secret-token"),
+                ("Galpon Sorgo 02", "galpon", 300.0, "Sorgo", "Galpon ventilado - ala este", "GALPON-001", "Nodo Galpon Sorgo 001", "secret-token-galpon-001"),
+                ("Almacen Balanceado 03", "almacen", 150.0, "Alimento balanceado", "Almacen cerrado - zona despacho", "SILO-002", "Nodo Almacen Balanceado 002", "secret-token-silo-002"),
+            ]
+            for name, unit_type, capacity, crop_type, location, external_id, device_name, device_token in demo_assets:
+                storage_unit, device = _ensure_asset(
+                    db,
+                    company,
+                    site,
+                    technician,
+                    client,
+                    name=name,
+                    unit_type=unit_type,
+                    capacity_tons=capacity,
+                    crop_type=crop_type,
+                    location=location,
+                    external_id=external_id,
+                    device_name=device_name,
+                    device_token=device_token,
+                )
+                assets[external_id] = (storage_unit, device)
+                sync_device_channels(
+                    db,
+                    device,
+                    template_code="SILO_SENSOR_WITH_LEVEL" if external_id == "SILO-001" else "SILO_SENSOR_BASE",
+                )
+                _ensure_thresholds(db, company.id, storage_unit.id)
 
         for user in [technician, client]:
             _ensure_notification_preferences(db, user)
         _ensure_education_articles(db)
-        _ensure_iot_gateway(db)
-        _ensure_iot_devices(db, assets)
+        if seed_demo_data:
+            _ensure_iot_gateway(db)
+            _ensure_iot_devices(db, assets)
         if os.getenv("RESET_OPERATIONAL_DATA_ON_SEED", "false").lower() == "true":
             _clear_seeded_operational_data(db, company.id)
 
         db.commit()
-        print(
-            "Pilot base ready: Acopio Valle Bajo S.R.L., 3 storage units, "
-            "3 devices, users and thresholds. Existing operational data was preserved."
-        )
+        mode = "cuentas y datos demo" if seed_demo_data else "solo cuentas base"
+        print(f"Seed completado ({mode}). Los datos operativos existentes fueron preservados.")
     finally:
         db.close()
 

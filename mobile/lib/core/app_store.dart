@@ -45,6 +45,11 @@ class AppStore extends ChangeNotifier {
   List<Map<String, dynamic>> get logs => _list('logs');
   List<Map<String, dynamic>> get pilots => _list('pilots');
   List<Map<String, dynamic>> get insights => _list('insights');
+  Map<String, dynamic>? get monitoring {
+    final value = data['monitoring'];
+    return value is Map ? Map<String, dynamic>.from(value) : null;
+  }
+
   List<Map<String, dynamic>> get alertContacts => _list('alert_contacts');
   List<Map<String, dynamic>> get maintenanceRecords =>
       _list('maintenance_records');
@@ -173,6 +178,7 @@ class AppStore extends ChangeNotifier {
         _api.getJson('/api/pilots', token: authToken),
         _api.getJson('/api/alert-contacts', token: authToken),
         _api.getJson('/api/insights?period=24h', token: authToken),
+        _optionalGet('/api/monitoring/summary', authToken),
       ]);
       me = _map(results[0]);
       data = {
@@ -187,6 +193,7 @@ class AppStore extends ChangeNotifier {
         'pilots': results[9],
         'alert_contacts': results[10],
         'insights': _map(results[11])['insights'] ?? const [],
+        'monitoring': results[12],
       };
       cached = false;
       await _saveCache();
@@ -218,6 +225,14 @@ class AppStore extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_cacheKey);
     notifyListeners();
+  }
+
+  Future<dynamic> _optionalGet(String path, String authToken) async {
+    try {
+      return await _api.getJson(path, token: authToken);
+    } on ApiException {
+      return <String, dynamic>{};
+    }
   }
 
   Future<void> acknowledge(int alertId) async {

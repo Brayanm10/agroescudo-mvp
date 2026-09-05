@@ -495,6 +495,39 @@ export type AppData = {
   users: User[];
   insights: StorageUnitInsight[];
   controlCenter: ControlCenterSummary | null;
+  monitoring: MonitoringSummary | null;
+};
+
+export type MonitoringActivity = {
+  kind: "reading" | "alert" | "action" | "report";
+  title: string;
+  detail: string;
+  timestamp: string;
+  storage_unit_id: number | null;
+  device_id: number | null;
+  severity: string | null;
+};
+
+export type MonitoringMilestone = {
+  key: string;
+  label: string;
+  achieved_at: string | null;
+};
+
+export type MonitoringSummary = {
+  current_streak_days: number;
+  best_streak_days: number;
+  coverage_today_pct: number | null;
+  coverage_target_pct: number;
+  expected_readings_today: number | null;
+  received_readings_today: number;
+  active_devices: number;
+  online_devices: number;
+  no_data_devices: number;
+  calculation_status: "available" | "not_calculable";
+  recent_activity: MonitoringActivity[];
+  milestones: MonitoringMilestone[];
+  generated_at: string;
 };
 
 export type InsightStatus = "normal" | "attention" | "critical" | "offline" | "insufficient_data" | string;

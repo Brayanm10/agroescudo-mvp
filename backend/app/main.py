@@ -25,6 +25,7 @@ from app.api.routes import (
     installations,
     iot,
     maintenance,
+    monitoring,
     notifications,
     operations,
     operational_logs,
@@ -75,6 +76,7 @@ app.include_router(insights.router, prefix="/api", tags=["insights"])
 app.include_router(control_center.router, prefix="/api", tags=["control-center"])
 app.include_router(service_cases.router, prefix="/api", tags=["service-cases"])
 app.include_router(maintenance.router, prefix="/api", tags=["maintenance"])
+app.include_router(monitoring.router, prefix="/api", tags=["monitoring"])
 app.include_router(installations.router, prefix="/api", tags=["installations"])
 app.include_router(evidence.router, prefix="/api", tags=["evidence"])
 app.include_router(exports.router, prefix="/api", tags=["exports"])

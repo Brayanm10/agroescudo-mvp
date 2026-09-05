@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -31,6 +31,10 @@ def _score_status(score: int, has_data: bool) -> str:
 
 def _penalty(count: int | float, value: float, cap: float) -> float:
     return min(float(count) * value, cap)
+
+
+def _as_utc(value: datetime) -> datetime:
+    return value.astimezone(timezone.utc) if value.tzinfo is not None else value.replace(tzinfo=timezone.utc)
 
 
 def build_control_center_summary(db: Session, user) -> ControlCenterSummaryOut:
@@ -96,10 +100,10 @@ def build_control_center_summary(db: Session, user) -> ControlCenterSummaryOut:
     for device in devices:
         latest = latest_by_device.get(device.id)
         last_seen_at = latest.timestamp if latest else device.last_seen_at
-        is_offline = last_seen_at is None or now - last_seen_at > offline_after
+        is_offline = last_seen_at is None or now - _as_utc(last_seen_at) > offline_after
         if is_offline:
             offline_devices += 1
-        if latest and now - latest.timestamp > offline_after:
+        if latest and now - _as_utc(latest.timestamp) > offline_after:
             stale_readings += 1
         if latest and latest.battery_voltage < 3.5:
             low_battery += 1

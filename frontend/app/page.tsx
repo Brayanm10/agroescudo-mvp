@@ -52,6 +52,7 @@ import { ReadingChart } from "@/components/ReadingChart";
 import { StatCard } from "@/components/StatCard";
 import { StatusBadge } from "@/components/StatusBadge";
 import { SupportChatbot } from "@/components/SupportChatbot";
+import { PremiumClientDashboard } from "@/components/dashboard/PremiumClientDashboard";
 import { ReportDownloadButton } from "@/components/reports/ReportDownloadButton";
 import { SiloLevelIndicator } from "@/components/telemetry/SiloLevelIndicator";
 import { CalibrationWizard } from "@/components/telemetry/CalibrationWizard";
@@ -138,12 +139,11 @@ function loginErrorMessage(err: unknown) {
 function allowedViewsForRole(role: UserRole): ViewKey[] {
   const accountViews: ViewKey[] = ["profile", "changePassword", "preferences"];
   if (role === "admin") return ["dashboard", "demo", "pilots", "companies", "storage", "sensors", "sites", "alerts", "logs", "maintenance", "installations", "evidence", "systemHealth", "gateways", "sentinel", "pilotMetrics", "comparison", "firmware", "exports", "history", "reports", "support", "users", "thresholds", "notifications", ...accountViews];
-  if (role === "technician") return ["sites", "sensors", "alerts", "maintenance", "installations", "evidence", "systemHealth", "gateways", "comparison", "firmware", "exports", "logs", "support", ...accountViews];
+  if (role === "technician") return ["dashboard", "sites", "sensors", "alerts", "maintenance", "installations", "evidence", "systemHealth", "gateways", "comparison", "firmware", "exports", "logs", "support", ...accountViews];
   return ["dashboard", "sites", "alerts", "reports", "support", ...accountViews];
 }
 
-function defaultViewForRole(role: UserRole): ViewKey {
-  if (role === "technician") return "sites";
+function defaultViewForRole(): ViewKey {
   return "dashboard";
 }
 
@@ -228,13 +228,6 @@ function stateLabel(state: RiskStatus) {
   return "Normal";
 }
 
-function statusPriority(status: RiskStatus) {
-  if (status === "critical") return 0;
-  if (status === "warning") return 1;
-  if (status === "normal") return 2;
-  return 3;
-}
-
 function siteStatus(data: AppData, units: StorageUnit[]): RiskStatus {
   if (!units.length) return "no_data";
   const states = units.map((unit) => storageRisk(data, unit));
@@ -271,7 +264,7 @@ export default function Home() {
       const appData = await loadAppData(currentToken);
       setData(appData);
       const allowed = allowedViewsForRole(appData.me.role);
-      setView((current) => allowed.includes(current) ? current : defaultViewForRole(appData.me.role));
+      setView((current) => allowed.includes(current) ? current : defaultViewForRole());
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
         clearStoredSession();
@@ -821,6 +814,9 @@ function DashboardView({
   if (data.me.role === "client") {
     return <ClientDashboardView data={data} onNavigate={onNavigate} />;
   }
+  if (data.me.role === "technician") {
+    return <TechnicianDashboardView data={data} onNavigate={onNavigate} />;
+  }
 
   const latest = data.readings[0];
   const status = statusFromAlerts(data.activeAlerts);
@@ -842,6 +838,7 @@ function DashboardView({
 
   return (
     <div className="space-y-6">
+      <RoleGreeting user={data.me} detail="Estado de la red AgroEscudo y prioridades del piloto." />
       <ControlCenterPanel data={data} onNavigate={onNavigate} />
 
       <section className="grid gap-4 xl:grid-cols-[1.2fr_0.9fr]">
@@ -980,6 +977,41 @@ function DashboardView({
   );
 }
 
+function RoleGreeting({ user, detail }: { user: User; detail: string }) {
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? "Buenos días" : hour < 19 ? "Buenas tardes" : "Buenas noches";
+  const name = user.full_name.trim().split(/\s+/)[0] || "equipo";
+  return <header><p className="text-2xl font-black text-slate-950 sm:text-3xl">{greeting}, {name}</p><p className="mt-1 text-sm text-slate-500">{detail}</p></header>;
+}
+
+function TechnicianDashboardView({ data, onNavigate }: { data: AppData; onNavigate: (view: ViewKey) => void }) {
+  const priorityUnits = [...data.storageUnits]
+    .map((unit) => ({ unit, state: storageRisk(data, unit) }))
+    .sort((a, b) => (a.state === "critical" ? 0 : a.state === "warning" ? 1 : a.state === "no_data" ? 2 : 3) - (b.state === "critical" ? 0 : b.state === "warning" ? 1 : b.state === "no_data" ? 2 : 3));
+  const critical = priorityUnits.filter((item) => item.state === "critical").length;
+  const warning = priorityUnits.filter((item) => item.state === "warning").length;
+  const noData = priorityUnits.filter((item) => item.state === "no_data").length;
+  return (
+    <div className="space-y-6">
+      <RoleGreeting user={data.me} detail="Estas son tus unidades asignadas y las acciones que requieren seguimiento." />
+      <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <PriorityCard title="Asignadas" value={String(data.storageUnits.length)} detail="Unidades bajo tu responsabilidad" state="normal" />
+        <PriorityCard title="Críticas" value={String(critical)} detail="Atender con prioridad" state={critical ? "critical" : "normal"} />
+        <PriorityCard title="Precaución" value={String(warning)} detail="Programar revisión" state={warning ? "warning" : "normal"} />
+        <PriorityCard title="Sin datos" value={String(noData)} detail="Revisar conexión del nodo" state={noData ? "offline" : "normal"} />
+      </section>
+      <section>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3"><div><p className="section-kicker">Prioridad técnica</p><h2 className="section-title">Unidades que debes revisar</h2></div><button type="button" className="btn-secondary" onClick={() => onNavigate("sites")}>Ver asignadas</button></div>
+        <div className="grid gap-3 lg:grid-cols-2">
+          {priorityUnits.slice(0, 4).map(({ unit, state }) => <button key={unit.id} type="button" onClick={() => { window.history.replaceState({}, "", storageUnitSelectionPath(window.location.href, unit.id)); onNavigate("sites"); }} className="premium-action-row"><span className={`premium-action-icon ${state === "critical" ? "bg-red-50 text-red-700" : state === "warning" ? "bg-amber-50 text-amber-700" : state === "no_data" ? "bg-slate-100 text-slate-600" : "bg-emerald-50 text-emerald-700"}`}><Wrench size={18} /></span><span className="min-w-0 flex-1"><strong>{unit.name}</strong><small>{stateLabel(state)} · {unit.location || "Ubicación no registrada"}</small></span><ArrowRight size={17} className="text-slate-400" /></button>)}
+          {!priorityUnits.length ? <EmptyState title="Sin unidades asignadas" message="Un administrador debe asignarte unidades antes de iniciar una revisión." /> : null}
+        </div>
+      </section>
+      <section className="flex flex-wrap gap-3 border-t border-slate-200 pt-5"><button type="button" className="btn-primary" onClick={() => onNavigate("maintenance")}><Wrench className="mr-2" size={17} />Registrar revisión</button><button type="button" className="btn-secondary" onClick={() => onNavigate("alerts")}><AlertTriangle className="mr-2" size={17} />Ver alertas</button><button type="button" className="btn-secondary" onClick={() => onNavigate("logs")}><ClipboardList className="mr-2" size={17} />Bitácora</button></section>
+    </div>
+  );
+}
+
 function clientAlertCopy(alert: Alert) {
   if (alert.severity === "critical") {
     return { title: "Condicion critica", detail: "La unidad requiere revision prioritaria y seguimiento de la accion tomada." };
@@ -991,112 +1023,16 @@ function clientAlertCopy(alert: Alert) {
 }
 
 function ClientDashboardView({ data, onNavigate }: { data: AppData; onNavigate: (view: ViewKey) => void }) {
-  const unitsByPriority = [...data.storageUnits].sort((a, b) => statusPriority(storageRisk(data, a)) - statusPriority(storageRisk(data, b)));
-  const counts = unitsByPriority.reduce<Record<RiskStatus, number>>((current, unit) => {
-    current[storageRisk(data, unit)] += 1;
-    return current;
-  }, { normal: 0, warning: 0, critical: 0, technical: 0, no_data: 0, offline: 0 });
-  const overallState: RiskStatus = counts.critical ? "critical" : counts.warning ? "warning" : counts.normal ? "normal" : "no_data";
-  const headline = overallState === "critical"
-    ? "Hay una unidad en estado critico"
-    : overallState === "warning"
-      ? "Hay condiciones que requieren atencion"
-      : overallState === "normal"
-        ? "Tu operacion se encuentra estable"
-        : "Aun no hay datos recientes";
-  const headlineDetail = overallState === "critical"
-    ? "Revisa la alerta y confirma el seguimiento operativo."
-    : overallState === "warning"
-      ? "Consulta la unidad marcada en precaucion."
-      : overallState === "normal"
-        ? "Las unidades con datos recientes se mantienen normales."
-        : "La unidad no tiene lectura reciente o no tiene sensor vinculado.";
-
   return (
-    <div className="space-y-5">
-      <section className={`rounded-[18px] border p-5 shadow-panel ${overallState === "critical" ? "border-red-200 bg-red-50" : overallState === "warning" ? "border-amber-200 bg-amber-50" : overallState === "normal" ? "border-emerald-200 bg-emerald-50" : "border-slate-300 bg-slate-100"}`}>
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <p className="section-kicker">Estado de hoy</p>
-            <h2 className="mt-1 text-2xl font-black tracking-tight text-slate-950">{headline}</h2>
-            <p className="mt-2 text-sm text-slate-600">{headlineDetail}</p>
-          </div>
-          <StatusBadge status={overallState} />
-        </div>
-      </section>
-
-      <section aria-label="Resumen de estados" className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <TrafficSummaryCard status="normal" value={counts.normal} />
-        <TrafficSummaryCard status="warning" value={counts.warning} />
-        <TrafficSummaryCard status="critical" value={counts.critical} />
-        <TrafficSummaryCard status="no_data" value={counts.no_data + counts.technical} />
-      </section>
-
-      <section className="panel overflow-hidden">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 p-5">
-          <div>
-            <p className="section-kicker">Mi operacion</p>
-            <h2 className="section-title">Unidades monitoreadas</h2>
-          </div>
-          <button type="button" onClick={() => onNavigate("sites")} className="btn-secondary">Ver detalle</button>
-        </div>
-        <div className="divide-y divide-slate-100">
-          {unitsByPriority.slice(0, 4).map((unit) => {
-            const state = storageRisk(data, unit);
-            const latest = data.readings.find((reading) => reading.storage_unit_id === unit.id);
-            const insight = data.insights.find((item) => item.storage_unit_id === unit.id);
-            return (
-              <button key={unit.id} type="button" onClick={() => {
-                window.history.replaceState({}, "", storageUnitSelectionPath(window.location.href, unit.id));
-                onNavigate("sites");
-              }} className="flex w-full items-center justify-between gap-4 p-5 text-left transition hover:bg-slate-50">
-                <div>
-                  <p className="font-black text-slate-950">{unit.name}</p>
-                  <p className="mt-1 text-sm font-semibold text-slate-600">{insight?.summary || "Sin evidencia reciente suficiente para evaluar esta unidad."}</p>
-                  <p className="mt-1 text-sm text-slate-500">{latest ? `Ultima actualizacion: ${formatDateTime(latest.timestamp)}` : "Esperando primera lectura"}</p>
-                </div>
-                <StatusBadge status={state} />
-              </button>
-            );
-          })}
-          {!data.storageUnits.length ? <div className="p-5"><EmptyState title="Sin unidades asignadas" message="Tu administrador debe asociar una unidad a esta cuenta." /></div> : null}
-        </div>
-      </section>
-
-      {data.activeAlerts.length ? (
-        <section className="panel p-5">
-          <div className="flex items-center justify-between gap-3">
-            <div><p className="section-kicker">Atencion</p><h2 className="section-title">Lo que debes revisar</h2></div>
-            <button type="button" onClick={() => onNavigate("alerts")} className="btn-secondary">Ver alertas</button>
-          </div>
-          <div className="mt-4 grid gap-3 md:grid-cols-2">
-            {data.activeAlerts.slice(0, 2).map((alert) => {
-              const copy = clientAlertCopy(alert);
-              const unit = data.storageUnits.find((item) => item.id === alert.storage_unit_id);
-              return <article key={alert.id} className="rounded-xl border border-slate-200 bg-slate-50 p-4"><p className="font-black text-slate-950">{copy.title}</p><p className="mt-1 text-sm font-semibold text-slate-600">{unit?.name || "Unidad monitoreada"}</p><p className="mt-2 text-sm leading-6 text-slate-600">{copy.detail}</p></article>;
-            })}
-          </div>
-        </section>
-      ) : null}
-
-      <section className="grid gap-3 sm:grid-cols-3">
-        <button type="button" onClick={() => onNavigate("sites")} className="btn-secondary justify-center py-3">Mi operacion</button>
-        <button type="button" onClick={() => onNavigate("reports")} className="btn-secondary justify-center py-3">Descargar reporte</button>
-        <button type="button" onClick={() => onNavigate("support")} className="btn-secondary justify-center py-3">Consultar AgroAsistente</button>
-      </section>
-    </div>
+    <PremiumClientDashboard
+      data={data}
+      onNavigate={onNavigate}
+      onOpenUnit={(unitId) => {
+        window.history.replaceState({}, "", storageUnitSelectionPath(window.location.href, unitId));
+        onNavigate("sites");
+      }}
+    />
   );
-}
-
-function TrafficSummaryCard({ status, value }: { status: RiskStatus; value: number }) {
-  const copy = status === "critical"
-    ? { label: "Criticos", dot: "bg-red-500", tone: "border-red-200 bg-red-50 text-red-900" }
-    : status === "warning"
-      ? { label: "Precaucion", dot: "bg-amber-400", tone: "border-amber-200 bg-amber-50 text-amber-900" }
-      : status === "normal"
-        ? { label: "Normales", dot: "bg-emerald-500", tone: "border-emerald-200 bg-emerald-50 text-emerald-900" }
-        : { label: "Sin datos", dot: "bg-slate-400", tone: "border-slate-200 bg-slate-100 text-slate-700" };
-  return <div className={`rounded-xl border p-4 shadow-soft ${copy.tone}`}><div className="flex items-center gap-2"><span className={`h-2.5 w-2.5 rounded-full ${copy.dot}`} /><span className="text-xs font-black uppercase tracking-[0.12em]">{copy.label}</span></div><p className="mt-2 text-2xl font-black">{value}</p></div>;
 }
 
 function ProductPortfolioCard({

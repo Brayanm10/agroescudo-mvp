@@ -37,11 +37,11 @@ def build_storage_unit_insight(db: Session, storage_unit: StorageUnit, period: P
     alerts = list(
         db.scalars(
             select(Alert)
-            .where(Alert.storage_unit_id == storage_unit.id, Alert.created_at >= start)
+            .where(Alert.storage_unit_id == storage_unit.id, Alert.is_active.is_(True))
             .order_by(Alert.created_at.desc())
         ).all()
     )
-    active_alerts = [alert for alert in alerts if alert.is_active]
+    active_alerts = alerts
     devices = list(db.scalars(select(Device).where(Device.storage_unit_id == storage_unit.id)).all())
     logs = list(
         db.scalars(

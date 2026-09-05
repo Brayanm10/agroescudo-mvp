@@ -101,6 +101,7 @@ const technicianGroups: NavGroup[] = [
   {
     title: "Operacion tecnica",
     items: [
+      { key: "dashboard", label: "Inicio", icon: LayoutDashboard },
       { key: "sites", label: "Unidades asignadas", icon: Factory },
       { key: "sensors", label: "Dispositivos", icon: Cpu },
       { key: "alerts", label: "Alertas tecnicas", icon: AlertTriangle },

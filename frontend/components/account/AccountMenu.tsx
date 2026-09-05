@@ -8,7 +8,7 @@ import type { User, ViewKey } from "@/lib/types";
 function roleLabel(role: string) {
   if (role === "admin") return "Admin AgroEscudo";
   if (role === "technician") return "Tecnico AgroEscudo";
-  return "Cliente silo";
+  return "Cliente";
 }
 
 export function AccountMenu({

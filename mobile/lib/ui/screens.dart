@@ -519,7 +519,6 @@ class DashboardScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final store = context.watch<AppStore>();
-    final latest = store.readings.isEmpty ? null : _newest(store.readings);
     final states = store.units
         .map((unit) => _unitState(store, unit['id'] as int))
         .toList();
@@ -534,21 +533,115 @@ class DashboardScreen extends StatelessWidget {
         : normal > 0
         ? 'normal'
         : 'no_data';
-    final state = _stateTitle(overallState);
     final fullName = store.me?['full_name']?.toString().trim();
+    final firstName = fullName?.split(RegExp(r'\s+')).first;
+    final hour = DateTime.now().hour;
+    final greeting = hour < 12
+        ? 'Buenos dias'
+        : hour < 19
+        ? 'Buenas tardes'
+        : 'Buenas noches';
+
+    if (store.role == 'client') {
+      final monitoring = store.monitoring;
+      final coverage = monitoring?['coverage_today_pct'];
+      final streak = monitoring?['current_streak_days'];
+      final units = [...store.units]
+        ..sort(
+          (a, b) => _statusPriority(
+            _unitState(store, a['id'] as int),
+          ).compareTo(_statusPriority(_unitState(store, b['id'] as int))),
+        );
+      return _Page(
+        children: [
+          _SectionTitle(
+            eyebrow: 'MI OPERACION',
+            title:
+                '$greeting${firstName?.isNotEmpty == true ? ', $firstName' : ''}',
+            subtitle: store.units.isEmpty
+                ? 'Tu operacion empieza aqui.'
+                : 'Asi esta tu operacion hoy.',
+          ),
+          if (store.units.isEmpty)
+            const _PremiumEmptyOperation()
+          else ...[
+            _RiskPanel(
+              title: _stateTitle(overallState),
+              status: overallState,
+              subtitle: _stateMessage(overallState),
+            ),
+            const SizedBox(height: 12),
+            _TrafficSummary(
+              normal: normal,
+              warning: warning,
+              critical: critical,
+              noData: noData,
+            ),
+            const SizedBox(height: 14),
+            GridView.count(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              crossAxisCount: 2,
+              childAspectRatio: 1.42,
+              mainAxisSpacing: 10,
+              crossAxisSpacing: 10,
+              children: [
+                _Metric(
+                  label: 'COBERTURA HOY',
+                  value: coverage is num
+                      ? '${coverage.round()}%'
+                      : 'Sin calculo',
+                  icon: Icons.donut_large_outlined,
+                ),
+                _Metric(
+                  label: 'MONITOREO CONTINUO',
+                  value: streak is num
+                      ? '${streak.toInt()} dias'
+                      : 'Sin calculo',
+                  icon: Icons.calendar_today_outlined,
+                ),
+                _Metric(
+                  label: 'ALERTAS ACTIVAS',
+                  value: '${store.activeAlerts.length}',
+                  icon: Icons.warning_amber,
+                ),
+                _Metric(
+                  label: 'UNIDADES',
+                  value: '${store.units.length}',
+                  icon: Icons.sensors_outlined,
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            const _BlockTitle('Unidades prioritarias'),
+            ...units
+                .take(3)
+                .map((unit) => _MobileUnitPreview(unit: unit, store: store)),
+            if (store.activeAlerts.isNotEmpty) ...[
+              const SizedBox(height: 16),
+              const _BlockTitle('Lo que debes revisar'),
+              ...store.activeAlerts
+                  .take(2)
+                  .map((item) => _AlertTile(alert: item)),
+            ],
+          ],
+        ],
+      );
+    }
+
+    final latest = store.readings.isEmpty ? null : _newest(store.readings);
     return _Page(
       children: [
         _SectionTitle(
           eyebrow: _roleLabel(store.role),
-          title: store.role == 'client'
-              ? 'Hola${fullName?.isNotEmpty == true ? ', $fullName' : ''}'
-              : 'Centro operativo',
-          subtitle: store.role == 'client'
-              ? 'Esto es lo más importante de tu operación hoy.'
-              : 'Estado consolidado del monitoreo postcosecha.',
+          title:
+              '$greeting${firstName?.isNotEmpty == true ? ', $firstName' : ''}',
+          subtitle: store.role == 'technician'
+              ? 'Estas son tus unidades asignadas y prioridades tecnicas.'
+              : 'Estado consolidado de la red AgroEscudo.',
         ),
         _RiskPanel(
-          title: state,
+          title: _stateTitle(overallState),
           status: overallState,
           subtitle: _stateMessage(overallState),
         ),
@@ -560,37 +653,36 @@ class DashboardScreen extends StatelessWidget {
           noData: noData,
         ),
         const SizedBox(height: 14),
-        if (store.role != 'client')
-          GridView.count(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            crossAxisCount: 2,
-            childAspectRatio: 1.5,
-            mainAxisSpacing: 10,
-            crossAxisSpacing: 10,
-            children: [
-              _Metric(
-                label: 'SITIOS',
-                value: '${store.sites.length}',
-                icon: Icons.location_on_outlined,
-              ),
-              _Metric(
-                label: 'UNIDADES',
-                value: '${store.units.length}',
-                icon: Icons.warehouse_outlined,
-              ),
-              _Metric(
-                label: 'DISPOSITIVOS',
-                value: '${store.devices.length}',
-                icon: Icons.sensors_outlined,
-              ),
-              _Metric(
-                label: 'ALERTAS ACTIVAS',
-                value: '${store.activeAlerts.length}',
-                icon: Icons.warning_amber,
-              ),
-            ],
-          ),
+        GridView.count(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          crossAxisCount: 2,
+          childAspectRatio: 1.5,
+          mainAxisSpacing: 10,
+          crossAxisSpacing: 10,
+          children: [
+            _Metric(
+              label: 'SITIOS',
+              value: '${store.sites.length}',
+              icon: Icons.location_on_outlined,
+            ),
+            _Metric(
+              label: 'UNIDADES',
+              value: '${store.units.length}',
+              icon: Icons.warehouse_outlined,
+            ),
+            _Metric(
+              label: 'DISPOSITIVOS',
+              value: '${store.devices.length}',
+              icon: Icons.sensors_outlined,
+            ),
+            _Metric(
+              label: 'ALERTAS ACTIVAS',
+              value: '${store.activeAlerts.length}',
+              icon: Icons.warning_amber,
+            ),
+          ],
+        ),
         const SizedBox(height: 20),
         const _BlockTitle('Ultima evidencia recibida'),
         if (latest == null)
@@ -635,17 +727,150 @@ class DashboardScreen extends StatelessWidget {
   }
 }
 
-class UnitsScreen extends StatelessWidget {
+class _PremiumEmptyOperation extends StatelessWidget {
+  const _PremiumEmptyOperation();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(22, 34, 22, 34),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xffdce5e1)),
+      ),
+      child: const Column(
+        children: [
+          CircleAvatar(
+            radius: 28,
+            backgroundColor: Color(0xffeaf8f1),
+            child: Icon(Icons.sensors_outlined, color: emerald, size: 28),
+          ),
+          SizedBox(height: 16),
+          Text(
+            'Aun no tienes unidades vinculadas',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800),
+          ),
+          SizedBox(height: 8),
+          Text(
+            'Tu administrador debe asociar un SiloSensor o CampoSensor a esta cuenta.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: muted, height: 1.4),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _MobileUnitPreview extends StatelessWidget {
+  const _MobileUnitPreview({required this.unit, required this.store});
+
+  final Map<String, dynamic> unit;
+  final AppStore store;
+
+  @override
+  Widget build(BuildContext context) {
+    final field = _operationType(unit) == 'field';
+    final latest = store.latestReadingFor(unit['id'] as int);
+    final state = _unitState(store, unit['id'] as int);
+    final accent = field ? const Color(0xff0787a1) : amber;
+    return Card(
+      margin: const EdgeInsets.only(bottom: 10),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () => Navigator.of(
+          context,
+        ).push(MaterialPageRoute(builder: (_) => UnitDetailScreen(unit: unit))),
+        child: Padding(
+          padding: const EdgeInsets.all(15),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 38,
+                    height: 38,
+                    decoration: BoxDecoration(
+                      color: accent.withValues(alpha: .11),
+                      borderRadius: BorderRadius.circular(11),
+                    ),
+                    child: Icon(
+                      field ? Icons.grass_outlined : Icons.warehouse_outlined,
+                      color: accent,
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          field ? 'CampoSensor' : 'SiloSensor',
+                          style: TextStyle(
+                            color: accent,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w900,
+                          ),
+                        ),
+                        Text(
+                          unit['name']?.toString() ?? 'Unidad',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  _StorageStatusBadge(value: state),
+                  const SizedBox(width: 6),
+                  const Icon(Icons.chevron_right, color: muted),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Text(
+                latest == null
+                    ? 'Esperando primera lectura'
+                    : field
+                    ? '${_num(latest['soil_moisture_percent'])}% suelo  |  ${_num(latest['ambient_temperature'])} C'
+                    : '${_num(latest['grain_temperature'])} C grano  |  ${_num(latest['ambient_humidity'])}% humedad',
+                style: const TextStyle(color: ink, fontWeight: FontWeight.w700),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class UnitsScreen extends StatefulWidget {
   const UnitsScreen({super.key});
+
+  @override
+  State<UnitsScreen> createState() => _UnitsScreenState();
+}
+
+class _UnitsScreenState extends State<UnitsScreen> {
+  String family = 'all';
 
   @override
   Widget build(BuildContext context) {
     final store = context.watch<AppStore>();
-    final storageUnits = store.units
+    final filteredUnits = store.units.where((unit) {
+      if (family == 'all') return true;
+      return _operationType(unit) == family;
+    }).toList();
+    final storageUnits = filteredUnits
         .where((unit) => _operationType(unit) == 'storage')
         .toList();
     final fieldUnits =
-        store.units.where((unit) => _operationType(unit) == 'field').toList()
+        filteredUnits.where((unit) => _operationType(unit) == 'field').toList()
           ..sort(
             (a, b) => _statusPriority(
               _unitState(store, a['id'] as int),
@@ -669,8 +894,31 @@ class UnitsScreen extends StatelessWidget {
               ? 'Consulta el estado y la ultima actualizacion de cada unidad.'
               : 'Telemetria por nodo y valores calibrados para operacion tecnica.',
         ),
+        if (store.units.isNotEmpty) ...[
+          SegmentedButton<String>(
+            segments: const [
+              ButtonSegment(value: 'all', label: Text('Todos')),
+              ButtonSegment(
+                value: 'storage',
+                icon: Icon(Icons.warehouse_outlined, size: 17),
+                label: Text('SiloSensor'),
+              ),
+              ButtonSegment(
+                value: 'field',
+                icon: Icon(Icons.grass_outlined, size: 17),
+                label: Text('CampoSensor'),
+              ),
+            ],
+            selected: {family},
+            showSelectedIcon: false,
+            onSelectionChanged: (value) => setState(() => family = value.first),
+          ),
+          const SizedBox(height: 16),
+        ],
         if (store.units.isEmpty)
           const _Empty('No hay unidades asignadas a este usuario.')
+        else if (filteredUnits.isEmpty)
+          const _Empty('No hay unidades de esta familia.')
         else ...[
           if (storageUnits.isNotEmpty && store.role != 'client')
             const _BlockTitle('Almacenamiento'),

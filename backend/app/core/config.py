@@ -63,6 +63,7 @@ class Settings(BaseSettings):
     s3_public_base_url: str | None = None
     max_upload_bytes: int = 10 * 1024 * 1024
     device_offline_after_minutes: int = 120
+    monitoring_coverage_target_pct: float = 90.0
     public_landing_url: str | None = None
     demo_lead_url: str | None = None
     public_whatsapp_url: str | None = None

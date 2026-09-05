@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from sqlalchemy import select
 
 from app.core.security import verify_password
@@ -82,6 +84,18 @@ def test_control_center_summary_returns_versioned_index(client):
     assert 0 <= body["score"] <= 100
     assert body["status"] in {"PROTEGIDA", "ATENCION", "CRITICA", "SIN_DATOS"}
     assert "storage_units" in body["kpis"]
+
+
+def test_control_center_accepts_sqlite_naive_device_timestamps(client, db_session):
+    device = db_session.scalar(select(Device))
+    device.last_seen_at = datetime(2026, 1, 1, 12, 0, 0)
+    db_session.commit()
+
+    response = client.get("/api/control-center/summary", headers=_auth_headers(client))
+
+    assert response.status_code == 200, response.text
+    health = next(item for item in response.json()["device_health"] if item["device_id"] == device.id)
+    assert health["status"] == "offline"
 
 
 def test_agro_assistant_uses_verified_rules_without_external_credentials(client):

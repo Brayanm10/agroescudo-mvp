@@ -1287,6 +1287,38 @@ class InsightsOut(BaseModel):
     insights: list[StorageUnitInsightOut]
 
 
+class MonitoringActivityOut(BaseModel):
+    kind: Literal["reading", "alert", "action", "report"]
+    title: str
+    detail: str
+    timestamp: datetime
+    storage_unit_id: int | None = None
+    device_id: int | None = None
+    severity: str | None = None
+
+
+class MonitoringMilestoneOut(BaseModel):
+    key: str
+    label: str
+    achieved_at: datetime | None = None
+
+
+class MonitoringSummaryOut(BaseModel):
+    current_streak_days: int
+    best_streak_days: int
+    coverage_today_pct: float | None
+    coverage_target_pct: float
+    expected_readings_today: int | None
+    received_readings_today: int
+    active_devices: int
+    online_devices: int
+    no_data_devices: int
+    calculation_status: Literal["available", "not_calculable"]
+    recent_activity: list[MonitoringActivityOut] = []
+    milestones: list[MonitoringMilestoneOut] = []
+    generated_at: datetime
+
+
 class SignupCompanyIn(BaseModel):
     responsible_name: str = Field(min_length=1, max_length=160)
     work_email: str = Field(min_length=3, max_length=255)

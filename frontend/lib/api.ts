@@ -16,6 +16,7 @@ import type {
   GatewayStatus,
   InstallationChecklistRecord,
   MaintenanceRecord,
+  MonitoringSummary,
   PilotMetrics,
   SystemHealth,
   ControlCenterSummary,
@@ -222,7 +223,7 @@ export function logout(token: string) {
 
 export async function loadAppData(token: string): Promise<AppData> {
   const me = await request<User>("/api/me", { token });
-  const [companies, sites, storageUnits, devices, readings, alerts, activeAlerts, logs, pilots, users, insights, controlCenter] = await Promise.all([
+  const [companies, sites, storageUnits, devices, readings, alerts, activeAlerts, logs, pilots, users, insights, controlCenter, monitoring] = await Promise.all([
     request<Company[]>("/api/companies", { token }),
     request<Site[]>("/api/sites", { token }),
     request<StorageUnit[]>("/api/storage-units", { token }),
@@ -234,7 +235,8 @@ export async function loadAppData(token: string): Promise<AppData> {
     request<Pilot[]>("/api/pilots", { token }),
     me.role === "admin" ? request<User[]>("/api/admin/users", { token }) : Promise.resolve([]),
     request<InsightsResponse>("/api/insights?period=24h", { token }).then((payload) => payload.insights).catch(() => []),
-    request<ControlCenterSummary>("/api/control-center/summary", { token }).catch(() => null)
+    request<ControlCenterSummary>("/api/control-center/summary", { token }).catch(() => null),
+    request<MonitoringSummary>("/api/monitoring/summary", { token }).catch(() => null)
   ]);
   return {
     me,
@@ -249,7 +251,8 @@ export async function loadAppData(token: string): Promise<AppData> {
     pilots,
     users,
     insights,
-    controlCenter
+    controlCenter,
+    monitoring
   };
 }
 
