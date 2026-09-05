@@ -742,7 +742,7 @@ export type SentinelJob = {
   updated_at: string;
   completed_at: string | null;
 };
-export type RiskStatus = "normal" | "warning" | "critical" | "technical";
+export type RiskStatus = "normal" | "warning" | "critical" | "technical" | "no_data" | "offline";
 
 export type MaintenanceRecord = {
   id: number;

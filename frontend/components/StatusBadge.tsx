@@ -9,7 +9,9 @@ const styles: Record<RiskStatus, string> = {
   normal: "border-emerald-200 bg-emerald-50 text-emerald-800 shadow-[inset_0_1px_0_rgba(255,255,255,0.75)]",
   warning: "border-amber-200 bg-amber-50 text-amber-800 shadow-[inset_0_1px_0_rgba(255,255,255,0.75)]",
   critical: "border-red-200 bg-red-50 text-red-800 shadow-[inset_0_1px_0_rgba(255,255,255,0.75)]",
-  technical: "border-slate-200 bg-slate-100 text-slate-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.75)]"
+  technical: "border-slate-200 bg-slate-100 text-slate-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.75)]",
+  no_data: "border-slate-300 bg-slate-100 text-slate-600 shadow-[inset_0_1px_0_rgba(255,255,255,0.75)]",
+  offline: "border-slate-300 bg-slate-100 text-slate-600 shadow-[inset_0_1px_0_rgba(255,255,255,0.75)]"
 };
 
 export function StatusBadge({ status }: Props) {

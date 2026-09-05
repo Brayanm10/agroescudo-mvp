@@ -520,14 +520,21 @@ class DashboardScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final store = context.watch<AppStore>();
     final latest = store.readings.isEmpty ? null : _newest(store.readings);
-    final critical = store.activeAlerts
-        .where((item) => item['severity'] == 'critical')
-        .length;
-    final state = critical > 0
-        ? 'Atencion critica'
-        : store.activeAlerts.isNotEmpty
-        ? 'Seguimiento requerido'
-        : 'Operacion estable';
+    final states = store.units
+        .map((unit) => _unitState(store, unit['id'] as int))
+        .toList();
+    final critical = states.where((state) => state == 'critical').length;
+    final warning = states.where((state) => state == 'warning').length;
+    final normal = states.where((state) => state == 'normal').length;
+    final noData = states.where((state) => state == 'no_data').length;
+    final overallState = critical > 0
+        ? 'critical'
+        : warning > 0
+        ? 'warning'
+        : normal > 0
+        ? 'normal'
+        : 'no_data';
+    final state = _stateTitle(overallState);
     final fullName = store.me?['full_name']?.toString().trim();
     return _Page(
       children: [
@@ -542,10 +549,15 @@ class DashboardScreen extends StatelessWidget {
         ),
         _RiskPanel(
           title: state,
-          critical: critical > 0,
-          subtitle: critical > 0
-              ? '$critical alerta(s) critica(s) requieren intervencion.'
-              : 'Sin eventos criticos pendientes en este momento.',
+          status: overallState,
+          subtitle: _stateMessage(overallState),
+        ),
+        const SizedBox(height: 12),
+        _TrafficSummary(
+          normal: normal,
+          warning: warning,
+          critical: critical,
+          noData: noData,
         ),
         const SizedBox(height: 14),
         if (store.role != 'client')
@@ -632,9 +644,18 @@ class UnitsScreen extends StatelessWidget {
     final storageUnits = store.units
         .where((unit) => _operationType(unit) == 'storage')
         .toList();
-    final fieldUnits = store.units
-        .where((unit) => _operationType(unit) == 'field')
-        .toList();
+    final fieldUnits =
+        store.units.where((unit) => _operationType(unit) == 'field').toList()
+          ..sort(
+            (a, b) => _statusPriority(
+              _unitState(store, a['id'] as int),
+            ).compareTo(_statusPriority(_unitState(store, b['id'] as int))),
+          );
+    storageUnits.sort(
+      (a, b) => _statusPriority(
+        _unitState(store, a['id'] as int),
+      ).compareTo(_statusPriority(_unitState(store, b['id'] as int))),
+    );
     return _Page(
       children: [
         _SectionTitle(
@@ -699,6 +720,10 @@ class UnitsScreen extends StatelessWidget {
                       ),
                     ),
                   ),
+                  _StorageStatusBadge(
+                    value: _unitState(store, unit['id'] as int),
+                  ),
+                  const SizedBox(width: 4),
                   const Icon(Icons.chevron_right, color: muted),
                 ],
               ),
@@ -783,6 +808,7 @@ class _UnitDetailScreenState extends State<UnitDetailScreen> {
     );
     final field = _deviceProfile(selectedDevice) == 'field_sensor';
     final isClient = store.role == 'client';
+    final operationalState = _unitState(store, id);
 
     return Scaffold(
       appBar: AppBar(title: Text(unit['name']?.toString() ?? 'Unidad')),
@@ -864,17 +890,9 @@ class _UnitDetailScreenState extends State<UnitDetailScreen> {
                 const SizedBox(height: 14),
               ],
               _RiskPanel(
-                title: unitAlerts.any((item) => item['severity'] == 'critical')
-                    ? 'Riesgo critico'
-                    : unitAlerts.isNotEmpty
-                    ? 'Seguimiento requerido'
-                    : 'Condicion estable',
-                critical: unitAlerts.any(
-                  (item) => item['severity'] == 'critical',
-                ),
-                subtitle: unitAlerts.isEmpty
-                    ? 'No se observan alertas activas para este nodo.'
-                    : '${unitAlerts.length} alerta(s) activas requieren revision.',
+                title: _stateTitle(operationalState),
+                status: operationalState,
+                subtitle: _stateMessage(operationalState),
               ),
               const SizedBox(height: 14),
               if (devices.isEmpty)
@@ -1863,30 +1881,43 @@ class _RiskPanel extends StatelessWidget {
   const _RiskPanel({
     required this.title,
     required this.subtitle,
-    required this.critical,
+    required this.status,
   });
 
   final String title;
   final String subtitle;
-  final bool critical;
+  final String status;
 
   @override
   Widget build(BuildContext context) {
-    final color = critical ? danger : emerald;
+    final color = switch (status) {
+      'critical' => danger,
+      'warning' => const Color(0xffa66a00),
+      'normal' => emerald,
+      _ => muted,
+    };
+    final background = switch (status) {
+      'critical' => const Color(0xfffff1f0),
+      'warning' => const Color(0xfffff7df),
+      'normal' => const Color(0xffeaf8f1),
+      _ => const Color(0xfff1f4f6),
+    };
+    final icon = switch (status) {
+      'critical' => Icons.warning_rounded,
+      'warning' => Icons.error_outline,
+      'normal' => Icons.verified_outlined,
+      _ => Icons.cloud_off_outlined,
+    };
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: critical ? const Color(0xfffff1f0) : const Color(0xffeaf8f1),
+        color: background,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: color.withValues(alpha: .22)),
       ),
       child: Row(
         children: [
-          Icon(
-            critical ? Icons.warning_rounded : Icons.verified_outlined,
-            color: color,
-            size: 34,
-          ),
+          Icon(icon, color: color, size: 34),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -1909,6 +1940,129 @@ class _RiskPanel extends StatelessWidget {
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _TrafficSummary extends StatelessWidget {
+  const _TrafficSummary({
+    required this.normal,
+    required this.warning,
+    required this.critical,
+    required this.noData,
+  });
+
+  final int normal;
+  final int warning;
+  final int critical;
+  final int noData;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: _TrafficCount(label: 'Normal', value: normal, color: emerald),
+        ),
+        const SizedBox(width: 7),
+        Expanded(
+          child: _TrafficCount(
+            label: 'Precaucion',
+            value: warning,
+            color: const Color(0xffd99a00),
+          ),
+        ),
+        const SizedBox(width: 7),
+        Expanded(
+          child: _TrafficCount(
+            label: 'Critico',
+            value: critical,
+            color: danger,
+          ),
+        ),
+        const SizedBox(width: 7),
+        Expanded(
+          child: _TrafficCount(label: 'Sin datos', value: noData, color: muted),
+        ),
+      ],
+    );
+  }
+}
+
+class _TrafficCount extends StatelessWidget {
+  const _TrafficCount({
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+
+  final String label;
+  final int value;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 10),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xffdce5e1)),
+      ),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                width: 8,
+                height: 8,
+                decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+              ),
+              const SizedBox(width: 4),
+              Text(
+                '$value',
+                style: const TextStyle(fontWeight: FontWeight.w900),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          FittedBox(
+            child: Text(
+              label,
+              style: const TextStyle(
+                color: muted,
+                fontSize: 9,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StorageStatusBadge extends StatelessWidget {
+  const _StorageStatusBadge({required this.value});
+
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = switch (value) {
+      'critical' => danger,
+      'warning' => const Color(0xffa66a00),
+      'normal' => emerald,
+      _ => muted,
+    };
+    return Tooltip(
+      message: _stateTitle(value),
+      child: Container(
+        width: 11,
+        height: 11,
+        decoration: BoxDecoration(color: color, shape: BoxShape.circle),
       ),
     );
   }
@@ -2749,6 +2903,45 @@ String _clientAlertMessage(Map<String, dynamic> alert) {
     _ => 'Revisa la recomendacion operativa y el seguimiento registrado.',
   };
 }
+
+String _unitState(AppStore store, int storageUnitId) {
+  Map<String, dynamic>? insight;
+  for (final item in store.insights) {
+    if (item['storage_unit_id'] == storageUnitId) {
+      insight = item;
+      break;
+    }
+  }
+  return switch (insight?['status']?.toString()) {
+    'critical' => 'critical',
+    'attention' => 'warning',
+    'normal' => 'normal',
+    _ => 'no_data',
+  };
+}
+
+int _statusPriority(String status) => switch (status) {
+  'critical' => 0,
+  'warning' => 1,
+  'normal' => 2,
+  _ => 3,
+};
+
+String _stateTitle(String status) => switch (status) {
+  'critical' => 'Riesgo critico',
+  'warning' => 'Requiere atencion',
+  'normal' => 'Operacion estable',
+  _ => 'Sin datos recientes',
+};
+
+String _stateMessage(String status) => switch (status) {
+  'critical' =>
+    'Existe una condicion critica. Revisa la alerta y registra el seguimiento.',
+  'warning' => 'Hay una condicion preventiva que debe revisarse.',
+  'normal' =>
+    'Las lecturas recientes se mantienen dentro de la configuracion operativa.',
+  _ => 'No hay una lectura vigente o la unidad aun no tiene sensor vinculado.',
+};
 
 String _capacity(Map<String, dynamic> unit) => unit['capacity_tons'] == null
     ? 'Capacidad no registrada'

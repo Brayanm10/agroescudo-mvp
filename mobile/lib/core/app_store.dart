@@ -44,6 +44,7 @@ class AppStore extends ChangeNotifier {
   List<Map<String, dynamic>> get activeAlerts => _list('active_alerts');
   List<Map<String, dynamic>> get logs => _list('logs');
   List<Map<String, dynamic>> get pilots => _list('pilots');
+  List<Map<String, dynamic>> get insights => _list('insights');
   List<Map<String, dynamic>> get alertContacts => _list('alert_contacts');
   List<Map<String, dynamic>> get maintenanceRecords =>
       _list('maintenance_records');
@@ -171,6 +172,7 @@ class AppStore extends ChangeNotifier {
         _api.getJson('/api/operational-logs', token: authToken),
         _api.getJson('/api/pilots', token: authToken),
         _api.getJson('/api/alert-contacts', token: authToken),
+        _api.getJson('/api/insights?period=24h', token: authToken),
       ]);
       me = _map(results[0]);
       data = {
@@ -184,6 +186,7 @@ class AppStore extends ChangeNotifier {
         'logs': results[8],
         'pilots': results[9],
         'alert_contacts': results[10],
+        'insights': _map(results[11])['insights'] ?? const [],
       };
       cached = false;
       await _saveCache();

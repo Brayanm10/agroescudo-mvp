@@ -23,9 +23,11 @@ export function statusFromAlerts(alerts: Alert[]): RiskStatus {
 export function statusLabel(status: RiskStatus) {
   const labels: Record<RiskStatus, string> = {
     normal: "Normal",
-    warning: "Warning",
-    critical: "Critical",
-    technical: "Tecnico"
+    warning: "Precaucion",
+    critical: "Critico",
+    technical: "Tecnico",
+    no_data: "Sin datos",
+    offline: "Sin datos"
   };
   return labels[status];
 }

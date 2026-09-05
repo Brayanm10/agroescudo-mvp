@@ -118,7 +118,7 @@ import {
   verifyEmail
 } from "@/lib/api";
 import { formatDateTime, formatNumber, statusFromAlerts } from "@/lib/format";
-import type { Alert, AppData, Company, Device, DeviceChartAction, DeviceChartEvent, DeviceSummary, DeviceWithApiKey, NotificationDelivery, OperationalLog, Pilot, Reading, ReportDocumentType, ReportPeriod, StorageUnit, StorageUnitInsight, Thresholds, User, UserRole, ViewKey, WeeklyReport } from "@/lib/types";
+import type { Alert, AppData, Company, Device, DeviceChartAction, DeviceChartEvent, DeviceSummary, DeviceWithApiKey, NotificationDelivery, OperationalLog, Pilot, Reading, ReportDocumentType, ReportPeriod, RiskStatus, StorageUnit, StorageUnitInsight, Thresholds, User, UserRole, ViewKey, WeeklyReport } from "@/lib/types";
 
 const TOKEN_KEY = "agroescudo_token";
 
@@ -206,27 +206,42 @@ function disconnectedDevices(data: AppData) {
   });
 }
 
-function storageRisk(data: AppData, unit: StorageUnit): "critical" | "warning" | "offline" | "normal" {
-  const activeAlerts = data.activeAlerts.filter((alert) => alert.storage_unit_id === unit.id);
-  if (activeAlerts.some((alert) => alert.severity === "critical")) return "critical";
-  if (activeAlerts.some((alert) => alert.severity === "warning" || alert.severity === "technical")) return "warning";
-  const devices = data.devices.filter((device) => device.storage_unit_id === unit.id);
-  if (devices.length && devices.every((device) => disconnectedDevices(data).some((item) => item.id === device.id))) return "offline";
-  return "normal";
+function storageRisk(data: AppData, unit: StorageUnit): RiskStatus {
+  const status = data.insights.find((item) => item.storage_unit_id === unit.id)?.status;
+  if (status === "critical") return "critical";
+  if (status === "attention") return "warning";
+  if (status === "normal") return "normal";
+  return "no_data";
 }
 
-function stateStyles(state: "critical" | "warning" | "offline" | "normal") {
+function stateStyles(state: RiskStatus) {
   if (state === "critical") return "border-red-200 bg-red-50 text-red-800";
   if (state === "warning") return "border-amber-200 bg-amber-50 text-amber-800";
-  if (state === "offline") return "border-slate-200 bg-slate-100 text-slate-600";
+  if (state === "no_data" || state === "technical" || state === "offline") return "border-slate-200 bg-slate-100 text-slate-600";
   return "border-emerald-200 bg-emerald-50 text-emerald-800";
 }
 
-function stateLabel(state: "critical" | "warning" | "offline" | "normal") {
+function stateLabel(state: RiskStatus) {
   if (state === "critical") return "Critico";
-  if (state === "warning") return "Atencion";
-  if (state === "offline") return "Sin conexion";
+  if (state === "warning") return "Precaucion";
+  if (state === "no_data" || state === "technical" || state === "offline") return "Sin datos";
   return "Normal";
+}
+
+function statusPriority(status: RiskStatus) {
+  if (status === "critical") return 0;
+  if (status === "warning") return 1;
+  if (status === "normal") return 2;
+  return 3;
+}
+
+function siteStatus(data: AppData, units: StorageUnit[]): RiskStatus {
+  if (!units.length) return "no_data";
+  const states = units.map((unit) => storageRisk(data, unit));
+  if (states.includes("critical")) return "critical";
+  if (states.includes("warning")) return "warning";
+  if (states.includes("normal")) return "normal";
+  return "no_data";
 }
 
 export default function Home() {
@@ -815,7 +830,7 @@ function DashboardView({
   const disconnected = disconnectedDevices(data);
   const criticalUnits = data.storageUnits
     .map((unit) => ({ unit, risk: storageRisk(data, unit), alerts: data.activeAlerts.filter((alert) => alert.storage_unit_id === unit.id) }))
-    .filter((item) => item.risk === "critical" || item.risk === "warning" || item.risk === "offline")
+    .filter((item) => item.risk === "critical" || item.risk === "warning" || item.risk === "no_data")
     .slice(0, 5);
   const lastSync = data.readings[0]?.received_at || data.readings[0]?.timestamp || null;
   const recommendedActions = [
@@ -976,25 +991,45 @@ function clientAlertCopy(alert: Alert) {
 }
 
 function ClientDashboardView({ data, onNavigate }: { data: AppData; onNavigate: (view: ViewKey) => void }) {
-  const criticalCount = data.activeAlerts.filter((alert) => alert.severity === "critical").length;
-  const overallState = criticalCount ? "critical" : data.activeAlerts.length ? "warning" : "normal";
-  const headline = criticalCount
-    ? "Hay una condicion que requiere atencion"
-    : data.activeAlerts.length
-      ? "Tu operacion requiere seguimiento"
-      : "Tu operacion se encuentra estable";
+  const unitsByPriority = [...data.storageUnits].sort((a, b) => statusPriority(storageRisk(data, a)) - statusPriority(storageRisk(data, b)));
+  const counts = unitsByPriority.reduce<Record<RiskStatus, number>>((current, unit) => {
+    current[storageRisk(data, unit)] += 1;
+    return current;
+  }, { normal: 0, warning: 0, critical: 0, technical: 0, no_data: 0, offline: 0 });
+  const overallState: RiskStatus = counts.critical ? "critical" : counts.warning ? "warning" : counts.normal ? "normal" : "no_data";
+  const headline = overallState === "critical"
+    ? "Hay una unidad en estado critico"
+    : overallState === "warning"
+      ? "Hay condiciones que requieren atencion"
+      : overallState === "normal"
+        ? "Tu operacion se encuentra estable"
+        : "Aun no hay datos recientes";
+  const headlineDetail = overallState === "critical"
+    ? "Revisa la alerta y confirma el seguimiento operativo."
+    : overallState === "warning"
+      ? "Consulta la unidad marcada en precaucion."
+      : overallState === "normal"
+        ? "Las unidades con datos recientes se mantienen normales."
+        : "La unidad no tiene lectura reciente o no tiene sensor vinculado.";
 
   return (
     <div className="space-y-5">
-      <section className={`rounded-[18px] border p-5 shadow-panel ${overallState === "critical" ? "border-red-200 bg-red-50" : overallState === "warning" ? "border-amber-200 bg-amber-50" : "border-emerald-200 bg-emerald-50"}`}>
+      <section className={`rounded-[18px] border p-5 shadow-panel ${overallState === "critical" ? "border-red-200 bg-red-50" : overallState === "warning" ? "border-amber-200 bg-amber-50" : overallState === "normal" ? "border-emerald-200 bg-emerald-50" : "border-slate-300 bg-slate-100"}`}>
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <p className="section-kicker">Estado de hoy</p>
             <h2 className="mt-1 text-2xl font-black tracking-tight text-slate-950">{headline}</h2>
-            <p className="mt-2 text-sm text-slate-600">{data.storageUnits.length} unidad(es) monitoreada(s) y {data.activeAlerts.length} alerta(s) activa(s).</p>
+            <p className="mt-2 text-sm text-slate-600">{headlineDetail}</p>
           </div>
           <StatusBadge status={overallState} />
         </div>
+      </section>
+
+      <section aria-label="Resumen de estados" className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <TrafficSummaryCard status="normal" value={counts.normal} />
+        <TrafficSummaryCard status="warning" value={counts.warning} />
+        <TrafficSummaryCard status="critical" value={counts.critical} />
+        <TrafficSummaryCard status="no_data" value={counts.no_data + counts.technical} />
       </section>
 
       <section className="panel overflow-hidden">
@@ -1006,10 +1041,10 @@ function ClientDashboardView({ data, onNavigate }: { data: AppData; onNavigate: 
           <button type="button" onClick={() => onNavigate("sites")} className="btn-secondary">Ver detalle</button>
         </div>
         <div className="divide-y divide-slate-100">
-          {data.storageUnits.slice(0, 4).map((unit) => {
-            const alerts = data.activeAlerts.filter((alert) => alert.storage_unit_id === unit.id);
-            const state = statusFromAlerts(alerts);
+          {unitsByPriority.slice(0, 4).map((unit) => {
+            const state = storageRisk(data, unit);
             const latest = data.readings.find((reading) => reading.storage_unit_id === unit.id);
+            const insight = data.insights.find((item) => item.storage_unit_id === unit.id);
             return (
               <button key={unit.id} type="button" onClick={() => {
                 window.history.replaceState({}, "", storageUnitSelectionPath(window.location.href, unit.id));
@@ -1017,6 +1052,7 @@ function ClientDashboardView({ data, onNavigate }: { data: AppData; onNavigate: 
               }} className="flex w-full items-center justify-between gap-4 p-5 text-left transition hover:bg-slate-50">
                 <div>
                   <p className="font-black text-slate-950">{unit.name}</p>
+                  <p className="mt-1 text-sm font-semibold text-slate-600">{insight?.summary || "Sin evidencia reciente suficiente para evaluar esta unidad."}</p>
                   <p className="mt-1 text-sm text-slate-500">{latest ? `Ultima actualizacion: ${formatDateTime(latest.timestamp)}` : "Esperando primera lectura"}</p>
                 </div>
                 <StatusBadge status={state} />
@@ -1050,6 +1086,17 @@ function ClientDashboardView({ data, onNavigate }: { data: AppData; onNavigate: 
       </section>
     </div>
   );
+}
+
+function TrafficSummaryCard({ status, value }: { status: RiskStatus; value: number }) {
+  const copy = status === "critical"
+    ? { label: "Criticos", dot: "bg-red-500", tone: "border-red-200 bg-red-50 text-red-900" }
+    : status === "warning"
+      ? { label: "Precaucion", dot: "bg-amber-400", tone: "border-amber-200 bg-amber-50 text-amber-900" }
+      : status === "normal"
+        ? { label: "Normales", dot: "bg-emerald-500", tone: "border-emerald-200 bg-emerald-50 text-emerald-900" }
+        : { label: "Sin datos", dot: "bg-slate-400", tone: "border-slate-200 bg-slate-100 text-slate-700" };
+  return <div className={`rounded-xl border p-4 shadow-soft ${copy.tone}`}><div className="flex items-center gap-2"><span className={`h-2.5 w-2.5 rounded-full ${copy.dot}`} /><span className="text-xs font-black uppercase tracking-[0.12em]">{copy.label}</span></div><p className="mt-2 text-2xl font-black">{value}</p></div>;
 }
 
 function ProductPortfolioCard({
@@ -2028,14 +2075,14 @@ function SitesView({
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {visibleSites.map((site) => {
-                  const siteAlerts = data.activeAlerts.filter((alert) => alert.site_id === site.id);
                   const units = visibleUnits.filter((unit) => unit.site_id === site.id);
+                  const status = siteStatus(data, units);
                   return (
                     <tr key={site.id} className="transition hover:bg-slate-50">
                       <td className="px-4 py-3 font-semibold text-slate-950">{site.name}</td>
                       {!isClient ? <td className="px-4 py-3 text-slate-700">{data.companies.find((company) => company.id === site.company_id)?.name || "Sin empresa"}</td> : null}
                       <td className="px-4 py-3 text-slate-700">{site.location || "Sin ubicacion"}</td>
-                      <td className="px-4 py-3"><StatusBadge status={statusFromAlerts(siteAlerts)} /></td>
+                      <td className="px-4 py-3"><StatusBadge status={status} /></td>
                       <td className="px-4 py-3 text-slate-700">{units.length}</td>
                     </tr>
                   );
@@ -2140,8 +2187,8 @@ function StorageUnitDetail({
   const latest = summary?.latest_reading || readings[0];
   const alerts = data.activeAlerts.filter((alert) => alert.device_id === deviceId);
   const logs = data.logs.filter((log) => log.storage_unit_id === selected.id && (log.device_id === null || log.device_id === deviceId)).slice(0, 5);
-  const unitStatus = statusFromAlerts(alerts);
   const insight = data.insights.find((item) => item.storage_unit_id === selected.id);
+  const unitStatus = storageRisk(data, selected);
   const profile = deviceProfile(device);
   const isClient = data.me.role === "client";
   const canSeeDiagnostics = canViewDeviceDiagnostics(data.me.role);
@@ -2192,7 +2239,7 @@ function StorageUnitDetail({
       <>
       <div className="grid gap-5 xl:grid-cols-[1.15fr_0.85fr]">
         <div className={`relative overflow-hidden rounded-[18px] border p-5 shadow-panel ${
-          unitStatus === "critical" ? "border-red-200 bg-red-50" : unitStatus === "warning" ? "border-amber-200 bg-amber-50" : "border-emerald-200 bg-white"
+          unitStatus === "critical" ? "border-red-200 bg-red-50" : unitStatus === "warning" ? "border-amber-200 bg-amber-50" : unitStatus === "normal" ? "border-emerald-200 bg-white" : "border-slate-300 bg-slate-50"
         }`}>
           <div className="pointer-events-none absolute right-0 top-0 h-28 w-28 rounded-bl-full bg-white/50" />
           <div className="relative flex flex-wrap items-start justify-between gap-3">
@@ -2220,6 +2267,12 @@ function StorageUnitDetail({
               <p className="text-xs font-black uppercase tracking-[0.14em] opacity-75">Consulta operativa</p>
               <p className="mt-2 font-bold">{insight.summary}</p>
               {insight.recommendations[0] ? <p className="mt-2 font-black">Recomendacion: {insight.recommendations[0]}</p> : null}
+            </div>
+          ) : null}
+          {unitStatus === "no_data" ? (
+            <div className="relative mt-5 rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-700 shadow-soft">
+              <p className="font-black">Sin datos recientes</p>
+              <p className="mt-1">La unidad no tiene una lectura vigente. Revisa la conexion o vincula un sensor antes de evaluar su estado.</p>
             </div>
           ) : null}
           {canCreateLog ? (
