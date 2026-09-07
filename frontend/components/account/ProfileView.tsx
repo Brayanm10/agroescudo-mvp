@@ -19,7 +19,7 @@ export function ProfileView({
 }: {
   data: AppData;
   token: string;
-  onChanged: () => void;
+  onChanged: () => void | Promise<void>;
 }) {
   const user = data.me;
   const [form, setForm] = useState({
@@ -50,7 +50,7 @@ export function ProfileView({
         timezone: form.timezone
       });
       setMessage("Perfil actualizado correctamente.");
-      onChanged();
+      await onChanged();
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudo actualizar el perfil.");
     } finally {

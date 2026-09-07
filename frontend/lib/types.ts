@@ -14,6 +14,7 @@ export type Company = {
   rejection_reason?: string | null;
   created_at: string;
   updated_at: string | null;
+  deleted_at?: string | null;
 };
 
 export type User = {
@@ -37,6 +38,7 @@ export type User = {
   last_login_at: string | null;
   last_seen_at?: string | null;
   company: Company | null;
+  deleted_at?: string | null;
 };
 
 export type UserRole = "admin" | "technician" | "client" | string;
@@ -72,6 +74,7 @@ export type StorageUnit = {
   last_report_generated_at: string | null;
   created_at: string;
   updated_at: string | null;
+  deleted_at?: string | null;
 };
 
 export type Device = {
@@ -93,6 +96,7 @@ export type Device = {
   created_at: string;
   last_seen_at: string | null;
   updated_at: string | null;
+  deleted_at?: string | null;
 };
 
 export type SensorChannel = {
@@ -467,6 +471,7 @@ export type Pilot = {
   technician_name: string | null;
   client_user_id: number | null;
   client_name: string | null;
+  is_active: boolean;
   status: string;
   days_monitored: number;
   reading_count: number;
@@ -730,6 +735,7 @@ export type AlertContact = {
   created_by_user_id: number;
   created_at: string;
   updated_at: string;
+  deleted_at?: string | null;
 };
 
 export type SentinelDevice = {
@@ -747,6 +753,7 @@ export type SentinelDevice = {
   last_job_status: string | null;
   created_at: string;
   updated_at: string;
+  deleted_at?: string | null;
 };
 
 export type SentinelDeviceCreated = SentinelDevice & { token: string };
@@ -861,6 +868,19 @@ export type GatewayStatus = {
   last_error_at: string | null;
   last_seen_at: string | null;
   is_active: boolean;
+  deleted_at?: string | null;
+};
+
+export type GatewayCreated = GatewayStatus & {
+  secret: string;
+  secret_notice: string;
+};
+
+export type DeletionResult = {
+  entity: string;
+  id: number;
+  deleted_at: string;
+  message: string;
 };
 
 export type SystemHealth = {

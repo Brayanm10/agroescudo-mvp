@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -90,6 +90,11 @@ import {
   deactivateAdminDevice,
   deactivateAdminStorageUnit,
   deactivateAdminUser,
+  deleteAdminCompany,
+  deleteAdminDevice,
+  deleteAdminStorageUnit,
+  deleteAdminUser,
+  deletePilot,
   deletePilotOperationalData,
   acceptInvite,
   forgotPassword,
@@ -115,13 +120,20 @@ import {
   updateAdminDevice,
   updateAdminStorageUnit,
   updateAdminUser,
+  updatePilot,
   updateThresholds,
   verifyEmail
 } from "@/lib/api";
 import { formatDateTime, formatNumber, statusFromAlerts } from "@/lib/format";
+import { LatestRequest } from "@/lib/latest-request";
 import type { Alert, AppData, Company, Device, DeviceChartAction, DeviceChartEvent, DeviceSummary, DeviceWithApiKey, NotificationDelivery, OperationalLog, Pilot, Reading, ReportDocumentType, ReportPeriod, RiskStatus, StorageUnit, StorageUnitInsight, Thresholds, User, UserRole, ViewKey, WeeklyReport } from "@/lib/types";
 
 const TOKEN_KEY = "agroescudo_token";
+
+function confirmSafeDelete(label: string) {
+  if (!window.confirm(`Vas a retirar ${label} de la operación. Los históricos y la auditoría se conservarán. ¿Continuar?`)) return false;
+  return window.confirm(`Confirmación final: ${label} dejará de aparecer en la operación activa. Esta acción no borra evidencia histórica.`);
+}
 
 function clearStoredSession() {
   window.localStorage.removeItem(TOKEN_KEY);
@@ -245,6 +257,7 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [loginNotice, setLoginNotice] = useState<string | null>(null);
   const [busyAlertId, setBusyAlertId] = useState<number | null>(null);
+  const refreshSequence = useRef(new LatestRequest());
 
   useEffect(() => {
     const stored = window.localStorage.getItem(TOKEN_KEY);
@@ -258,14 +271,17 @@ export default function Home() {
 
   async function refresh(currentToken = token) {
     if (!currentToken) return;
+    const sequence = refreshSequence.current.begin();
     setLoading(true);
     setError(null);
     try {
       const appData = await loadAppData(currentToken);
+      if (!refreshSequence.current.isCurrent(sequence)) return;
       setData(appData);
       const allowed = allowedViewsForRole(appData.me.role);
       setView((current) => allowed.includes(current) ? current : defaultViewForRole());
     } catch (err) {
+      if (!refreshSequence.current.isCurrent(sequence)) return;
       if (err instanceof ApiError && err.status === 401) {
         clearStoredSession();
         setToken(null);
@@ -276,7 +292,7 @@ export default function Home() {
       }
       setError(err instanceof Error ? err.message : "No se pudo cargar la API.");
     } finally {
-      setLoading(false);
+      if (refreshSequence.current.isCurrent(sequence)) setLoading(false);
     }
   }
 
@@ -290,6 +306,7 @@ export default function Home() {
   }
 
   function logout() {
+    refreshSequence.current.cancelAll();
     clearStoredSession();
     setToken(null);
     setData(null);
@@ -374,8 +391,8 @@ export default function Home() {
       {viewAllowed && view === "maintenance" ? <MaintenanceOperationsView data={data} token={token} /> : null}
       {viewAllowed && view === "installations" ? <InstallationOperationsView data={data} token={token} /> : null}
       {viewAllowed && view === "evidence" ? <EvidenceOperationsView data={data} token={token} /> : null}
-      {viewAllowed && view === "systemHealth" ? <SystemHealthView token={token} /> : null}
-      {viewAllowed && view === "gateways" ? <SystemHealthView token={token} gatewayOnly /> : null}
+      {viewAllowed && view === "systemHealth" ? <SystemHealthView token={token} role={data.me.role} /> : null}
+      {viewAllowed && view === "gateways" ? <SystemHealthView token={token} role={data.me.role} gatewayOnly /> : null}
       {viewAllowed && view === "sentinel" ? <SentinelAdminView data={data} token={token} /> : null}
       {viewAllowed && view === "pilotMetrics" ? <PilotMetricsView data={data} token={token} /> : null}
       {viewAllowed && view === "comparison" ? <ComparisonView data={data} token={token} /> : null}
@@ -383,7 +400,7 @@ export default function Home() {
       {viewAllowed && view === "exports" ? <ExportsView data={data} token={token} /> : null}
       {viewAllowed && view === "history" ? <HistoryView data={data} /> : null}
       {viewAllowed && view === "thresholds" ? (
-        canEditThresholds(data.me.role) ? <ThresholdsView devices={data.devices} token={token} /> : <UnauthorizedState />
+        canEditThresholds(data.me.role) ? <ThresholdsView devices={data.devices} token={token} onChanged={() => refresh(token)} /> : <UnauthorizedState />
       ) : null}
       {viewAllowed && view === "reports" ? <ReportsView data={data} token={token} /> : null}
       {viewAllowed && view === "users" ? <UsersAdminView data={data} token={token} onChanged={() => refresh(token)} /> : null}
@@ -1497,7 +1514,7 @@ function PilotMiniMetric({ label, value }: { label: string; value: string }) {
   );
 }
 
-function PilotsView({ data, token, onChanged }: { data: AppData; token: string; onChanged: () => void }) {
+function PilotsView({ data, token, onChanged }: { data: AppData; token: string; onChanged: () => void | Promise<void> }) {
   const technicians = data.users.filter((user) => user.role === "technician");
   const [form, setForm] = useState({
     company_name: "",
@@ -1561,7 +1578,7 @@ function PilotsView({ data, token, onChanged }: { data: AppData; token: string; 
         emergency_phone: "",
         emergency_receive_call: false
       }));
-      onChanged();
+      await onChanged();
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudo preparar el piloto.");
     } finally {
@@ -1631,7 +1648,16 @@ function PilotsView({ data, token, onChanged }: { data: AppData; token: string; 
           <h2 className="section-title">Pilotos configurados</h2>
           <p className="section-subtitle">Estado, responsables y evidencia generada en campo.</p>
           <div className="mt-5 space-y-3">
-            {data.pilots.length ? data.pilots.map((pilot) => <PilotDetailCard key={pilot.storage_unit_id} pilot={pilot} token={token} onChanged={onChanged} />) : <EmptyState title="Sin pilotos" message="Completa el formulario para preparar la primera implementacion." />}
+            {data.pilots.length ? data.pilots.map((pilot) => (
+              <PilotDetailCard
+                key={pilot.storage_unit_id}
+                pilot={pilot}
+                token={token}
+                technicians={technicians}
+                clients={data.users.filter((user) => user.role === "client" && user.company_id === pilot.company_id)}
+                onChanged={onChanged}
+              />
+            )) : <EmptyState title="Sin pilotos" message="Completa el formulario para preparar la primera implementacion." />}
           </div>
         </section>
       </div>
@@ -1648,9 +1674,72 @@ function PilotFormGroup({ title, children }: { title: string; children: ReactNod
   );
 }
 
-function PilotDetailCard({ pilot, token, onChanged }: { pilot: Pilot; token: string; onChanged: () => void }) {
+function PilotDetailCard({
+  pilot,
+  token,
+  technicians,
+  clients,
+  onChanged
+}: {
+  pilot: Pilot;
+  token: string;
+  technicians: User[];
+  clients: User[];
+  onChanged: () => void | Promise<void>;
+}) {
   const [clearing, setClearing] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState(pilot.storage_unit_name);
+  const [unitType, setUnitType] = useState(pilot.storage_unit_type);
+  const [technicianId, setTechnicianId] = useState<number | null>(pilot.technician_user_id);
+  const [clientId, setClientId] = useState<number | null>(pilot.client_user_id);
   const [error, setError] = useState<string | null>(null);
+
+  async function savePilot() {
+    setClearing(true);
+    setError(null);
+    try {
+      await updatePilot(token, pilot.storage_unit_id, {
+        storage_unit_name: name,
+        storage_unit_type: unitType,
+        technician_user_id: technicianId,
+        client_user_id: clientId
+      });
+      await onChanged();
+      setEditing(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No se pudo actualizar el piloto.");
+    } finally {
+      setClearing(false);
+    }
+  }
+
+  async function removePilot() {
+    if (!confirmSafeDelete(`el piloto ${pilot.storage_unit_name}`)) return;
+    setClearing(true);
+    setError(null);
+    try {
+      await deletePilot(token, pilot.storage_unit_id);
+      await onChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No se pudo eliminar el piloto.");
+    } finally {
+      setClearing(false);
+    }
+  }
+
+  async function togglePilot() {
+    setClearing(true);
+    setError(null);
+    try {
+      await updatePilot(token, pilot.storage_unit_id, { is_active: !pilot.is_active });
+      await onChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No se pudo cambiar el estado del piloto.");
+    } finally {
+      setClearing(false);
+    }
+  }
 
   async function clearOperationalData() {
     const confirmed = window.confirm(
@@ -1661,7 +1750,7 @@ function PilotDetailCard({ pilot, token, onChanged }: { pilot: Pilot; token: str
     setError(null);
     try {
       await deletePilotOperationalData(token, pilot.storage_unit_id);
-      onChanged();
+      await onChanged();
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudieron borrar los datos operativos.");
     } finally {
@@ -1692,12 +1781,33 @@ function PilotDetailCard({ pilot, token, onChanged }: { pilot: Pilot; token: str
         <span><b>Tecnico:</b> {pilot.technician_name || "Pendiente"}</span>
         <span><b>Cliente:</b> {pilot.client_name || "Pendiente"}</span>
       </div>
+      {editing ? (
+        <div className="mt-4 grid gap-3 rounded-xl border border-emerald-100 bg-emerald-50/50 p-3 sm:grid-cols-2 lg:grid-cols-4">
+          <Field label="Nombre del piloto"><input value={name} onChange={(event) => setName(event.target.value)} className="input" /></Field>
+          <Field label="Tipo"><select value={unitType} onChange={(event) => setUnitType(event.target.value)} className="input"><option value="silo">Silo</option><option value="galpon">Galpón</option><option value="almacen">Almacén</option></select></Field>
+          <Field label="Técnico responsable">
+            <select value={technicianId ?? ""} onChange={(event) => setTechnicianId(event.target.value ? Number(event.target.value) : null)} className="input">
+              <option value="">Sin asignar</option>
+              {technicians.map((user) => <option key={user.id} value={user.id}>{user.full_name}</option>)}
+            </select>
+          </Field>
+          <Field label="Usuario cliente">
+            <select value={clientId ?? ""} onChange={(event) => setClientId(event.target.value ? Number(event.target.value) : null)} className="input">
+              <option value="">Sin asignar</option>
+              {clients.map((user) => <option key={user.id} value={user.id}>{user.full_name}</option>)}
+            </select>
+          </Field>
+          <div className="flex gap-2 sm:col-span-2 lg:col-span-4"><button type="button" disabled={clearing || !name.trim()} onClick={savePilot} className="btn-primary">Guardar</button><button type="button" onClick={() => setEditing(false)} className="btn-secondary">Cancelar</button></div>
+        </div>
+      ) : null}
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-3">
         <p className="text-xs leading-5 text-slate-500">Limpia la evidencia del piloto sin eliminar su infraestructura.</p>
-        <button type="button" onClick={clearOperationalData} disabled={clearing} className="inline-flex items-center rounded-lg border border-red-200 bg-white px-3 py-2 text-xs font-black text-red-700 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60">
-          <Trash2 className="mr-2" size={15} aria-hidden="true" />
-          {clearing ? "Borrando..." : "Borrar datos operativos"}
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={togglePilot} disabled={clearing} className="btn-secondary" role="switch" aria-checked={pilot.is_active}>{pilot.is_active ? "Desactivar" : "Activar"}</button>
+          <button type="button" onClick={() => setEditing(true)} disabled={clearing} className="btn-secondary">Editar</button>
+          <button type="button" onClick={clearOperationalData} disabled={clearing} className="inline-flex items-center rounded-lg border border-amber-200 bg-white px-3 py-2 text-xs font-black text-amber-800 transition hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-60"><Trash2 className="mr-2" size={15} aria-hidden="true" />Borrar datos</button>
+          <button type="button" onClick={removePilot} disabled={clearing} className="inline-flex items-center rounded-lg border border-red-200 bg-white px-3 py-2 text-xs font-black text-red-700 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"><Trash2 className="mr-2" size={15} aria-hidden="true" />Eliminar piloto</button>
+        </div>
       </div>
       {error ? <p className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-xs font-semibold text-red-800">{error}</p> : null}
     </article>
@@ -2383,7 +2493,7 @@ function LogsView({
 }: {
   data: AppData;
   token: string;
-  onChanged: () => void;
+  onChanged: () => void | Promise<void>;
   canCreateLog: boolean;
 }) {
   const [storageUnitId, setStorageUnitId] = useState(data.storageUnits[0]?.id ?? 0);
@@ -2412,7 +2522,7 @@ function LogsView({
       setActionTaken("");
       setNotes("");
       setAlertId("");
-      onChanged();
+      await onChanged();
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudo registrar la accion.");
     } finally {
@@ -2484,7 +2594,7 @@ function LogsView({
   );
 }
 
-function InstallationChecklist({ data, token, onChanged }: { data: AppData; token: string; onChanged: () => void }) {
+function InstallationChecklist({ data, token, onChanged }: { data: AppData; token: string; onChanged: () => void | Promise<void> }) {
   const [open, setOpen] = useState(false);
   const [storageUnitId, setStorageUnitId] = useState(data.storageUnits[0]?.id ?? 0);
   const availableDevices = data.devices.filter((device) => device.storage_unit_id === storageUnitId);
@@ -2530,7 +2640,7 @@ function InstallationChecklist({ data, token, onChanged }: { data: AppData; toke
         initial_reading_registered: false,
         battery_verified: false
       });
-      onChanged();
+      await onChanged();
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudo registrar la instalacion.");
     } finally {
@@ -2606,7 +2716,7 @@ function InstallationChecklist({ data, token, onChanged }: { data: AppData; toke
   );
 }
 
-function AdminCompaniesAndSitesView({ data, token, onChanged }: { data: AppData; token: string; onChanged: () => void }) {
+function AdminCompaniesAndSitesView({ data, token, onChanged }: { data: AppData; token: string; onChanged: () => void | Promise<void> }) {
   return (
     <section className="space-y-8">
       <div>
@@ -2748,7 +2858,7 @@ function HistoryView({ data }: { data: AppData }) {
   );
 }
 
-function MaintenanceView({ data, token, onChanged, canCreateLog }: { data: AppData; token: string; onChanged: () => void; canCreateLog: boolean }) {
+function MaintenanceView({ data, token, onChanged, canCreateLog }: { data: AppData; token: string; onChanged: () => void | Promise<void>; canCreateLog: boolean }) {
   return (
     <section className="space-y-5">
       <div>
@@ -2833,23 +2943,25 @@ function chartMetricCode(alert: Alert) {
   return null;
 }
 
-function CompaniesAdminView({ data, token, onChanged }: { data: AppData; token: string; onChanged: () => void }) {
+function CompaniesAdminView({ data, token, onChanged }: { data: AppData; token: string; onChanged: () => void | Promise<void> }) {
   const [form, setForm] = useState({ name: "", tax_id: "", type: "acopiador", city: "", contact_name: "", contact_email: "", contact_phone: "" });
   const [editing, setEditing] = useState<Record<number, Partial<Company>>>({});
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  async function run(action: () => Promise<unknown>, success: string) {
+  async function run(action: () => Promise<unknown>, success: string): Promise<boolean> {
     setBusy(true);
     setError(null);
     setMessage(null);
     try {
       await action();
       setMessage(success);
-      onChanged();
+      await onChanged();
+      return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudo completar la operacion.");
+      return false;
     } finally {
       setBusy(false);
     }
@@ -2921,6 +3033,14 @@ function CompaniesAdminView({ data, token, onChanged }: { data: AppData; token: 
                 <button disabled={busy} type="button" className="btn-secondary" onClick={() => run(() => company.is_active ? deactivateAdminCompany(token, company.id) : activateAdminCompany(token, company.id), company.is_active ? "Empresa desactivada." : "Empresa activada.")}>
                   {company.is_active ? "Desactivar" : "Activar"}
                 </button>
+                <button
+                  disabled={busy}
+                  type="button"
+                  className="inline-flex items-center rounded-xl border border-red-200 bg-white px-4 py-2 text-sm font-black text-red-700 transition hover:bg-red-50"
+                  onClick={() => confirmSafeDelete(`la empresa ${company.name}`) && run(() => deleteAdminCompany(token, company.id), "Empresa retirada de la operación.")}
+                >
+                  <Trash2 className="mr-2" size={15} />Eliminar
+                </button>
               </div>
             </article>
           );
@@ -2930,7 +3050,7 @@ function CompaniesAdminView({ data, token, onChanged }: { data: AppData; token: 
   );
 }
 
-function StorageUnitsAdminView({ data, token, onChanged }: { data: AppData; token: string; onChanged: () => void }) {
+function StorageUnitsAdminView({ data, token, onChanged }: { data: AppData; token: string; onChanged: () => void | Promise<void> }) {
   const firstCompany = data.companies[0];
   const firstSite = data.sites.find((site) => site.company_id === firstCompany?.id) || data.sites[0];
   const technicians = data.users.filter((user) => user.role === "technician");
@@ -2954,17 +3074,20 @@ function StorageUnitsAdminView({ data, token, onChanged }: { data: AppData; toke
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [editingUnit, setEditingUnit] = useState<StorageUnit | null>(null);
 
-  async function run(action: () => Promise<unknown>, success: string) {
+  async function run(action: () => Promise<unknown>, success: string): Promise<boolean> {
     setBusy(true);
     setError(null);
     setMessage(null);
     try {
       await action();
       setMessage(success);
-      onChanged();
+      await onChanged();
+      return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudo completar la operacion.");
+      return false;
     } finally {
       setBusy(false);
     }
@@ -3051,6 +3174,29 @@ function StorageUnitsAdminView({ data, token, onChanged }: { data: AppData; toke
         </label>
         <div className="flex items-end"><button disabled={busy || !form.site_id} type="submit" className="btn-primary h-12 w-full"><Factory className="mr-2" size={16} />Crear unidad</button></div>
       </form>
+      {editingUnit ? (
+        <form
+          className="panel grid gap-4 border-emerald-200 p-5 lg:grid-cols-4"
+          onSubmit={(event) => {
+            event.preventDefault();
+            run(() => updateAdminStorageUnit(token, editingUnit.id, {
+              name: editingUnit.name,
+              unit_type: editingUnit.unit_type,
+              capacity_tons: editingUnit.capacity_tons,
+              surface_hectares: editingUnit.surface_hectares,
+              crop_type: editingUnit.crop_type,
+              location: editingUnit.location
+            }), "Unidad actualizada.").then((saved) => { if (saved) setEditingUnit(null); });
+          }}
+        >
+          <div className="lg:col-span-4"><p className="section-kicker">Editar unidad</p><h3 className="font-black text-slate-950">{editingUnit.name}</h3></div>
+          <Field label="Nombre *"><input required className="input" value={editingUnit.name} onChange={(event) => setEditingUnit({ ...editingUnit, name: event.target.value })} /></Field>
+          <Field label="Tipo"><input className="input" value={editingUnit.unit_type} onChange={(event) => setEditingUnit({ ...editingUnit, unit_type: event.target.value })} /></Field>
+          <Field label="Producto / cultivo"><input className="input" value={editingUnit.crop_type || ""} onChange={(event) => setEditingUnit({ ...editingUnit, crop_type: event.target.value || null })} /></Field>
+          <Field label="Ubicación"><input className="input" value={editingUnit.location || ""} onChange={(event) => setEditingUnit({ ...editingUnit, location: event.target.value || null })} /></Field>
+          <div className="flex gap-2 lg:col-span-4"><button disabled={busy} className="btn-primary">Guardar cambios</button><button type="button" className="btn-secondary" onClick={() => setEditingUnit(null)}>Cancelar</button></div>
+        </form>
+      ) : null}
       <div className="grid gap-4 xl:grid-cols-3">
         {data.storageUnits.map((unit) => (
           <article key={unit.id} className="panel p-5">
@@ -3067,7 +3213,16 @@ function StorageUnitsAdminView({ data, token, onChanged }: { data: AppData; toke
               <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs font-black uppercase tracking-[0.12em] text-slate-500">Sensores</p><p className="font-black">{data.devices.filter((device) => device.storage_unit_id === unit.id).length}</p></div>
             </div>
             <div className="mt-4 flex flex-wrap gap-2">
+              <button disabled={busy} type="button" className="btn-secondary" onClick={() => setEditingUnit({ ...unit })}>Editar</button>
               <button disabled={busy} type="button" className="btn-secondary" onClick={() => run(() => unit.is_active ? deactivateAdminStorageUnit(token, unit.id) : activateAdminStorageUnit(token, unit.id), unit.is_active ? "Unidad desactivada." : "Unidad activada.")}>{unit.is_active ? "Desactivar" : "Activar"}</button>
+              <button
+                disabled={busy}
+                type="button"
+                className="inline-flex items-center rounded-xl border border-red-200 bg-white px-3 py-2 text-sm font-black text-red-700 transition hover:bg-red-50"
+                onClick={() => confirmSafeDelete(unit.name) && run(() => deleteAdminStorageUnit(token, unit.id), "Unidad retirada de la operación.")}
+              >
+                <Trash2 className="mr-2" size={15} />Eliminar
+              </button>
             </div>
           </article>
         ))}
@@ -3076,7 +3231,7 @@ function StorageUnitsAdminView({ data, token, onChanged }: { data: AppData; toke
   );
 }
 
-function SensorsAdminView({ data, token, onChanged }: { data: AppData; token: string; onChanged: () => void }) {
+function SensorsAdminView({ data, token, onChanged }: { data: AppData; token: string; onChanged: () => void | Promise<void> }) {
   const firstStorage = data.storageUnits.find((unit) => storageOperation(unit) === "storage");
   const [form, setForm] = useState({
     storage_unit_id: firstStorage?.id ?? 0,
@@ -3091,17 +3246,20 @@ function SensorsAdminView({ data, token, onChanged }: { data: AppData; token: st
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [editingDevice, setEditingDevice] = useState<Device | null>(null);
 
-  async function run(action: () => Promise<unknown>, success: string) {
+  async function run(action: () => Promise<unknown>, success: string): Promise<boolean> {
     setBusy(true);
     setError(null);
     setMessage(null);
     try {
       await action();
       setMessage(success);
-      onChanged();
+      await onChanged();
+      return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudo completar la operacion.");
+      return false;
     } finally {
       setBusy(false);
     }
@@ -3174,6 +3332,28 @@ function SensorsAdminView({ data, token, onChanged }: { data: AppData; token: st
         <Field label="Ubicación física"><input value={form.physical_location} onChange={(event) => setForm({ ...form, physical_location: event.target.value })} className="input" placeholder="Techo, centro del silo, sector norte..." /></Field>
         <div className="lg:col-span-4"><button disabled={busy || !form.storage_unit_id} type="submit" className="btn-primary"><Radio className="mr-2" size={16} />Registrar sensor</button></div>
       </form>
+      {editingDevice ? (
+        <form
+          className="panel grid gap-4 border-emerald-200 p-5 lg:grid-cols-4"
+          onSubmit={(event) => {
+            event.preventDefault();
+            run(() => updateAdminDevice(token, editingDevice.id, {
+              external_id: editingDevice.external_id,
+              name: editingDevice.name,
+              storage_unit_id: editingDevice.storage_unit_id,
+              model_version: editingDevice.model_version,
+              physical_location: editingDevice.physical_location
+            }), "Sensor actualizado.").then((saved) => { if (saved) setEditingDevice(null); });
+          }}
+        >
+          <div className="lg:col-span-4"><p className="section-kicker">Editar sensor</p><h3 className="font-black text-slate-950">{editingDevice.external_id}</h3></div>
+          <Field label="Device ID *"><input required className="input" value={editingDevice.external_id} onChange={(event) => setEditingDevice({ ...editingDevice, external_id: event.target.value })} /></Field>
+          <Field label="Nombre *"><input required className="input" value={editingDevice.name} onChange={(event) => setEditingDevice({ ...editingDevice, name: event.target.value })} /></Field>
+          <Field label="Unidad asignada"><select className="input" value={editingDevice.storage_unit_id} onChange={(event) => setEditingDevice({ ...editingDevice, storage_unit_id: Number(event.target.value) })}>{data.storageUnits.filter((unit) => storageOperation(unit) === (deviceProfile(editingDevice) === "field_sensor" ? "field" : "storage")).map((unit) => <option key={unit.id} value={unit.id}>{unit.name}</option>)}</select></Field>
+          <Field label="Ubicación física"><input className="input" value={editingDevice.physical_location || ""} onChange={(event) => setEditingDevice({ ...editingDevice, physical_location: event.target.value || null })} /></Field>
+          <div className="flex gap-2 lg:col-span-4"><button disabled={busy} className="btn-primary">Guardar cambios</button><button type="button" className="btn-secondary" onClick={() => setEditingDevice(null)}>Cancelar</button></div>
+        </form>
+      ) : null}
       <div className="panel overflow-hidden">
         <div className="border-b border-slate-200 px-5 py-4">
           <p className="section-kicker">Inventario tecnico</p>
@@ -3206,6 +3386,7 @@ function SensorsAdminView({ data, token, onChanged }: { data: AppData; token: st
                         </button>
                         {openActions === device.id ? (
                           <div className="absolute right-0 z-20 mt-2 w-48 rounded-xl border border-slate-200 bg-white p-2 text-left shadow-panel">
+                            <button type="button" disabled={busy} className="w-full rounded-lg px-3 py-2 text-left text-sm font-bold text-slate-700 hover:bg-slate-50" onClick={() => { setEditingDevice({ ...device }); setOpenActions(null); }}>Editar sensor</button>
                             <button
                               type="button"
                               disabled={busy}
@@ -3228,6 +3409,19 @@ function SensorsAdminView({ data, token, onChanged }: { data: AppData; token: st
                             >
                               {device.is_active ? "Desactivar" : "Activar"}
                             </button>
+                            <button
+                              type="button"
+                              disabled={busy}
+                              className="w-full rounded-lg px-3 py-2 text-left text-sm font-bold text-red-700 hover:bg-red-50"
+                              onClick={() => {
+                                setOpenActions(null);
+                                if (confirmSafeDelete(`el sensor ${device.external_id}`)) {
+                                  run(() => deleteAdminDevice(token, device.id), "Sensor retirado; las lecturas históricas se conservaron.");
+                                }
+                              }}
+                            >
+                              Eliminar sensor
+                            </button>
                           </div>
                         ) : null}
                       </div>
@@ -3243,7 +3437,7 @@ function SensorsAdminView({ data, token, onChanged }: { data: AppData; token: st
   );
 }
 
-function UsersAdminView({ data, token, onChanged }: { data: AppData; token: string; onChanged: () => void }) {
+function UsersAdminView({ data, token, onChanged }: { data: AppData; token: string; onChanged: () => void | Promise<void> }) {
   const firstCompanyId = data.companies[0]?.id ?? 0;
   const [form, setForm] = useState({
     company_id: firstCompanyId || null,
@@ -3264,17 +3458,20 @@ function UsersAdminView({ data, token, onChanged }: { data: AppData; token: stri
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [editingUser, setEditingUser] = useState<User | null>(null);
 
-  async function run(action: () => Promise<unknown>, success: string) {
+  async function run(action: () => Promise<unknown>, success: string): Promise<boolean> {
     setBusy(true);
     setError(null);
     setMessage(null);
     try {
       await action();
       setMessage(success);
-      onChanged();
+      await onChanged();
+      return true;
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudo completar la operacion.");
+      return false;
     } finally {
       setBusy(false);
     }
@@ -3441,6 +3638,29 @@ function UsersAdminView({ data, token, onChanged }: { data: AppData; token: stri
           )}
         </div>
       </form>
+      {editingUser ? (
+        <form
+          className="panel grid gap-4 border-emerald-200 p-5 lg:grid-cols-4"
+          onSubmit={(event) => {
+            event.preventDefault();
+            run(() => updateAdminUser(token, editingUser.id, {
+              full_name: editingUser.full_name,
+              email: editingUser.email,
+              phone_whatsapp: editingUser.phone_whatsapp,
+              telegram_chat_id: editingUser.telegram_chat_id,
+              receives_alerts: editingUser.receives_alerts
+            }), "Usuario actualizado.").then((saved) => { if (saved) setEditingUser(null); });
+          }}
+        >
+          <div className="lg:col-span-4"><p className="section-kicker">Editar usuario</p><h3 className="font-black text-slate-950">{editingUser.full_name}</h3></div>
+          <Field label="Nombre *"><input required className="input" value={editingUser.full_name} onChange={(event) => setEditingUser({ ...editingUser, full_name: event.target.value })} /></Field>
+          <Field label="Correo *"><input required type="email" className="input" value={editingUser.email} onChange={(event) => setEditingUser({ ...editingUser, email: event.target.value })} /></Field>
+          <Field label="WhatsApp"><input className="input" value={editingUser.phone_whatsapp || ""} onChange={(event) => setEditingUser({ ...editingUser, phone_whatsapp: event.target.value || null })} /></Field>
+          <Field label="Telegram chat ID"><input className="input" value={editingUser.telegram_chat_id || ""} onChange={(event) => setEditingUser({ ...editingUser, telegram_chat_id: event.target.value || null })} /></Field>
+          <label className="flex items-center gap-2 text-sm font-bold text-slate-700 lg:col-span-4"><input type="checkbox" checked={editingUser.receives_alerts} onChange={(event) => setEditingUser({ ...editingUser, receives_alerts: event.target.checked })} />Recibe alertas operativas</label>
+          <div className="flex gap-2 lg:col-span-4"><button disabled={busy} className="btn-primary">Guardar cambios</button><button type="button" className="btn-secondary" onClick={() => setEditingUser(null)}>Cancelar</button></div>
+        </form>
+      ) : null}
       <div className="panel overflow-hidden">
         <div className="border-b border-slate-200 px-5 py-4">
           <p className="section-kicker">Control de acceso</p>
@@ -3467,6 +3687,7 @@ function UsersAdminView({ data, token, onChanged }: { data: AppData; token: stri
                     </button>
                     {openUserActions === user.id ? (
                       <div className="absolute right-0 z-20 mt-2 w-44 rounded-xl border border-slate-200 bg-white p-2 text-left shadow-panel">
+                        <button type="button" disabled={busy} className="w-full rounded-lg px-3 py-2 text-left text-sm font-bold text-slate-700 hover:bg-slate-50" onClick={() => { setEditingUser({ ...user }); setOpenUserActions(null); }}>Editar usuario</button>
                         <button
                           type="button"
                           disabled={busy}
@@ -3477,6 +3698,19 @@ function UsersAdminView({ data, token, onChanged }: { data: AppData; token: stri
                           }}
                         >
                           {user.is_active ? "Desactivar" : "Activar"}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={busy}
+                          className="w-full rounded-lg px-3 py-2 text-left text-sm font-bold text-red-700 hover:bg-red-50"
+                          onClick={() => {
+                            setOpenUserActions(null);
+                            if (confirmSafeDelete(`al usuario ${user.full_name}`)) {
+                              run(() => deleteAdminUser(token, user.id), "Usuario retirado y sesiones revocadas.");
+                            }
+                          }}
+                        >
+                          Eliminar usuario
                         </button>
                       </div>
                     ) : null}
@@ -3661,7 +3895,7 @@ function NotificationsAdminView({ data, token }: { data: AppData; token: string 
   );
 }
 
-function ThresholdsView({ devices, token }: { devices: Device[]; token: string }) {
+function ThresholdsView({ devices, token, onChanged }: { devices: Device[]; token: string; onChanged: () => void | Promise<void> }) {
   const [deviceId, setDeviceId] = useState(devices[0]?.id ?? 0);
   const [thresholds, setThresholds] = useState<Thresholds | null>(null);
   const [loading, setLoading] = useState(false);
@@ -3697,6 +3931,7 @@ function ThresholdsView({ devices, token }: { devices: Device[]; token: string }
     try {
       const { device_id: _deviceId, ...payload } = thresholds;
       setThresholds(await updateThresholds(token, deviceId, payload));
+      await onChanged();
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudieron guardar umbrales.");
     } finally {

@@ -14,7 +14,7 @@ export function SensorChannelManager({
   token: string;
   deviceId: number;
   schema: DeviceDashboardSchema;
-  onChanged: () => void;
+  onChanged: () => void | Promise<void>;
 }) {
   const [busy, setBusy] = useState<number | null>(null);
   const [showAdd, setShowAdd] = useState(false);
@@ -25,7 +25,7 @@ export function SensorChannelManager({
     setError("");
     try {
       await updateSensorChannel(token, deviceId, channel.id, payload);
-      onChanged();
+      await onChanged();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "No se pudo actualizar el canal.");
     } finally {
@@ -53,7 +53,7 @@ export function SensorChannelManager({
           onSubmit={async (payload) => {
             await createSensorChannel(token, deviceId, payload);
             setShowAdd(false);
-            onChanged();
+            await onChanged();
           }}
         />
       ) : null}

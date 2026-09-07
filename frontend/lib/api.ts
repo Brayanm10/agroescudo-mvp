@@ -9,11 +9,13 @@ import type {
   CalibrationPreview,
   CalibrationStatus,
   DeviceComparison,
+  DeletionResult,
   DeviceFirmwareStatus,
   DeviceQr,
   EvidenceFile,
   FirmwareRelease,
   GatewayStatus,
+  GatewayCreated,
   InstallationChecklistRecord,
   MaintenanceRecord,
   MonitoringSummary,
@@ -384,6 +386,23 @@ export function deletePilotOperationalData(token: string, storageUnitId: number)
     alerts_deleted: number;
     logs_deleted: number;
   }>(`/api/pilots/${storageUnitId}/operational-data`, { token, method: "DELETE" });
+}
+
+export function updatePilot(token: string, storageUnitId: number, payload: {
+  storage_unit_name?: string;
+  storage_unit_type?: string;
+  capacity_tons?: number | null;
+  location?: string | null;
+  crop_type?: string | null;
+  technician_user_id?: number | null;
+  client_user_id?: number | null;
+  is_active?: boolean;
+}) {
+  return request<Pilot>(`/api/pilots/${storageUnitId}`, { token, method: "PATCH", body: payload });
+}
+
+export function deletePilot(token: string, storageUnitId: number) {
+  return request<DeletionResult>(`/api/pilots/${storageUnitId}`, { token, method: "DELETE" });
 }
 
 export function getThresholds(token: string, deviceId: number) {
@@ -828,6 +847,10 @@ export function deactivateAdminCompany(token: string, companyId: number) {
   return request<Company>(`/api/admin/companies/${companyId}/deactivate`, { token, method: "POST" });
 }
 
+export function deleteAdminCompany(token: string, companyId: number) {
+  return request<DeletionResult>(`/api/admin/companies/${companyId}`, { token, method: "DELETE" });
+}
+
 export function createAdminStorageUnit(
   token: string,
   payload: {
@@ -860,6 +883,10 @@ export function activateAdminStorageUnit(token: string, storageUnitId: number) {
 
 export function deactivateAdminStorageUnit(token: string, storageUnitId: number) {
   return request<StorageUnit>(`/api/admin/storage-units/${storageUnitId}/deactivate`, { token, method: "POST" });
+}
+
+export function deleteAdminStorageUnit(token: string, storageUnitId: number) {
+  return request<DeletionResult>(`/api/admin/storage-units/${storageUnitId}`, { token, method: "DELETE" });
 }
 
 export function createAdminDevice(
@@ -895,6 +922,10 @@ export function deactivateAdminDevice(token: string, deviceId: number) {
   return request<Device>(`/api/admin/devices/${deviceId}/deactivate`, { token, method: "POST" });
 }
 
+export function deleteAdminDevice(token: string, deviceId: number) {
+  return request<DeletionResult>(`/api/admin/devices/${deviceId}`, { token, method: "DELETE" });
+}
+
 export function createAdminUser(
   token: string,
   payload: {
@@ -915,7 +946,7 @@ export function createAdminUser(
 export function updateAdminUser(
   token: string,
   userId: number,
-  payload: Partial<Pick<User, "company_id" | "email" | "full_name" | "role" | "is_active">>
+  payload: Partial<Pick<User, "company_id" | "email" | "full_name" | "role" | "is_active" | "phone_whatsapp" | "telegram_chat_id" | "receives_alerts">>
 ) {
   return request<User>(`/api/admin/users/${userId}`, { token, method: "PATCH", body: payload });
 }
@@ -934,6 +965,10 @@ export function activateAdminUser(token: string, userId: number) {
 
 export function deactivateAdminUser(token: string, userId: number) {
   return request<User>(`/api/admin/users/${userId}/deactivate`, { token, method: "POST" });
+}
+
+export function deleteAdminUser(token: string, userId: number) {
+  return request<DeletionResult>(`/api/admin/users/${userId}`, { token, method: "DELETE" });
 }
 
 export function assignAdminUserStorageUnits(token: string, userId: number, storageUnitIds: number[]) {
@@ -989,6 +1024,10 @@ export function updateAlertContact(token: string, contactId: number, payload: Pa
   return request<AlertContact>(`/api/alert-contacts/${contactId}`, { token, method: "PATCH", body: payload });
 }
 
+export function deleteAlertContact(token: string, contactId: number) {
+  return request<DeletionResult>(`/api/alert-contacts/${contactId}`, { token, method: "DELETE" });
+}
+
 export function testAlertContact(token: string, contactId: number, channel: "sms" | "call") {
   return request<SentinelJob>(`/api/alert-contacts/${contactId}/test`, {
     token,
@@ -1005,6 +1044,10 @@ export function createSentinelDevice(token: string, payload: { device_uid: strin
   return request<SentinelDeviceCreated>("/api/admin/sentinel/devices", { token, method: "POST", body: payload });
 }
 
+export function updateSentinelDevice(token: string, deviceId: number, payload: { device_uid?: string; name?: string }) {
+  return request<SentinelDevice>(`/api/admin/sentinel/devices/${deviceId}`, { token, method: "PATCH", body: payload });
+}
+
 export function rotateSentinelToken(token: string, deviceId: number) {
   return request<SentinelDeviceCreated>(`/api/admin/sentinel/devices/${deviceId}/rotate-token`, {
     token,
@@ -1017,6 +1060,10 @@ export function setSentinelActive(token: string, deviceId: number, active: boole
     token,
     method: "POST"
   });
+}
+
+export function deleteSentinelDevice(token: string, deviceId: number) {
+  return request<DeletionResult>(`/api/admin/sentinel/devices/${deviceId}`, { token, method: "DELETE" });
 }
 
 export function getSentinelJobs(token: string) {
@@ -1188,8 +1235,19 @@ export function getGateways(token: string) {
   return request<GatewayStatus[]>("/api/admin/gateways", { token });
 }
 
-export function updateGateway(token: string, gatewayId: number, payload: { status?: string; internet_status?: string }) {
+export function createGateway(
+  token: string,
+  payload: { gateway_id: string; name: string; company_id?: number | null; site_id?: number | null; storage_unit_id?: number | null; firmware_version?: string | null }
+) {
+  return request<GatewayCreated>("/api/admin/gateways", { token, method: "POST", body: payload });
+}
+
+export function updateGateway(token: string, gatewayId: number, payload: { name?: string; status?: string; internet_status?: string; is_active?: boolean }) {
   return request<GatewayStatus>(`/api/admin/gateways/${gatewayId}`, { token, method: "PATCH", body: payload });
+}
+
+export function deleteGateway(token: string, gatewayId: number) {
+  return request<DeletionResult>(`/api/admin/gateways/${gatewayId}`, { token, method: "DELETE" });
 }
 
 export function getPilotMetrics(token: string, storageUnitId?: number, dateFrom?: string, dateTo?: string) {

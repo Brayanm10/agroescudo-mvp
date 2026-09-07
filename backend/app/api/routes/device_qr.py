@@ -88,7 +88,7 @@ def scan_device_qr(
     current_user: User | None = Depends(get_optional_current_user),
     db: Session = Depends(get_db),
 ) -> DeviceScanOut:
-    device = db.scalar(select(Device).where(Device.public_token == public_token))
+    device = db.scalar(select(Device).where(Device.public_token == public_token, Device.deleted_at.is_(None)))
     if device is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="QR no reconocido.")
     if device.qr_revoked_at is not None:

@@ -43,7 +43,7 @@ def build_pilot_summary(db: Session, storage_unit: StorageUnit) -> PilotOut:
     site = db.get(Site, storage_unit.site_id)
     device = db.scalar(
         select(Device)
-        .where(Device.storage_unit_id == storage_unit.id)
+        .where(Device.storage_unit_id == storage_unit.id, Device.deleted_at.is_(None))
         .order_by(Device.created_at.asc())
     )
     technician = db.get(User, storage_unit.assigned_technician_id) if storage_unit.assigned_technician_id else None
@@ -74,6 +74,7 @@ def build_pilot_summary(db: Session, storage_unit: StorageUnit) -> PilotOut:
         technician_name=technician.full_name if technician else None,
         client_user_id=client.id if client else None,
         client_name=client.full_name if client else None,
+        is_active=storage_unit.is_active,
         status=calculate_pilot_status(db, storage_unit),
         days_monitored=days_monitored,
         reading_count=len(readings),

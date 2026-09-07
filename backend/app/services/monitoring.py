@@ -23,6 +23,7 @@ def build_monitoring_summary(db: Session, user: User) -> MonitoringSummaryOut:
             select(Device).where(
                 Device.storage_unit_id.in_(unit_ids) if unit_ids else Device.id == -1,
                 Device.is_active.is_(True),
+                Device.deleted_at.is_(None),
             )
         ).all()
     )

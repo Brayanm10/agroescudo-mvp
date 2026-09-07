@@ -7,9 +7,11 @@ from app.api.deps import require_role
 from app.db.session import get_db
 from app.models import SentinelDevice, SentinelJob, utc_now
 from app.schemas import (
+    DeletionOut,
     SentinelDeviceCreate,
     SentinelDeviceCreatedOut,
     SentinelDeviceOut,
+    SentinelDeviceUpdate,
     SentinelJobOut,
     SentinelJobResultIn,
     SentinelPollIn,
@@ -23,6 +25,7 @@ from app.services.sentinel import (
     poll_sentinel,
     record_job_result,
 )
+from app.services.soft_delete import soft_delete_sentinel
 
 router = APIRouter(prefix="/sentinel")
 admin_router = APIRouter(prefix="/admin/sentinel", dependencies=[Depends(require_role("admin"))])
@@ -66,7 +69,13 @@ def sentinel_job_result(
 
 @admin_router.get("/devices", response_model=list[SentinelDeviceOut])
 def list_sentinel_devices(db: Session = Depends(get_db)) -> list[dict]:
-    devices = list(db.scalars(select(SentinelDevice).order_by(SentinelDevice.created_at.desc())).all())
+    devices = list(
+        db.scalars(
+            select(SentinelDevice)
+            .where(SentinelDevice.deleted_at.is_(None))
+            .order_by(SentinelDevice.created_at.desc())
+        ).all()
+    )
     return [device_summary(db, device) for device in devices]
 
 
@@ -93,6 +102,26 @@ def rotate_sentinel_token(device_id: int, db: Session = Depends(get_db)) -> dict
     return {**device_summary(db, device), "token": token}
 
 
+@admin_router.patch("/devices/{device_id}", response_model=SentinelDeviceOut)
+def update_sentinel_device(device_id: int, payload: SentinelDeviceUpdate, db: Session = Depends(get_db)) -> dict:
+    device = _get_device(db, device_id)
+    values = payload.model_dump(exclude_unset=True)
+    if "device_uid" in values and values["device_uid"] != device.device_uid:
+        duplicate = db.scalar(
+            select(SentinelDevice.id).where(
+                SentinelDevice.device_uid == values["device_uid"],
+                SentinelDevice.id != device.id,
+            )
+        )
+        if duplicate is not None:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Ya existe un Sentinel con ese UID.")
+    for key, value in values.items():
+        setattr(device, key, value)
+    db.commit()
+    db.refresh(device)
+    return device_summary(db, device)
+
+
 @admin_router.post("/devices/{device_id}/activate", response_model=SentinelDeviceOut)
 def activate_sentinel(device_id: int, db: Session = Depends(get_db)) -> dict:
     device = _get_device(db, device_id)
@@ -111,6 +140,23 @@ def deactivate_sentinel(device_id: int, db: Session = Depends(get_db)) -> dict:
     return device_summary(db, device)
 
 
+@admin_router.delete("/devices/{device_id}", response_model=DeletionOut)
+def delete_sentinel(
+    device_id: int,
+    current_user=Depends(require_role("admin")),
+    db: Session = Depends(get_db),
+) -> DeletionOut:
+    device = _get_device(db, device_id)
+    soft_delete_sentinel(db, current_user, device)
+    db.commit()
+    return DeletionOut(
+        entity="sentinel",
+        id=device.id,
+        deleted_at=device.deleted_at,
+        message="Sentinel eliminado de la operacion.",
+    )
+
+
 @admin_router.get("/jobs", response_model=list[SentinelJobOut])
 def list_sentinel_jobs(status_filter: str | None = None, limit: int = 100, db: Session = Depends(get_db)) -> list[dict]:
     stmt = select(SentinelJob)
@@ -122,7 +168,7 @@ def list_sentinel_jobs(status_filter: str | None = None, limit: int = 100, db: S
 
 def _get_device(db: Session, device_id: int) -> SentinelDevice:
     device = db.get(SentinelDevice, device_id)
-    if device is None:
+    if device is None or device.deleted_at is not None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Sentinel no encontrado.")
     return device
 

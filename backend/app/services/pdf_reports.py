@@ -68,7 +68,7 @@ def build_report_pdf(
         raise ValueError("Tipo de documento no soportado.")
 
     device = db.get(Device, device_id) if device_id is not None else None
-    device_stmt = select(Device).where(Device.storage_unit_id == storage_unit.id)
+    device_stmt = select(Device).where(Device.storage_unit_id == storage_unit.id, Device.deleted_at.is_(None))
     if device_id is not None:
         device_stmt = device_stmt.where(Device.id == device_id)
     devices = list(db.scalars(device_stmt.order_by(Device.name)).all())

@@ -64,7 +64,7 @@ def _issue_token(db: Session, user: User) -> TokenOut:
 
 
 def _is_user_allowed_to_login(user: User) -> bool:
-    return user.is_active and getattr(user, "status", "ACTIVE") == "ACTIVE"
+    return user.is_active and user.deleted_at is None and getattr(user, "status", "ACTIVE") == "ACTIVE"
 
 
 def _as_utc_aware(value):

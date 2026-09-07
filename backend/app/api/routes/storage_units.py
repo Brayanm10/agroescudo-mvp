@@ -29,7 +29,7 @@ def list_storage_units(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> list[StorageUnit]:
-    stmt = scope_storage_units_query(select(StorageUnit), current_user, db)
+    stmt = scope_storage_units_query(select(StorageUnit).where(StorageUnit.deleted_at.is_(None)), current_user, db)
     if site_id is not None:
         site = db.get(Site, site_id)
         if site is None:
@@ -151,7 +151,7 @@ def list_storage_unit_devices(
     return list(
         db.scalars(
             select(Device)
-            .where(Device.storage_unit_id == storage_unit_id)
+            .where(Device.storage_unit_id == storage_unit_id, Device.deleted_at.is_(None))
             .order_by(Device.name, Device.id)
         ).all()
     )
@@ -181,7 +181,7 @@ def get_storage_unit_product_summary(
     db: Session = Depends(get_db),
 ) -> ProductSummaryOut:
     unit = require_storage_unit_access(db, current_user, storage_unit_id)
-    devices = list(db.scalars(select(Device).where(Device.storage_unit_id == unit.id)).all())
+    devices = list(db.scalars(select(Device).where(Device.storage_unit_id == unit.id, Device.deleted_at.is_(None))).all())
     latest = db.scalar(
         select(SensorReading)
         .where(SensorReading.storage_unit_id == unit.id)

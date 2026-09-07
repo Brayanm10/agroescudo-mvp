@@ -90,7 +90,12 @@ def issue_sentinel_token() -> tuple[str, str]:
 
 
 def authenticate_sentinel(db: Session, token: str, device_uid: str | None = None) -> SentinelDevice:
-    device = db.scalar(select(SentinelDevice).where(SentinelDevice.token_hash == hash_secret(token)))
+    device = db.scalar(
+        select(SentinelDevice).where(
+            SentinelDevice.token_hash == hash_secret(token),
+            SentinelDevice.deleted_at.is_(None),
+        )
+    )
     if (
         device is None
         or not device.active

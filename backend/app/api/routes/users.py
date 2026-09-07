@@ -16,7 +16,7 @@ def list_users(
     role: str | None = None,
     db: Session = Depends(get_db),
 ) -> list[User]:
-    stmt = select(User)
+    stmt = select(User).where(User.deleted_at.is_(None))
     if role is not None:
         stmt = stmt.where(User.role == role)
     return list(db.scalars(stmt.order_by(User.full_name)).all())
@@ -24,7 +24,8 @@ def list_users(
 
 @router.post("", response_model=UserOut, status_code=status.HTTP_201_CREATED)
 def create_user(payload: UserCreate, db: Session = Depends(get_db)) -> User:
-    if db.get(Company, payload.company_id) is None:
+    company = db.get(Company, payload.company_id)
+    if company is None or company.deleted_at is not None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Company not found")
     if db.scalar(select(User).where(User.email == payload.email)) is not None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered")

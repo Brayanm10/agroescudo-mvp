@@ -42,7 +42,7 @@ def list_devices(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> list[Device]:
-    stmt = scope_storage_unit_records_query(select(Device), Device, current_user, db)
+    stmt = scope_storage_unit_records_query(select(Device).where(Device.deleted_at.is_(None)), Device, current_user, db)
     if storage_unit_id is not None:
         storage_unit = db.get(StorageUnit, storage_unit_id)
         if storage_unit is None:

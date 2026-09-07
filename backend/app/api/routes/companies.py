@@ -39,7 +39,7 @@ def get_company(
     db: Session = Depends(get_db),
 ) -> Company:
     company = db.get(Company, company_id)
-    if company is None:
+    if company is None or company.deleted_at is not None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Company not found")
     require_company_access(db, current_user, company.id)
     return company

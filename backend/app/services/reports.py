@@ -134,7 +134,7 @@ def _node_reports(
     date_to: datetime,
     device_id: int | None,
 ) -> list[WeeklyNodeReportOut]:
-    device_stmt = select(Device).where(Device.storage_unit_id == storage_unit_id)
+    device_stmt = select(Device).where(Device.storage_unit_id == storage_unit_id, Device.deleted_at.is_(None))
     if device_id is not None:
         device_stmt = device_stmt.where(Device.id == device_id)
     nodes: list[WeeklyNodeReportOut] = []

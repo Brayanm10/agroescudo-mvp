@@ -69,6 +69,8 @@ landing/
 # Firmware provisioning secrets
 firmware/**/secrets.h
 firmware/**/secrets.hpp
+iot_examples/**/secrets.h
+iot_examples/**/secrets.hpp
 firmware/**/secrets.ini
 firmware/**/provisioning.json
 firmware/**/certs/*.key

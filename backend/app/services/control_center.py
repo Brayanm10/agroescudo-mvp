@@ -60,7 +60,7 @@ def build_control_center_summary(db: Session, user) -> ControlCenterSummaryOut:
             recent_activity=[],
         )
 
-    device_stmt = select(Device).where(Device.storage_unit_id.in_(unit_ids))
+    device_stmt = select(Device).where(Device.storage_unit_id.in_(unit_ids), Device.deleted_at.is_(None))
     devices = list(db.scalars(device_stmt).all())
     device_ids = [device.id for device in devices]
 

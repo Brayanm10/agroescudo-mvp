@@ -547,3 +547,9 @@ Frontend:
 | --- | --- | --- |
 | Dev | `npm run dev` | Levanta Next.js localmente. |
 | Build | `npm run build` | Verifica el build productivo con webpack. |
+
+## Premium V2.1
+
+La implementación de CRUD reactivo, eliminación segura y los ejemplos Arduino/PlatformIO está documentada en [docs/PREMIUM_V2_1_CRUD_REACTIVO.md](docs/PREMIUM_V2_1_CRUD_REACTIVO.md).
+
+Los ejemplos listos para configurar están en `iot_examples/silosensor/`, `iot_examples/gateway/` e `iot_examples/sentinel/`. Cada carpeta contiene el sketch, un `secrets.example.h` sin credenciales reales y su manual de conexión/compilación.

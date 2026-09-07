@@ -5,8 +5,9 @@ from sqlalchemy.orm import Session
 from app.api.deps import assigned_storage_unit_ids, get_current_user, require_company_access, require_storage_unit_access
 from app.db.session import get_db
 from app.models import AlertContact, Company, StorageUnit, User
-from app.schemas import AlertContactCreate, AlertContactOut, AlertContactTestIn, AlertContactUpdate, SentinelJobOut
+from app.schemas import AlertContactCreate, AlertContactOut, AlertContactTestIn, AlertContactUpdate, DeletionOut, SentinelJobOut
 from app.services.sentinel import create_test_job, normalize_phone_e164
+from app.services.soft_delete import soft_delete_alert_contact
 
 router = APIRouter(prefix="/alert-contacts", dependencies=[Depends(get_current_user)])
 
@@ -18,7 +19,7 @@ def list_alert_contacts(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> list[AlertContact]:
-    stmt = select(AlertContact)
+    stmt = select(AlertContact).where(AlertContact.deleted_at.is_(None))
     if current_user.role != "admin":
         unit_ids = assigned_storage_unit_ids(db, current_user)
         stmt = stmt.where(
@@ -101,9 +102,27 @@ def test_alert_contact(
     return _masked_job(job)
 
 
+@router.delete("/{contact_id}", response_model=DeletionOut)
+def delete_alert_contact(
+    contact_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> DeletionOut:
+    _require_contact_editor(current_user)
+    contact = _get_contact(db, current_user, contact_id)
+    soft_delete_alert_contact(db, current_user, contact)
+    db.commit()
+    return DeletionOut(
+        entity="alert_contact",
+        id=contact.id,
+        deleted_at=contact.deleted_at,
+        message="Contacto eliminado de la politica de alertas.",
+    )
+
+
 def _get_contact(db: Session, user: User, contact_id: int) -> AlertContact:
     contact = db.get(AlertContact, contact_id)
-    if contact is None:
+    if contact is None or contact.deleted_at is not None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Contacto no encontrado.")
     require_company_access(db, user, contact.company_id)
     if contact.storage_unit_id is not None:

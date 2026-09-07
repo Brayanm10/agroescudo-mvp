@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta
+from secrets import token_urlsafe
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
@@ -6,11 +7,15 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import require_device_access, require_role, require_storage_unit_access
 from app.db.session import get_db
-from app.models import IotDevice, IotGateway, Site, User, utc_now
+from app.core.security import encrypt_secret, hash_secret
+from app.models import IotDevice, IotGateway, IotGatewayCredential, Site, User, utc_now
 from app.schemas import (
+    GatewayCreate,
+    GatewayCreatedOut,
     GatewayDeviceAssignmentIn,
     GatewayOut,
     GatewayUpdate,
+    DeletionOut,
     PilotMetricsOut,
     SystemHealthOut,
 )
@@ -21,6 +26,7 @@ from app.services.pilot_operations import (
     gateway_to_out,
     scoped_gateway_query,
 )
+from app.services.soft_delete import soft_delete_gateway
 
 router = APIRouter(prefix="/admin", dependencies=[Depends(require_role("admin", "technician"))])
 
@@ -42,6 +48,67 @@ def list_gateways(
     return [gateway_to_out(item) for item in gateways]
 
 
+@router.post("/gateways", response_model=GatewayCreatedOut, status_code=status.HTTP_201_CREATED)
+def create_gateway(
+    payload: GatewayCreate,
+    current_user: User = Depends(require_role("admin")),
+    db: Session = Depends(get_db),
+) -> dict:
+    existing = db.scalar(select(IotGateway.id).where(IotGateway.gateway_id == payload.gateway_id))
+    if existing is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Ya existe un gateway con ese ID.")
+
+    if payload.site_id is not None:
+        site = db.get(Site, payload.site_id)
+        if site is None:
+            raise HTTPException(status_code=404, detail="Sitio no encontrado.")
+        if payload.company_id is not None and site.company_id != payload.company_id:
+            raise HTTPException(status_code=422, detail="El sitio no pertenece a la empresa seleccionada.")
+    if payload.storage_unit_id is not None:
+        unit = require_storage_unit_access(db, current_user, payload.storage_unit_id)
+        if payload.company_id is not None and unit.company_id != payload.company_id:
+            raise HTTPException(status_code=422, detail="La unidad no pertenece a la empresa seleccionada.")
+
+    secret = token_urlsafe(32)
+    gateway = IotGateway(
+        gateway_id=payload.gateway_id,
+        name=payload.name,
+        company_id=payload.company_id,
+        site_id=payload.site_id,
+        storage_unit_id=payload.storage_unit_id,
+        firmware_version=payload.firmware_version,
+        status="UNKNOWN",
+        internet_status="unknown",
+        is_active=True,
+    )
+    db.add(gateway)
+    db.flush()
+    db.add(
+        IotGatewayCredential(
+            gateway_id=gateway.id,
+            key_version=1,
+            secret_hash=hash_secret(secret),
+            encrypted_secret=encrypt_secret(secret),
+            is_active=True,
+        )
+    )
+    record_audit_event(
+        db,
+        action="gateway.created",
+        summary=f"Gateway {gateway.gateway_id} registrado.",
+        user=current_user,
+        resource_type="iot_gateway",
+        resource_id=gateway.id,
+    )
+    db.commit()
+    db.refresh(gateway)
+    return {
+        **gateway_to_out(gateway).model_dump(),
+        "secret": secret,
+        "secret_notice": "Guarda este secreto ahora. No volvera a mostrarse.",
+    }
+
+
 @router.patch("/gateways/{gateway_id}", response_model=GatewayOut)
 def update_gateway(
     gateway_id: int,
@@ -54,7 +121,7 @@ def update_gateway(
         if current_user.role == "admin"
         else db.scalar(scoped_gateway_query(db, current_user).where(IotGateway.id == gateway_id))
     )
-    if gateway is None:
+    if gateway is None or gateway.deleted_at is not None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Gateway no encontrado.")
     values = payload.model_dump(exclude_unset=True)
     if current_user.role == "technician":
@@ -100,7 +167,7 @@ def assign_gateway_devices(
     db: Session = Depends(get_db),
 ) -> GatewayOut:
     gateway = db.get(IotGateway, gateway_id)
-    if gateway is None:
+    if gateway is None or gateway.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Gateway no encontrado.")
     requested = set(payload.device_ids)
     for device_id in requested:
@@ -129,6 +196,25 @@ def assign_gateway_devices(
     db.commit()
     db.refresh(gateway)
     return gateway_to_out(gateway)
+
+
+@router.delete("/gateways/{gateway_id}", response_model=DeletionOut)
+def delete_gateway(
+    gateway_id: int,
+    current_user: User = Depends(require_role("admin")),
+    db: Session = Depends(get_db),
+) -> DeletionOut:
+    gateway = db.get(IotGateway, gateway_id)
+    if gateway is None or gateway.deleted_at is not None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Gateway no encontrado.")
+    soft_delete_gateway(db, current_user, gateway)
+    db.commit()
+    return DeletionOut(
+        entity="gateway",
+        id=gateway.id,
+        deleted_at=gateway.deleted_at,
+        message="Gateway eliminado y nodos desvinculados.",
+    )
 
 
 @router.get("/pilot-metrics", response_model=PilotMetricsOut)

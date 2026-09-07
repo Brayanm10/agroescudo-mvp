@@ -76,11 +76,12 @@ def gateway_to_out(gateway: IotGateway, now: datetime | None = None) -> GatewayO
         last_error_at=gateway.last_error_at,
         last_seen_at=gateway.last_seen_at,
         is_active=gateway.is_active,
+        deleted_at=gateway.deleted_at,
     )
 
 
 def scoped_gateway_query(db: Session, user: User):
-    stmt = select(IotGateway)
+    stmt = select(IotGateway).where(IotGateway.deleted_at.is_(None))
     if user.role == "admin":
         return stmt
     unit_ids = assigned_storage_unit_ids(db, user)
@@ -345,7 +346,7 @@ def _scoped_unit_ids(
 def _devices(db: Session, unit_ids: list[int]) -> list[Device]:
     if not unit_ids:
         return []
-    return list(db.scalars(select(Device).where(Device.storage_unit_id.in_(unit_ids))).all())
+    return list(db.scalars(select(Device).where(Device.storage_unit_id.in_(unit_ids), Device.deleted_at.is_(None))).all())
 
 
 def _device_status(device: Device, now: datetime) -> str:

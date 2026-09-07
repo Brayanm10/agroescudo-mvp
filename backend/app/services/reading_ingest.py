@@ -13,7 +13,7 @@ from app.services.telemetry import calculate_level_percent, validate_telemetry
 
 
 def ingest_authenticated_reading(db: Session, payload: SensorReadingCreate) -> ReadingIngestResponse:
-    device = db.scalar(select(Device).where(Device.external_id == payload.device_id))
+    device = db.scalar(select(Device).where(Device.external_id == payload.device_id, Device.deleted_at.is_(None)))
     if device is None or not verify_secret(payload.device_token, device.token_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid device credentials")
     if not device.is_active:
@@ -21,9 +21,9 @@ def ingest_authenticated_reading(db: Session, payload: SensorReadingCreate) -> R
 
     storage_unit = db.get(StorageUnit, device.storage_unit_id)
     company = db.get(Company, device.company_id)
-    if storage_unit is None or not storage_unit.is_active:
+    if storage_unit is None or storage_unit.deleted_at is not None or not storage_unit.is_active:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Silo/galpon inactivo. Contacta al administrador.")
-    if company is None or not company.is_active:
+    if company is None or company.deleted_at is not None or not company.is_active:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Empresa inactiva. Contacta al administrador.")
 
     return create_device_reading(db, device, payload)

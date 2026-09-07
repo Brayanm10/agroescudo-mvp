@@ -6,9 +6,10 @@ from app.api.deps import get_current_user, require_role, require_storage_unit_ac
 from app.core.security import hash_password, hash_secret
 from app.db.session import get_db
 from app.models import Alert, Company, Device, OperationalLog, SensorReading, Site, StorageUnit, ThresholdConfig, User
-from app.schemas import OperationalDataDeleteOut, PilotAssignmentsIn, PilotCreate, PilotOut
+from app.schemas import DeletionOut, OperationalDataDeleteOut, PilotAssignmentsIn, PilotCreate, PilotOut, PilotUpdate
 from app.services.pilots import build_pilot_summary
 from app.services.sentinel import upsert_alert_contact
+from app.services.soft_delete import soft_delete_storage_unit
 
 router = APIRouter(prefix="/pilots", dependencies=[Depends(get_current_user)])
 
@@ -154,6 +155,55 @@ def update_pilot_assignments(
     db.commit()
     db.refresh(storage_unit)
     return build_pilot_summary(db, storage_unit)
+
+
+@router.patch("/{storage_unit_id}", response_model=PilotOut)
+def update_pilot(
+    storage_unit_id: int,
+    payload: PilotUpdate,
+    _: User = Depends(require_role("admin")),
+    db: Session = Depends(get_db),
+) -> PilotOut:
+    storage_unit = db.get(StorageUnit, storage_unit_id)
+    if storage_unit is None or storage_unit.deleted_at is not None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Piloto no encontrado.")
+    values = payload.model_dump(exclude_unset=True)
+    technician_id = values.pop("technician_user_id", None)
+    client_id = values.pop("client_user_id", None)
+    field_map = {"storage_unit_name": "name", "storage_unit_type": "unit_type"}
+    for key, value in values.items():
+        setattr(storage_unit, field_map.get(key, key), value)
+    if technician_id is not None:
+        storage_unit.assigned_technician_id = _get_role_user(
+            db, technician_id, "technician", "Tecnico no encontrado."
+        ).id
+    if client_id is not None:
+        client = _get_role_user(db, client_id, "client", "Cliente no encontrado.")
+        if client.company_id != storage_unit.company_id:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="El cliente pertenece a otra empresa.")
+        storage_unit.assigned_client_id = client.id
+    db.commit()
+    db.refresh(storage_unit)
+    return build_pilot_summary(db, storage_unit)
+
+
+@router.delete("/{storage_unit_id}", response_model=DeletionOut)
+def delete_pilot(
+    storage_unit_id: int,
+    current_user: User = Depends(require_role("admin")),
+    db: Session = Depends(get_db),
+) -> DeletionOut:
+    storage_unit = db.get(StorageUnit, storage_unit_id)
+    if storage_unit is None or storage_unit.deleted_at is not None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Piloto no encontrado.")
+    soft_delete_storage_unit(db, current_user, storage_unit)
+    db.commit()
+    return DeletionOut(
+        entity="pilot",
+        id=storage_unit.id,
+        deleted_at=storage_unit.deleted_at,
+        message="Piloto eliminado; su evidencia historica fue preservada.",
+    )
 
 
 @router.delete("/{storage_unit_id}/operational-data", response_model=OperationalDataDeleteOut)

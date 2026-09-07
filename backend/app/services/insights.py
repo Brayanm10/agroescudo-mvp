@@ -42,7 +42,7 @@ def build_storage_unit_insight(db: Session, storage_unit: StorageUnit, period: P
         ).all()
     )
     active_alerts = alerts
-    devices = list(db.scalars(select(Device).where(Device.storage_unit_id == storage_unit.id)).all())
+    devices = list(db.scalars(select(Device).where(Device.storage_unit_id == storage_unit.id, Device.deleted_at.is_(None))).all())
     logs = list(
         db.scalars(
             select(OperationalLog)

@@ -7,23 +7,28 @@ import {
   Copy,
   KeyRound,
   MessageSquareText,
+  Pencil,
   PhoneCall,
   Plus,
   RefreshCw,
   ShieldAlert,
+  Trash2,
   Wifi,
   WifiOff
 } from "lucide-react";
 import {
   createAlertContact,
   createSentinelDevice,
+  deleteAlertContact,
+  deleteSentinelDevice,
   getAlertContacts,
   getSentinelDevices,
   getSentinelJobs,
   rotateSentinelToken,
   setSentinelActive,
   testAlertContact,
-  updateAlertContact
+  updateAlertContact,
+  updateSentinelDevice
 } from "@/lib/api";
 import type { AlertContact, AppData, SentinelDevice, SentinelJob } from "@/lib/types";
 import { ErrorState } from "@/components/ErrorState";
@@ -59,6 +64,7 @@ export function SentinelAdminView({ data, token }: { data: AppData; token: strin
   });
   const [deviceDraft, setDeviceDraft] = useState({ device_uid: "sentinel-home-001", name: "AgroEscudo Sentinel Casa" });
   const [editingContactId, setEditingContactId] = useState<number | null>(null);
+  const [editingDevice, setEditingDevice] = useState<SentinelDevice | null>(null);
   const [revealedToken, setRevealedToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
@@ -194,6 +200,56 @@ export function SentinelAdminView({ data, token }: { data: AppData; token: strin
     }
   }
 
+  async function saveDevice(event: FormEvent) {
+    event.preventDefault();
+    if (!editingDevice) return;
+    setBusy(`edit-device-${editingDevice.id}`);
+    setError(null);
+    try {
+      await updateSentinelDevice(token, editingDevice.id, {
+        device_uid: editingDevice.device_uid,
+        name: editingDevice.name
+      });
+      await load();
+      setEditingDevice(null);
+      setNotice("Identidad operativa de Sentinel actualizada.");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No se pudo actualizar el Sentinel.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function removeDevice(device: SentinelDevice) {
+    if (!window.confirm(`Retirar ${device.name} de la operación Sentinel?`)) return;
+    if (!window.confirm("Confirmación final: el equipo dejará de autenticarse y el historial permanecerá.")) return;
+    setBusy(`delete-device-${device.id}`);
+    try {
+      await deleteSentinelDevice(token, device.id);
+      setNotice("Sentinel retirado de la operación.");
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No se pudo eliminar el Sentinel.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function removeContact(contact: AlertContact) {
+    if (!window.confirm(`Retirar el contacto ${contact.name} del escalamiento?`)) return;
+    if (!window.confirm("Confirmación final: dejará de recibir nuevos avisos Sentinel.")) return;
+    setBusy(`delete-contact-${contact.id}`);
+    try {
+      await deleteAlertContact(token, contact.id);
+      setNotice("Contacto retirado de la política de escalamiento.");
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No se pudo eliminar el contacto.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   const scopedUnits = data.storageUnits.filter((unit) => unit.company_id === draft.company_id);
 
   return (
@@ -254,6 +310,13 @@ export function SentinelAdminView({ data, token }: { data: AppData; token: strin
             <Plus size={17} /> Crear Sentinel
           </button>
         </form>
+        {editingDevice ? (
+          <form onSubmit={saveDevice} className="grid gap-4 border-b border-emerald-200 bg-emerald-50/60 px-6 py-5 md:grid-cols-[1fr_1.4fr_auto] md:items-end">
+            <Field label="UID del equipo"><input required className="input" value={editingDevice.device_uid} onChange={(event) => setEditingDevice({ ...editingDevice, device_uid: event.target.value })} /></Field>
+            <Field label="Nombre operativo"><input required className="input" value={editingDevice.name} onChange={(event) => setEditingDevice({ ...editingDevice, name: event.target.value })} /></Field>
+            <div className="flex gap-2"><button className="btn-primary h-12" disabled={busy === `edit-device-${editingDevice.id}`}><CheckCircle2 size={16} /> Guardar</button><button type="button" className="btn-secondary h-12" onClick={() => setEditingDevice(null)}>Cancelar</button></div>
+          </form>
+        ) : null}
         <div className="divide-y divide-slate-200">
           {devices.length ? devices.map((device) => (
             <div key={device.id} className="grid gap-4 px-6 py-5 lg:grid-cols-[1.3fr_0.8fr_0.8fr_auto] lg:items-center">
@@ -269,12 +332,14 @@ export function SentinelAdminView({ data, token }: { data: AppData; token: strin
               <StatusLine label="Estado" value={device.online ? "Online" : "Offline"} emphasis={device.online ? "good" : "muted"} />
               <StatusLine label="Último poll" value={device.last_seen_at ? relativeDate(device.last_seen_at) : "Sin comunicación"} />
               <div className="flex flex-wrap gap-2">
+                <button className="btn-secondary" onClick={() => setEditingDevice({ ...device })} title="Editar Sentinel"><Pencil size={16} /></button>
                 <button className="btn-secondary" onClick={() => void rotateToken(device)} disabled={busy === `rotate-${device.id}`} title="Rotar token">
                   <KeyRound size={16} />
                 </button>
                 <button className="btn-secondary" onClick={() => void toggleDevice(device)} disabled={busy === `device-${device.id}`}>
                   {device.active ? "Desactivar" : "Activar"}
                 </button>
+                <button className="btn-secondary !text-red-700" onClick={() => void removeDevice(device)} disabled={busy === `delete-device-${device.id}`} title="Eliminar Sentinel"><Trash2 size={16} /></button>
               </div>
             </div>
           )) : <EmptyRow text="Todavía no existe un Sentinel. Créalo y configura el token en el ESP32." />}
@@ -342,6 +407,7 @@ export function SentinelAdminView({ data, token }: { data: AppData; token: strin
                 {contact.receive_call ? <button className="btn-secondary" onClick={() => void runContactTest(contact, "call")} disabled={busy === `${contact.id}-call`} title="Probar llamada"><PhoneCall size={16} /></button> : null}
                 <button className="btn-secondary" onClick={() => editContact(contact)}>Editar</button>
                 <button className="btn-secondary" onClick={() => void toggleContact(contact)} disabled={busy === `contact-${contact.id}`}>{contact.active ? "Desactivar" : "Activar"}</button>
+                <button className="btn-secondary !text-red-700" onClick={() => void removeContact(contact)} disabled={busy === `delete-contact-${contact.id}`} title="Eliminar contacto"><Trash2 size={16} /></button>
               </div>
             </div>
           )) : <EmptyRow text="No hay contactos configurados. Las alertas seguirán en la plataforma, pero no generarán jobs GSM." />}

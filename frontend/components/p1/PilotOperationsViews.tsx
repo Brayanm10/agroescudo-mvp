@@ -10,6 +10,7 @@ import {
   FileText,
   HardDriveDownload,
   Loader2,
+  Pencil,
   Play,
   QrCode,
   Radio,
@@ -18,6 +19,7 @@ import {
   Save,
   ServerCog,
   ShieldCheck,
+  Trash2,
   Upload,
   Wrench
 } from "lucide-react";
@@ -30,6 +32,7 @@ import {
   completeMaintenanceRecord,
   createDeviceInstallationChecklist,
   createDeviceQr,
+  createGateway,
   createFirmwareRelease,
   createMaintenanceRecord,
   downloadEvidence,
@@ -44,6 +47,7 @@ import {
   getPilotMetrics,
   getSystemHealth,
   getTechnicalReportPdf,
+  deleteGateway,
   startMaintenanceRecord,
   updateGateway,
   updateInstallationChecklist,
@@ -526,11 +530,14 @@ export function EvidenceOperationsView({ data, token }: { data: AppData; token: 
   );
 }
 
-export function SystemHealthView({ token, gatewayOnly = false }: { token: string; gatewayOnly?: boolean }) {
+export function SystemHealthView({ token, gatewayOnly = false, role = "technician" }: { token: string; gatewayOnly?: boolean; role?: string }) {
   const [health, setHealth] = useState<SystemHealth | null>(null);
   const [gateways, setGateways] = useState<GatewayStatus[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [gatewayDraft, setGatewayDraft] = useState({ gateway_id: "", name: "" });
+  const [gatewaySecret, setGatewaySecret] = useState<string | null>(null);
+  const [editingGateway, setEditingGateway] = useState<GatewayStatus | null>(null);
 
   async function load() {
     setBusy(true);
@@ -561,6 +568,62 @@ export function SystemHealthView({ token, gatewayOnly = false }: { token: string
     }
   }
 
+  async function submitGateway(event: FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      const created = await createGateway(token, gatewayDraft);
+      setGatewaySecret(created.secret);
+      setGatewayDraft({ gateway_id: "", name: "" });
+      await load();
+    } catch (err) {
+      setError(messageOf(err));
+      setBusy(false);
+    }
+  }
+
+  async function removeGateway(gateway: GatewayStatus) {
+    if (!window.confirm(`Retirar ${gateway.name} y desvincular sus nodos? Las lecturas se conservaran.`)) return;
+    if (!window.confirm("Confirmacion final: el gateway dejara de autenticar nuevos lotes.")) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await deleteGateway(token, gateway.id);
+      await load();
+    } catch (err) {
+      setError(messageOf(err));
+      setBusy(false);
+    }
+  }
+
+  async function saveGateway(event: FormEvent) {
+    event.preventDefault();
+    if (!editingGateway) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await updateGateway(token, editingGateway.id, { name: editingGateway.name });
+      await load();
+      setEditingGateway(null);
+    } catch (err) {
+      setError(messageOf(err));
+      setBusy(false);
+    }
+  }
+
+  async function toggleGatewayActive(gateway: GatewayStatus) {
+    setBusy(true);
+    setError(null);
+    try {
+      await updateGateway(token, gateway.id, { is_active: !gateway.is_active });
+      await load();
+    } catch (err) {
+      setError(messageOf(err));
+      setBusy(false);
+    }
+  }
+
   return (
     <section className="space-y-5">
       <PageIntro icon={gatewayOnly ? Radio : Activity} eyebrow="Observabilidad P1" title={gatewayOnly ? "Gateways del piloto" : "Salud del sistema"} copy="Estado calculado desde ultimo contacto, cola local, conectividad, ingestiones y errores registrados." />
@@ -575,6 +638,20 @@ export function SystemHealthView({ token, gatewayOnly = false }: { token: string
         </div>
       ) : null}
       {busy && !health ? <LoadingState label="Consultando salud" /> : null}
+      {role === "admin" ? (
+        <form onSubmit={submitGateway} className="panel grid gap-4 p-5 md:grid-cols-[1fr_1.4fr_auto] md:items-end">
+          <Field label="Gateway ID *"><input required className="input" value={gatewayDraft.gateway_id} onChange={(event) => setGatewayDraft({ ...gatewayDraft, gateway_id: event.target.value })} placeholder="GW-CBBA-002" /></Field>
+          <Field label="Nombre operativo *"><input required className="input" value={gatewayDraft.name} onChange={(event) => setGatewayDraft({ ...gatewayDraft, name: event.target.value })} placeholder="Gateway Silo Norte" /></Field>
+          <button disabled={busy} className="btn-primary h-12"><Radio className="mr-2" size={16} />Registrar gateway</button>
+        </form>
+      ) : null}
+      {gatewaySecret ? <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950"><p className="font-black">Secreto visible una sola vez</p><code className="mt-2 block break-all rounded-lg bg-white p-3">{gatewaySecret}</code><p className="mt-2">Guárdalo en la configuración privada del gateway.</p></div> : null}
+      {role === "admin" && editingGateway ? (
+        <form onSubmit={saveGateway} className="panel grid gap-4 border-emerald-200 p-5 md:grid-cols-[1fr_auto] md:items-end">
+          <Field label="Nombre operativo"><input required className="input" value={editingGateway.name} onChange={(event) => setEditingGateway({ ...editingGateway, name: event.target.value })} /></Field>
+          <div className="flex gap-2"><button className="btn-primary h-12" disabled={busy}><Save className="mr-2" size={16} />Guardar</button><button type="button" className="btn-secondary h-12" onClick={() => setEditingGateway(null)}>Cancelar</button></div>
+        </form>
+      ) : null}
       <div className="panel overflow-hidden">
         <PanelHeader title="Gateways autorizados" copy={`${gateways.length} equipos`} onRefresh={load} />
         <div className="overflow-x-auto">
@@ -592,7 +669,7 @@ export function SystemHealthView({ token, gatewayOnly = false }: { token: string
                   <td className="px-4 py-3">{item.associated_devices_count}</td>
                   <td className="px-4 py-3">{item.firmware_version || "No registrada"}</td>
                   <td className="px-4 py-3">{item.last_seen_at ? formatDateTime(item.last_seen_at) : "Sin contacto"}</td>
-                  <td className="px-4 py-3"><button className="btn-secondary" onClick={() => markMaintenance(item)}>{item.effective_status === "MAINTENANCE" ? "Reactivar" : "Mantenimiento"}</button></td>
+                  <td className="px-4 py-3"><div className="flex flex-wrap gap-2"><button className="btn-secondary" disabled={busy} onClick={() => markMaintenance(item)}>{item.effective_status === "MAINTENANCE" ? "Reactivar" : "Mantenimiento"}</button>{role === "admin" ? <><button className="icon-button" disabled={busy} title="Editar gateway" onClick={() => setEditingGateway({ ...item })}><Pencil size={16} /></button><button className="btn-secondary" disabled={busy} role="switch" aria-checked={item.is_active} onClick={() => toggleGatewayActive(item)}>{item.is_active ? "Desactivar" : "Activar"}</button><button className="icon-button text-red-700" disabled={busy} title="Eliminar gateway" onClick={() => removeGateway(item)}><Trash2 size={16} /></button></> : null}</div></td>
                 </tr>
               ))}
             </tbody>

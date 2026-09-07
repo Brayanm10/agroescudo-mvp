@@ -50,7 +50,7 @@ def _resolve_user_from_token(token: str, db: Session) -> User:
     user = db.scalar(
         select(User)
         .options(joinedload(User.company))
-        .where(User.id == int(subject), User.is_active.is_(True))
+        .where(User.id == int(subject), User.is_active.is_(True), User.deleted_at.is_(None))
     )
     if user is None:
         raise credentials_error
@@ -85,11 +85,11 @@ def is_admin(user: User) -> bool:
 
 def assigned_storage_unit_ids(db: Session, user: User) -> list[int]:
     if user.role == "admin":
-        return list(db.scalars(select(StorageUnit.id)).all())
+        return list(db.scalars(select(StorageUnit.id).where(StorageUnit.deleted_at.is_(None))).all())
     if user.role == "technician":
-        stmt = select(StorageUnit.id).where(StorageUnit.assigned_technician_id == user.id)
+        stmt = select(StorageUnit.id).where(StorageUnit.assigned_technician_id == user.id, StorageUnit.deleted_at.is_(None))
     elif user.role == "client":
-        stmt = select(StorageUnit.id).where(StorageUnit.assigned_client_id == user.id)
+        stmt = select(StorageUnit.id).where(StorageUnit.assigned_client_id == user.id, StorageUnit.deleted_at.is_(None))
     else:
         return []
     return list(db.scalars(stmt).all())
@@ -150,7 +150,7 @@ def can_access_storage_unit(user: User, storage_unit: StorageUnit) -> bool:
 
 def require_storage_unit_access(db: Session, user: User, storage_unit_id: int) -> StorageUnit:
     storage_unit = db.get(StorageUnit, storage_unit_id)
-    if storage_unit is None:
+    if storage_unit is None or storage_unit.deleted_at is not None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Storage unit not found")
     if not can_access_storage_unit(user, storage_unit):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No tienes permisos para esta seccion.")
@@ -159,7 +159,7 @@ def require_storage_unit_access(db: Session, user: User, storage_unit_id: int) -
 
 def require_device_access(db: Session, user: User, device_id: int) -> Device:
     device = db.get(Device, device_id)
-    if device is None:
+    if device is None or device.deleted_at is not None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
     require_storage_unit_access(db, user, device.storage_unit_id)
     return device
@@ -174,6 +174,7 @@ def require_alert_access(db: Session, user: User, alert_id: int) -> Alert:
 
 
 def scope_companies_query(stmt, user: User, db: Session):
+    stmt = stmt.where(Company.deleted_at.is_(None))
     if user.role == "admin":
         return stmt
     company_ids = _assigned_company_ids(db, user)
@@ -192,6 +193,7 @@ def scope_sites_query(stmt, user: User, db: Session):
 
 
 def scope_storage_units_query(stmt, user: User, db: Session):
+    stmt = stmt.where(StorageUnit.deleted_at.is_(None))
     if user.role == "admin":
         return stmt
     unit_ids = assigned_storage_unit_ids(db, user)

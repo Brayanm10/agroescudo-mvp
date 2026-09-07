@@ -31,7 +31,7 @@ def list_readings(
 ) -> list[ReadingOut]:
     stmt = scope_storage_unit_records_query(select(SensorReading), SensorReading, current_user, db)
     if device_id is not None:
-        device = db.scalar(select(Device).where(Device.external_id == device_id))
+        device = db.scalar(select(Device).where(Device.external_id == device_id, Device.deleted_at.is_(None)))
         if device is None and device_id.isdigit():
             device = db.get(Device, int(device_id))
         if device is None:

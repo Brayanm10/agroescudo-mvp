@@ -138,7 +138,7 @@ def _verify_gateway_request(
     if not gateway_header or not timestamp_header or not nonce_header or not signature_header:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing gateway authentication headers")
 
-    gateway = db.scalar(select(IotGateway).where(IotGateway.gateway_id == gateway_header))
+    gateway = db.scalar(select(IotGateway).where(IotGateway.gateway_id == gateway_header, IotGateway.deleted_at.is_(None)))
     if gateway is None or not gateway.is_active:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unknown or inactive gateway")
 
@@ -210,11 +210,11 @@ def _process_reading(
         return _record_event(db, gateway, batch, reading, "duplicate", "Reading already stored"), []
 
     device = db.get(Device, iot_device.device_id)
-    if device is None or not device.is_active:
+    if device is None or device.deleted_at is not None or not device.is_active:
         return _record_event(db, gateway, batch, reading, "rejected_unauthorized", "Linked sensor is inactive"), []
     storage_unit = db.get(StorageUnit, device.storage_unit_id)
     company = db.get(Company, device.company_id)
-    if storage_unit is None or company is None or not storage_unit.is_active or not company.is_active:
+    if storage_unit is None or company is None or storage_unit.deleted_at is not None or company.deleted_at is not None or not storage_unit.is_active or not company.is_active:
         return _record_event(db, gateway, batch, reading, "rejected_unauthorized", "Linked company or storage unit is inactive"), []
 
     profile = sensor_profile(device)
@@ -381,7 +381,7 @@ def _process_reading(
 def _resolve_iot_device(db: Session, identifier: int | str) -> IotDevice | None:
     if isinstance(identifier, int) or str(identifier).isdigit():
         return db.scalar(select(IotDevice).where(IotDevice.node_id == int(identifier)))
-    device = db.scalar(select(Device).where(Device.external_id == str(identifier)))
+    device = db.scalar(select(Device).where(Device.external_id == str(identifier), Device.deleted_at.is_(None)))
     if device is None:
         return None
     return db.scalar(select(IotDevice).where(IotDevice.device_id == device.id))

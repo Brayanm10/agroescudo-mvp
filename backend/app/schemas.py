@@ -88,6 +88,7 @@ class CompanyOut(BaseModel):
     rejection_reason: str | None = None
     created_at: datetime
     updated_at: datetime | None = None
+    deleted_at: datetime | None = None
 
 
 class UserOut(BaseModel):
@@ -112,6 +113,7 @@ class UserOut(BaseModel):
     updated_at: datetime | None = None
     last_login_at: datetime | None = None
     last_seen_at: datetime | None = None
+    deleted_at: datetime | None = None
     company: CompanyOut | None = None
 
 
@@ -241,6 +243,7 @@ class StorageUnitOut(BaseModel):
     last_report_generated_at: datetime | None = None
     created_at: datetime
     updated_at: datetime | None = None
+    deleted_at: datetime | None = None
 
 
 class StorageUnitAssignmentsIn(BaseModel):
@@ -345,6 +348,7 @@ class DeviceOut(BaseModel):
     created_at: datetime
     last_seen_at: datetime | None = None
     updated_at: datetime | None = None
+    deleted_at: datetime | None = None
 
 
 class AdminDeviceOut(DeviceOut):
@@ -970,6 +974,17 @@ class PilotAssignmentsIn(BaseModel):
     client_user_id: int | None = None
 
 
+class PilotUpdate(BaseModel):
+    storage_unit_name: str | None = Field(default=None, min_length=1, max_length=160)
+    storage_unit_type: str | None = Field(default=None, min_length=1, max_length=40)
+    capacity_tons: float | None = Field(default=None, ge=0)
+    location: str | None = Field(default=None, max_length=255)
+    crop_type: str | None = Field(default=None, max_length=120)
+    technician_user_id: int | None = None
+    client_user_id: int | None = None
+    is_active: bool | None = None
+
+
 class PilotOut(BaseModel):
     storage_unit_id: int
     storage_unit_name: str
@@ -985,6 +1000,7 @@ class PilotOut(BaseModel):
     technician_name: str | None = None
     client_user_id: int | None = None
     client_name: str | None = None
+    is_active: bool
     status: str
     days_monitored: int
     reading_count: int
@@ -1004,6 +1020,13 @@ class OperationalDataDeleteOut(BaseModel):
     readings_deleted: int
     alerts_deleted: int
     logs_deleted: int
+
+
+class DeletionOut(BaseModel):
+    entity: str
+    id: int
+    deleted_at: datetime
+    message: str
 
 
 class NotificationPreferenceUpdate(BaseModel):
@@ -1171,6 +1194,11 @@ class SentinelDeviceCreate(BaseModel):
     name: str = Field(min_length=3, max_length=160)
 
 
+class SentinelDeviceUpdate(BaseModel):
+    device_uid: str | None = Field(default=None, pattern=r"^[a-zA-Z0-9][a-zA-Z0-9_-]{2,79}$")
+    name: str | None = Field(default=None, min_length=3, max_length=160)
+
+
 class SentinelDeviceOut(BaseModel):
     id: int
     device_uid: str
@@ -1186,6 +1214,7 @@ class SentinelDeviceOut(BaseModel):
     last_job_status: str | None = None
     created_at: datetime
     updated_at: datetime
+    deleted_at: datetime | None = None
 
 
 class SentinelDeviceCreatedOut(SentinelDeviceOut):
@@ -1856,6 +1885,21 @@ class GatewayOut(BaseModel):
     last_error_at: datetime | None = None
     last_seen_at: datetime | None = None
     is_active: bool
+    deleted_at: datetime | None = None
+
+
+class GatewayCreate(BaseModel):
+    gateway_id: str = Field(min_length=3, max_length=80, pattern=r"^[A-Za-z0-9._-]+$")
+    name: str = Field(min_length=2, max_length=160)
+    company_id: int | None = None
+    site_id: int | None = None
+    storage_unit_id: int | None = None
+    firmware_version: str | None = Field(default=None, max_length=40)
+
+
+class GatewayCreatedOut(GatewayOut):
+    secret: str
+    secret_notice: str = "Guarda este secreto ahora. No volvera a mostrarse."
 
 
 class GatewayUpdate(BaseModel):
@@ -1867,6 +1911,7 @@ class GatewayUpdate(BaseModel):
     internet_status: Literal["online", "offline", "degraded", "unknown"] | None = None
     firmware_version: str | None = Field(default=None, max_length=40)
     last_restart_reason: str | None = Field(default=None, max_length=255)
+    is_active: bool | None = None
 
 
 class GatewayDeviceAssignmentIn(BaseModel):

@@ -13,7 +13,7 @@ export function PreferencesView({
 }: {
   data: AppData;
   token: string;
-  onChanged: () => void;
+  onChanged: () => void | Promise<void>;
 }) {
   const [form, setForm] = useState({
     receives_alerts: data.me.receives_alerts,
@@ -40,7 +40,7 @@ export function PreferencesView({
         telegram_chat_id: form.telegram_chat_id || null
       });
       setMessage("Preferencias guardadas correctamente.");
-      onChanged();
+      await onChanged();
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudieron guardar las preferencias.");
     } finally {

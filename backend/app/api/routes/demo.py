@@ -22,7 +22,7 @@ def simulate_critical_reading(
     if settings.environment not in {"local", "demo"}:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Demo mode is not available.")
 
-    device = db.scalar(select(Device).where(Device.external_id == "SILO-001", Device.is_active.is_(True)))
+    device = db.scalar(select(Device).where(Device.external_id == "SILO-001", Device.is_active.is_(True), Device.deleted_at.is_(None)))
     if device is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Demo device SILO-001 not found.")
 

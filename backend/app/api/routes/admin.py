@@ -22,6 +22,7 @@ from app.schemas import (
     DeviceOut,
     DeviceCalibrationIn,
     CalibrationCreateIn,
+    DeletionOut,
     NotificationDeliveryOut,
     PasswordResetIn,
     StorageUnitCreate,
@@ -38,6 +39,12 @@ from app.services.calibration import create_calibration
 from app.services.device_capabilities import sync_device_channels
 from app.services.telemetry import validate_device_unit_compatibility
 from app.services.sentinel import upsert_alert_contact
+from app.services.soft_delete import (
+    soft_delete_company,
+    soft_delete_device,
+    soft_delete_storage_unit,
+    soft_delete_user,
+)
 
 router = APIRouter(prefix="/admin", dependencies=[Depends(require_role("admin"))])
 
@@ -99,7 +106,7 @@ def integration_status() -> dict[str, object]:
 
 @router.get("/companies", response_model=list[CompanyOut])
 def list_admin_companies(db: Session = Depends(get_db)) -> list[Company]:
-    return list(db.scalars(select(Company).order_by(Company.name)).all())
+    return list(db.scalars(select(Company).where(Company.deleted_at.is_(None)).order_by(Company.name)).all())
 
 
 @router.post("/companies", response_model=CompanyOut, status_code=status.HTTP_201_CREATED)
@@ -148,9 +155,21 @@ def deactivate_admin_company(company_id: int, db: Session = Depends(get_db)) -> 
     return company
 
 
+@router.delete("/companies/{company_id}", response_model=DeletionOut)
+def delete_admin_company(
+    company_id: int,
+    current_user: User = Depends(require_role("admin")),
+    db: Session = Depends(get_db),
+) -> DeletionOut:
+    company = _get_company(db, company_id)
+    soft_delete_company(db, current_user, company)
+    db.commit()
+    return DeletionOut(entity="company", id=company.id, deleted_at=company.deleted_at, message="Empresa eliminada de la operacion.")
+
+
 @router.get("/storage-units", response_model=list[StorageUnitOut])
 def list_admin_storage_units(company_id: int | None = None, db: Session = Depends(get_db)) -> list[StorageUnit]:
-    stmt = select(StorageUnit)
+    stmt = select(StorageUnit).where(StorageUnit.deleted_at.is_(None))
     if company_id is not None:
         stmt = stmt.where(StorageUnit.company_id == company_id)
     return list(db.scalars(stmt.order_by(StorageUnit.name)).all())
@@ -237,9 +256,21 @@ def deactivate_admin_storage_unit(storage_unit_id: int, db: Session = Depends(ge
     return unit
 
 
+@router.delete("/storage-units/{storage_unit_id}", response_model=DeletionOut)
+def delete_admin_storage_unit(
+    storage_unit_id: int,
+    current_user: User = Depends(require_role("admin")),
+    db: Session = Depends(get_db),
+) -> DeletionOut:
+    unit = _get_storage_unit(db, storage_unit_id)
+    soft_delete_storage_unit(db, current_user, unit)
+    db.commit()
+    return DeletionOut(entity="storage_unit", id=unit.id, deleted_at=unit.deleted_at, message="Unidad eliminada; el historico permanece disponible para auditoria.")
+
+
 @router.get("/devices", response_model=list[AdminDeviceOut])
 def list_admin_devices(storage_unit_id: int | None = None, db: Session = Depends(get_db)) -> list[Device]:
-    stmt = select(Device)
+    stmt = select(Device).where(Device.deleted_at.is_(None))
     if storage_unit_id is not None:
         stmt = stmt.where(Device.storage_unit_id == storage_unit_id)
     return list(db.scalars(stmt.order_by(Device.external_id)).all())
@@ -394,12 +425,24 @@ def deactivate_admin_device(device_id: int, db: Session = Depends(get_db)) -> De
     return device
 
 
+@router.delete("/devices/{device_id}", response_model=DeletionOut)
+def delete_admin_device(
+    device_id: int,
+    current_user: User = Depends(require_role("admin")),
+    db: Session = Depends(get_db),
+) -> DeletionOut:
+    device = _get_device(db, device_id)
+    soft_delete_device(db, current_user, device)
+    db.commit()
+    return DeletionOut(entity="device", id=device.id, deleted_at=device.deleted_at, message="Sensor eliminado; las lecturas historicas fueron preservadas.")
+
+
 @router.get("/users", response_model=list[UserOut])
 def list_admin_users(
     role: str | None = None,
     db: Session = Depends(get_db),
 ) -> list[User]:
-    stmt = select(User)
+    stmt = select(User).where(User.deleted_at.is_(None))
     if role is not None:
         stmt = stmt.where(User.role == role)
     return list(db.scalars(stmt.order_by(User.full_name)).all())
@@ -480,6 +523,18 @@ def deactivate_admin_user(user_id: int, db: Session = Depends(get_db)) -> User:
     return user
 
 
+@router.delete("/users/{user_id}", response_model=DeletionOut)
+def delete_admin_user(
+    user_id: int,
+    current_user: User = Depends(require_role("admin")),
+    db: Session = Depends(get_db),
+) -> DeletionOut:
+    user = _get_user(db, user_id)
+    soft_delete_user(db, current_user, user)
+    db.commit()
+    return DeletionOut(entity="user", id=user.id, deleted_at=user.deleted_at, message="Usuario eliminado y sesiones revocadas.")
+
+
 @router.post("/users/{user_id}/assign-storage-units", response_model=UserOut)
 def assign_admin_user_storage_units(
     user_id: int,
@@ -496,12 +551,12 @@ def assign_admin_user_storage_units(
 
 @router.get("/technicians", response_model=list[UserOut])
 def list_admin_technicians(db: Session = Depends(get_db)) -> list[User]:
-    return list(db.scalars(select(User).where(User.role == "technician").order_by(User.full_name)).all())
+    return list(db.scalars(select(User).where(User.role == "technician", User.deleted_at.is_(None)).order_by(User.full_name)).all())
 
 
 @router.get("/clients", response_model=list[UserOut])
 def list_admin_clients(db: Session = Depends(get_db)) -> list[User]:
-    return list(db.scalars(select(User).where(User.role == "client").order_by(User.full_name)).all())
+    return list(db.scalars(select(User).where(User.role == "client", User.deleted_at.is_(None)).order_by(User.full_name)).all())
 
 
 @router.get("/notifications/deliveries", response_model=list[NotificationDeliveryOut])
@@ -537,7 +592,7 @@ def test_admin_notification_channel(
 
 def _get_company(db: Session, company_id: int) -> Company:
     company = db.get(Company, company_id)
-    if company is None:
+    if company is None or company.deleted_at is not None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Company not found")
     return company
 
@@ -551,21 +606,21 @@ def _get_site(db: Session, site_id: int) -> Site:
 
 def _get_storage_unit(db: Session, storage_unit_id: int) -> StorageUnit:
     unit = db.get(StorageUnit, storage_unit_id)
-    if unit is None:
+    if unit is None or unit.deleted_at is not None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Storage unit not found")
     return unit
 
 
 def _get_device(db: Session, device_id: int) -> Device:
     device = db.get(Device, device_id)
-    if device is None:
+    if device is None or device.deleted_at is not None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
     return device
 
 
 def _get_user(db: Session, user_id: int) -> User:
     user = db.get(User, user_id)
-    if user is None:
+    if user is None or user.deleted_at is not None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
     return user
 
