@@ -15,6 +15,7 @@ export type Company = {
   created_at: string;
   updated_at: string | null;
   deleted_at?: string | null;
+  features?: string[];
 };
 
 export type User = {
@@ -39,9 +40,76 @@ export type User = {
   last_seen_at?: string | null;
   company: Company | null;
   deleted_at?: string | null;
+  features?: string[];
+};
+
+export type CompanyFeature = {
+  feature_code: string;
+  enabled: boolean;
+  enabled_at: string | null;
+  enabled_by_id: number | null;
 };
 
 export type UserRole = "admin" | "technician" | "client" | string;
+
+export type GeoJsonPosition = [number, number, ...number[]];
+
+export type BoundaryGeoJson =
+  | { type: "Polygon"; coordinates: GeoJsonPosition[][] }
+  | { type: "MultiPolygon"; coordinates: GeoJsonPosition[][][] };
+
+export type PluviometrySite = {
+  id: number;
+  name: string;
+  latitude: number | null;
+  longitude: number | null;
+  timezone: string;
+  rain_gauge_count: number;
+};
+
+export type PluviometryParcel = {
+  id: number;
+  name: string;
+  boundary_geojson: BoundaryGeoJson | null;
+  surface_hectares: number | null;
+};
+
+export type RainGaugeLatestMetrics = {
+  temperature_c: number | null;
+  humidity_pct: number | null;
+  wind_speed_kmh: number | null;
+  wind_direction_deg: number | null;
+  battery_pct: number | null;
+};
+
+export type RainGaugeStatus = "online" | "delayed" | "offline" | "critical";
+
+export type RainGaugeMapDevice = {
+  id: number;
+  device_id: string;
+  name: string;
+  storage_unit_id: number;
+  parcel_name: string;
+  latitude: number | null;
+  longitude: number | null;
+  status: RainGaugeStatus;
+  last_seen_at: string | null;
+  latest: RainGaugeLatestMetrics;
+  rain_today_mm: number | null;
+};
+
+export type PluviometryMapSnapshot = {
+  site: {
+    id: number;
+    name: string;
+    latitude: number | null;
+    longitude: number | null;
+    timezone: string;
+    boundary_geojson: BoundaryGeoJson | null;
+  };
+  parcels: PluviometryParcel[];
+  devices: RainGaugeMapDevice[];
+};
 
 export type Site = {
   id: number;
@@ -54,6 +122,7 @@ export type Site = {
   address?: string | null;
   department?: string | null;
   municipality?: string | null;
+  boundary_geojson?: BoundaryGeoJson | null;
   created_at: string;
 };
 
@@ -68,6 +137,7 @@ export type StorageUnit = {
   crop_type: string | null;
   operation_type: "storage" | "field";
   surface_hectares: number | null;
+  boundary_geojson?: BoundaryGeoJson | null;
   is_active: boolean;
   assigned_technician_id: number | null;
   assigned_client_id: number | null;
@@ -87,9 +157,13 @@ export type Device = {
   device_type: string;
   model_version?: string | null;
   physical_location?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
   installed_at?: string | null;
   template_code?: string | null;
   capabilities_version?: number;
+  operational_status?: string;
+  expected_reading_interval_minutes?: number | null;
   empty_distance_cm?: number | null;
   full_distance_cm?: number | null;
   is_active: boolean;
@@ -132,6 +206,7 @@ export type DashboardMetric = {
   physical_max: number | null;
   default_decimals: number;
   default_chart_type: string;
+  aggregation_strategy: "avg" | "sum" | "min" | "max" | "last" | "circular_mean";
   client_visibility: boolean;
   is_derived: boolean;
   calibration_method: string | null;
@@ -152,7 +227,7 @@ export type DeviceDashboardSchema = {
   device_id: number;
   device_external_id: string;
   device_name: string;
-  device_profile: "silo_sensor" | "field_sensor";
+  device_profile: "silo_sensor" | "field_sensor" | "rain_gauge";
   template_code: string | null;
   channels: SensorChannel[];
   metrics: DashboardMetric[];
@@ -692,6 +767,7 @@ export type ViewKey =
   | "pilots"
   | "companies"
   | "storage"
+  | "pluviometry"
   | "silos"
   | "fields"
   | "sensors"

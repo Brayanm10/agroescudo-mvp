@@ -23,7 +23,7 @@ from app.models import (
 )
 from app.schemas import IotBatchReadingIn, IotMetricIn
 from app.services.device_capabilities import channel_accepts_metric
-from app.services.telemetry import sensor_profile
+from app.services.telemetry import product_code_for_device
 
 
 @dataclass(frozen=True, slots=True)
@@ -44,7 +44,7 @@ def validate_explicit_metrics(
         return None
     channels = _channels_by_key(db, device.id)
     seen: set[tuple[str, str]] = set()
-    profile_code = "CAMPO_SENSOR" if sensor_profile(device) == "field_sensor" else "SILO_SENSOR"
+    profile_code = product_code_for_device(device)
     for metric in reading.metrics:
         key = (metric.channel_key, metric.metric_code)
         if key in seen:
@@ -58,7 +58,9 @@ def validate_explicit_metrics(
         definition = METRICS_BY_CODE.get(metric.metric_code)
         if definition is None:
             return f"Metrica no canonica: {metric.metric_code}"
-        if definition.is_derived:
+        if definition.is_derived and not (
+            profile_code == "RAIN_GAUGE" and metric.metric_code == "BATTERY_PERCENT"
+        ):
             return f"La metrica derivada {metric.metric_code} debe calcularse en backend"
         if not channel_accepts_metric(channel, metric.metric_code):
             return f"La metrica {metric.metric_code} no pertenece al canal {metric.channel_key}"
@@ -72,6 +74,8 @@ def validate_explicit_metrics(
         if definition.physical_min is not None and metric.raw_value < definition.physical_min:
             return f"{metric.metric_code} fuera de rango fisico"
         if definition.physical_max is not None and metric.raw_value > definition.physical_max:
+            return f"{metric.metric_code} fuera de rango fisico"
+        if metric.metric_code == "WIND_DIRECTION_DEG" and metric.raw_value >= 360:
             return f"{metric.metric_code} fuera de rango fisico"
     return None
 

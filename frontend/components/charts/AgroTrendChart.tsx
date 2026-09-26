@@ -16,6 +16,7 @@ import {
   YAxis
 } from "recharts";
 import type { DeviceChartAction, DeviceChartEvent, MetricDataGap } from "@/lib/types";
+import { formatChartTimeInTimeZone, parseUtcTimestamp } from "@/lib/format";
 import { AgroChartTooltip } from "./AgroChartTooltip";
 import {
   buildAgroChartData,
@@ -44,6 +45,8 @@ export type AgroTrendChartProps = {
   resolutionLabel?: string;
   variant?: "primary" | "secondary" | "compact";
   percentage?: boolean;
+  hideStats?: boolean;
+  timeZone?: string;
 };
 
 export function AgroTrendChart({
@@ -62,7 +65,9 @@ export function AgroTrendChart({
   periodLabel,
   resolutionLabel,
   variant = "secondary",
-  percentage = false
+  percentage = false,
+  hideStats = false,
+  timeZone
 }: AgroTrendChartProps) {
   const gradientId = `agro-${useId().replaceAll(":", "")}`;
   const data = buildAgroChartData(points, gaps, events, actions);
@@ -85,7 +90,7 @@ export function AgroTrendChart({
   if (!valid.length) return <AgroChartEmptyState title={title} />;
 
   return (
-    <section className="overflow-hidden rounded-lg border border-emerald-950/10 bg-white shadow-[0_12px_38px_rgba(2,60,46,0.07)]">
+    <section className="overflow-hidden rounded-lg border border-emerald-950/10 bg-white shadow-[0_12px_38px_rgba(2,60,46,0.07)]" aria-label={`${title}: serie histórica con ${valid.length} puntos válidos`}>
       <header className="flex flex-col gap-5 border-b border-emerald-950/8 px-5 py-5 sm:flex-row sm:items-start sm:justify-between lg:px-6">
         <div className="min-w-0">
           <p className="text-[10px] font-black uppercase tracking-[0.14em] text-emerald-800">{eyebrow}</p>
@@ -119,8 +124,8 @@ export function AgroTrendChart({
             {gaps.map((gap, index) => (
               <ReferenceArea
                 key={`${gap.from}-${index}`}
-                x1={new Date(gap.from).getTime()}
-                x2={new Date(gap.to).getTime()}
+                x1={parseUtcTimestamp(gap.from).getTime()}
+                x2={parseUtcTimestamp(gap.to).getTime()}
                 fill="#94a3b8"
                 fillOpacity={0.07}
                 ifOverflow="hidden"
@@ -132,13 +137,13 @@ export function AgroTrendChart({
               domain={["dataMin", "dataMax"]}
               scale="time"
               minTickGap={42}
-              tickFormatter={(value) => formatAxisTime(Number(value), span)}
+              tickFormatter={(value) => formatAxisTime(Number(value), span, timeZone)}
               tick={{ fontSize: 10, fill: "#69736f" }}
               tickLine={false}
               axisLine={false}
             />
             <YAxis domain={domain} width={46} tick={{ fontSize: 10, fill: "#69736f" }} tickLine={false} axisLine={false} />
-            <Tooltip content={<AgroChartTooltip unit={unit} decimals={decimals} thresholds={thresholds} />} />
+            <Tooltip content={<AgroChartTooltip unit={unit} decimals={decimals} thresholds={thresholds} timeZone={timeZone} />} />
             <ThresholdLines thresholds={thresholds} unit={unit} />
             {maxPoint ? <ReferenceDot x={maxPoint.at} y={summary.maximum!} r={4.5} fill="#d99a00" stroke="#fff" strokeWidth={2.5} /> : null}
             {data.flatMap((point) => point.events.map((event) => (
@@ -173,14 +178,14 @@ export function AgroTrendChart({
         </ResponsiveContainer>
       </div>
 
-      <div className="grid grid-cols-2 divide-x divide-y divide-emerald-950/8 border-t border-emerald-950/8 sm:grid-cols-4 sm:divide-y-0">
+      {!hideStats ? <div className="grid grid-cols-2 divide-x divide-y divide-emerald-950/8 border-t border-emerald-950/8 sm:grid-cols-4 sm:divide-y-0">
         <ChartStat label="Mínimo" value={formatValue(summary.minimum, decimals, unit)} />
         <ChartStat label="Promedio" value={formatValue(summary.average, decimals, unit)} />
         <ChartStat label="Máximo" value={formatValue(summary.maximum, decimals, unit)} emphasis />
         <ChartStat label="Variación" value={formatSigned(summary.change, decimals, unit)} trend={summary.change} />
-      </div>
+      </div> : null}
 
-      <AnnotationRail events={events} actions={actions} gaps={gaps} />
+      <AnnotationRail events={events} actions={actions} gaps={gaps} timeZone={timeZone} />
       {!hasThresholds ? (
         <div className="flex items-center gap-2 border-t border-emerald-950/8 px-5 py-3 text-xs font-semibold text-slate-500">
           <CircleAlert size={15} aria-hidden="true" />
@@ -215,20 +220,20 @@ function ThresholdLines({ thresholds, unit }: { thresholds: AgroChartThresholds;
   ))}</>;
 }
 
-function AnnotationRail({ events, actions, gaps }: { events: DeviceChartEvent[]; actions: DeviceChartAction[]; gaps: MetricDataGap[] }) {
+function AnnotationRail({ events, actions, gaps, timeZone }: { events: DeviceChartEvent[]; actions: DeviceChartAction[]; gaps: MetricDataGap[]; timeZone?: string }) {
   if (!events.length && !actions.length && !gaps.length) return null;
   return (
     <div className="flex flex-wrap gap-2 border-t border-emerald-950/8 px-5 py-3" aria-label="Eventos de la gráfica">
       {events.slice(0, 4).map((event) => (
         <span key={`event-${event.id}`} className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[11px] font-bold ${event.severity === "critical" ? "bg-rose-50 text-rose-800" : "bg-amber-50 text-amber-800"}`}>
           <span className="h-2 w-2 rounded-full bg-current" aria-hidden="true" />
-          {formatAnnotationDate(event.timestamp)} · {event.title}
+          {formatAnnotationDate(event.timestamp, timeZone)} · {event.title}
         </span>
       ))}
       {actions.slice(0, 4).map((action) => (
         <span key={`action-${action.id}`} className="inline-flex items-center gap-1.5 rounded-md bg-emerald-50 px-2.5 py-1.5 text-[11px] font-bold text-emerald-800">
           <span className="h-2 w-2 rounded-full bg-current" aria-hidden="true" />
-          {formatAnnotationDate(action.timestamp)} · {action.title}
+          {formatAnnotationDate(action.timestamp, timeZone)} · {action.title}
         </span>
       ))}
       {gaps.slice(0, 2).map((gap) => (
@@ -262,12 +267,12 @@ function AgroChartEmptyState({ title }: { title: string }) {
   );
 }
 
-function formatAxisTime(value: number, span: number) {
-  return new Intl.DateTimeFormat("es-BO", span > 3 * 86400000 ? { day: "2-digit", month: "short" } : { hour: "2-digit", minute: "2-digit" }).format(new Date(value));
+function formatAxisTime(value: number, span: number, timeZone?: string) {
+  return formatChartTimeInTimeZone(value, timeZone, span > 3 * 86400000 ? { day: "2-digit", month: "short" } : { hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
 }
 
-function formatAnnotationDate(value: string) {
-  return new Intl.DateTimeFormat("es-BO", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }).format(new Date(value));
+function formatAnnotationDate(value: string, timeZone?: string) {
+  return formatChartTimeInTimeZone(value, timeZone, { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
 }
 
 function formatValue(value: number | null, decimals: number, unit: string) {

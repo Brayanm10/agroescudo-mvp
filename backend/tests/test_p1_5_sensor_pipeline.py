@@ -100,17 +100,22 @@ def _prepare_device(db_session):
 
 
 def test_registry_ids_and_codes_are_unique_and_stable():
-    assert len(METRIC_REGISTRY) == 15
+    assert len(METRIC_REGISTRY) == 18
     assert len(METRICS_BY_ID) == len(METRIC_REGISTRY)
     assert len(METRICS_BY_CODE) == len(METRIC_REGISTRY)
     assert METRICS_BY_ID[1].metric_code == "GRAIN_TEMPERATURE_C"
     assert METRICS_BY_ID[3].metric_code == "AMBIENT_RELATIVE_HUMIDITY_PCT"
     assert METRICS_BY_ID[6].metric_code == "LEVEL_DISTANCE_MM"
     assert METRICS_BY_ID[15].metric_code == "TIME_QUALITY"
+    assert METRICS_BY_ID[16].metric_code == "RAIN_DELTA_MM"
+    assert METRICS_BY_ID[18].metric_code == "WIND_DIRECTION_DEG"
 
 
 def test_explicit_metrics_dual_write_without_positional_mapping(client, db_session):
     device = _prepare_device(db_session)
+    device.operational_status = "awaiting_first_reading"
+    device.last_seen_at = None
+    db_session.commit()
     response = _post_event(client, sequence=4101)
 
     assert response.status_code == 200
@@ -121,6 +126,8 @@ def test_explicit_metrics_dual_write_without_positional_mapping(client, db_sessi
     ).all()
     legacy = db_session.scalar(select(SensorReading))
     assert event.device_id == device.id
+    assert device.last_seen_at is not None
+    assert device.operational_status == "operational"
     assert {(row.metric_code, row.raw_value) for row in rows} == {
         ("GRAIN_TEMPERATURE_C", 25.4),
         ("AMBIENT_RELATIVE_HUMIDITY_PCT", 63.2),

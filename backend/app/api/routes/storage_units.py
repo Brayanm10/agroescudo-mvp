@@ -62,6 +62,7 @@ def create_storage_unit(
         surface_hectares=payload.surface_hectares,
         location=payload.location,
         crop_type=payload.crop_type,
+        boundary_geojson=payload.boundary_geojson,
         assigned_technician_id=payload.assigned_technician_id,
         assigned_client_id=payload.assigned_client_id,
     )

@@ -1,12 +1,14 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import {
   AlertTriangle,
   BarChart3,
   BellRing,
   Building2,
   Camera,
+  CloudRain,
   ClipboardCheck,
   ClipboardList,
   Cpu,
@@ -28,9 +30,10 @@ import {
   X
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { PLUVIOMETRY_LABEL, PLUVIOMETRY_ROUTE } from "@/lib/navigation";
 import type { UserRole, ViewKey } from "@/lib/types";
 
-type NavItem = { key: ViewKey; label: string; icon: LucideIcon };
+type NavItem = { key: ViewKey; label: string; icon: LucideIcon; href?: string };
 type NavGroup = { title: string; items: NavItem[] };
 
 const adminGroups: NavGroup[] = [
@@ -43,6 +46,7 @@ const adminGroups: NavGroup[] = [
     items: [
       { key: "companies", label: "Empresas y sitios", icon: Building2 },
       { key: "storage", label: "Unidades monitoreadas", icon: Factory },
+      { key: "pluviometry", label: PLUVIOMETRY_LABEL, icon: CloudRain, href: PLUVIOMETRY_ROUTE },
       { key: "sensors", label: "Dispositivos", icon: Cpu },
       { key: "alerts", label: "Alertas e incidentes", icon: AlertTriangle },
       { key: "logs", label: "Bitacora", icon: ClipboardList },
@@ -90,6 +94,7 @@ const clientGroups: NavGroup[] = [
     items: [
       { key: "dashboard", label: "Inicio", icon: LayoutDashboard },
       { key: "sites", label: "Mi operacion", icon: Factory },
+      { key: "pluviometry", label: PLUVIOMETRY_LABEL, icon: CloudRain, href: PLUVIOMETRY_ROUTE },
       { key: "alerts", label: "Alertas", icon: AlertTriangle },
       { key: "reports", label: "Reportes", icon: BarChart3 },
       { key: "support", label: "AgroAsistente", icon: Headphones }
@@ -103,6 +108,7 @@ const technicianGroups: NavGroup[] = [
     items: [
       { key: "dashboard", label: "Inicio", icon: LayoutDashboard },
       { key: "sites", label: "Unidades asignadas", icon: Factory },
+      { key: "pluviometry", label: PLUVIOMETRY_LABEL, icon: CloudRain, href: PLUVIOMETRY_ROUTE },
       { key: "sensors", label: "Dispositivos", icon: Cpu },
       { key: "alerts", label: "Alertas tecnicas", icon: AlertTriangle },
       { key: "maintenance", label: "Mantenimiento", icon: Wrench },
@@ -196,21 +202,37 @@ export function Sidebar({
               {group.items.map((item) => {
                 const Icon = item.icon;
                 const active = current === item.key;
-                return (
-                  <button
-                    key={item.key}
-                    type="button"
-                    onClick={() => navigate(item.key)}
-                    className={`group flex w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-left text-sm font-bold transition ${
-                      active
-                        ? "bg-white text-emeraldInk shadow-soft"
-                        : "text-emerald-50/70 hover:bg-white/10 hover:text-white"
-                    }`}
-                  >
+                const classes = `group flex w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-left text-sm font-bold transition ${
+                  active
+                    ? "bg-white text-emeraldInk shadow-soft"
+                    : "text-emerald-50/70 hover:bg-white/10 hover:text-white"
+                }`;
+                const content = (
+                  <>
                     <span className={`flex h-8 w-8 items-center justify-center rounded-lg transition ${active ? "bg-emerald-50 text-emeraldDeep" : "bg-white/5 text-emerald-50/70 group-hover:bg-white/10 group-hover:text-white"}`}>
                       <Icon size={17} aria-hidden="true" />
                     </span>
                     <span>{item.label}</span>
+                  </>
+                );
+                return item.href ? (
+                  <Link
+                    key={item.key}
+                    href={item.href}
+                    onClick={() => setMobileOpen(false)}
+                    className={classes}
+                    aria-current={active ? "page" : undefined}
+                  >
+                    {content}
+                  </Link>
+                ) : (
+                  <button
+                    key={item.key}
+                    type="button"
+                    onClick={() => navigate(item.key)}
+                    className={classes}
+                  >
+                    {content}
                   </button>
                 );
               })}

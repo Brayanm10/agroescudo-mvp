@@ -4,9 +4,10 @@ from dataclasses import asdict, dataclass
 from typing import Final, Literal
 
 
-REGISTRY_VERSION: Final[int] = 1
+REGISTRY_VERSION: Final[int] = 2
 
-ProductCode = Literal["SILO_SENSOR", "CAMPO_SENSOR", "GATEWAY", "ALL"]
+ProductCode = Literal["SILO_SENSOR", "CAMPO_SENSOR", "RAIN_GAUGE", "GATEWAY", "ALL"]
+AggregationStrategy = Literal["avg", "sum", "min", "max", "last", "circular_mean"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -22,6 +23,7 @@ class MetricSpec:
     physical_max: float | None
     default_decimals: int
     default_chart_type: str
+    aggregation_strategy: AggregationStrategy
     product_compatibility: tuple[ProductCode, ...]
     client_visibility: bool
     is_derived: bool
@@ -30,28 +32,38 @@ class MetricSpec:
     display_order: int
 
     def as_record(self) -> dict[str, object]:
+        """Legacy-compatible record used by the original P1.5 migration."""
         record = asdict(self)
+        record.pop("aggregation_strategy")
         record["product_compatibility"] = ",".join(self.product_compatibility)
         record["registry_version"] = REGISTRY_VERSION
         return record
 
+    def as_definition_record(self) -> dict[str, object]:
+        record = self.as_record()
+        record["aggregation_strategy"] = self.aggregation_strategy
+        return record
+
 
 METRIC_REGISTRY: Final[tuple[MetricSpec, ...]] = (
-    MetricSpec(1, "GRAIN_TEMPERATURE_C", "Temperatura de grano", "Temperatura interna de la masa almacenada.", "degC", "float", 0.01, -40, 100, 2, "line", ("SILO_SENSOR",), True, False, "OFFSET", True, 10),
-    MetricSpec(2, "AMBIENT_TEMPERATURE_C", "Temperatura ambiente", "Temperatura del aire en el punto monitoreado.", "degC", "float", 0.01, -40, 80, 2, "line", ("SILO_SENSOR", "CAMPO_SENSOR"), True, False, "OFFSET", True, 20),
-    MetricSpec(3, "AMBIENT_RELATIVE_HUMIDITY_PCT", "Humedad ambiente", "Humedad relativa ambiental.", "percent", "float", 0.01, 0, 100, 2, "line", ("SILO_SENSOR", "CAMPO_SENSOR"), True, False, "OFFSET", True, 30),
-    MetricSpec(4, "SOIL_MOISTURE_RAW", "Humedad de suelo raw", "Lectura cruda ADC del sensor de suelo.", "ADC_RAW", "integer", 1, 0, 4095, 0, "line", ("CAMPO_SENSOR",), False, False, None, False, 40),
-    MetricSpec(5, "SOIL_MOISTURE_PCT", "Humedad de suelo", "Porcentaje derivado desde lectura ADC calibrada.", "percent", "float", 0.01, 0, 100, 1, "line", ("CAMPO_SENSOR",), True, True, "LINEAR_TWO_POINT", True, 50),
-    MetricSpec(6, "LEVEL_DISTANCE_MM", "Distancia de nivel", "Distancia del sensor a la superficie del producto.", "mm", "float", 1, 20, 20000, 0, "line", ("SILO_SENSOR",), True, False, "LEVEL_GEOMETRY", True, 60),
-    MetricSpec(7, "LEVEL_PERCENT", "Nivel estimado", "Altura ocupada derivada de la geometria configurada.", "percent", "float", 0.01, 0, 100, 1, "area", ("SILO_SENSOR",), True, True, "LEVEL_GEOMETRY", True, 70),
-    MetricSpec(8, "BATTERY_VOLTAGE_MV", "Voltaje de bateria", "Tension medida en milivoltios.", "mV", "integer", 1, 0, 6000, 0, "line", ("SILO_SENSOR", "CAMPO_SENSOR", "GATEWAY"), True, False, None, True, 80),
-    MetricSpec(9, "BATTERY_PERCENT", "Bateria estimada", "Porcentaje derivado mediante curva de descarga configurada.", "percent", "float", 0.01, 0, 100, 0, "line", ("SILO_SENSOR", "CAMPO_SENSOR", "GATEWAY"), True, True, "BATTERY_CURVE", True, 90),
-    MetricSpec(10, "SIGNAL_RSSI_DBM", "RSSI", "Potencia de senal recibida por el gateway.", "dBm", "integer", 1, -160, 20, 0, "line", ("GATEWAY",), False, False, None, True, 100),
-    MetricSpec(11, "SIGNAL_SNR_DB", "SNR", "Relacion senal a ruido observada por el gateway.", "dB", "float", 0.1, -40, 30, 1, "line", ("GATEWAY",), False, False, None, True, 110),
-    MetricSpec(12, "DEVICE_INTERNAL_TEMPERATURE_C", "Temperatura interna del nodo", "Temperatura interna, solo cuando existe un sensor fisico.", "degC", "float", 0.01, -40, 125, 2, "line", ("SILO_SENSOR", "CAMPO_SENSOR", "GATEWAY"), False, False, "OFFSET", True, 120),
-    MetricSpec(13, "GATEWAY_QUEUE_SIZE", "Cola del gateway", "Cantidad de eventos pendientes de entrega.", "count", "integer", 1, 0, None, 0, "bar", ("GATEWAY",), False, False, None, True, 130),
-    MetricSpec(14, "SENSOR_STATUS_FLAGS", "Estado de sensores", "Mascara de estados reportados por el nodo.", "flags", "integer", 1, 0, 65535, 0, "status", ("SILO_SENSOR", "CAMPO_SENSOR"), False, False, None, True, 140),
-    MetricSpec(15, "TIME_QUALITY", "Calidad temporal", "Fuente y confiabilidad del timestamp.", "code", "integer", 1, 0, 255, 0, "status", ("SILO_SENSOR", "CAMPO_SENSOR", "GATEWAY"), False, False, None, False, 150),
+    MetricSpec(1, "GRAIN_TEMPERATURE_C", "Temperatura de grano", "Temperatura interna de la masa almacenada.", "degC", "float", 0.01, -40, 100, 2, "line", "avg", ("SILO_SENSOR",), True, False, "OFFSET", True, 10),
+    MetricSpec(2, "AMBIENT_TEMPERATURE_C", "Temperatura ambiente", "Temperatura del aire en el punto monitoreado.", "degC", "float", 0.01, -40, 80, 2, "line", "avg", ("SILO_SENSOR", "CAMPO_SENSOR", "RAIN_GAUGE"), True, False, "OFFSET", True, 20),
+    MetricSpec(3, "AMBIENT_RELATIVE_HUMIDITY_PCT", "Humedad ambiente", "Humedad relativa ambiental.", "percent", "float", 0.01, 0, 100, 2, "line", "avg", ("SILO_SENSOR", "CAMPO_SENSOR", "RAIN_GAUGE"), True, False, "OFFSET", True, 30),
+    MetricSpec(4, "SOIL_MOISTURE_RAW", "Humedad de suelo raw", "Lectura cruda ADC del sensor de suelo.", "ADC_RAW", "integer", 1, 0, 4095, 0, "line", "avg", ("CAMPO_SENSOR",), False, False, None, False, 40),
+    MetricSpec(5, "SOIL_MOISTURE_PCT", "Humedad de suelo", "Porcentaje derivado desde lectura ADC calibrada.", "percent", "float", 0.01, 0, 100, 1, "line", "avg", ("CAMPO_SENSOR",), True, True, "LINEAR_TWO_POINT", True, 50),
+    MetricSpec(6, "LEVEL_DISTANCE_MM", "Distancia de nivel", "Distancia del sensor a la superficie del producto.", "mm", "float", 1, 20, 20000, 0, "line", "avg", ("SILO_SENSOR",), True, False, "LEVEL_GEOMETRY", True, 60),
+    MetricSpec(7, "LEVEL_PERCENT", "Nivel estimado", "Altura ocupada derivada de la geometria configurada.", "percent", "float", 0.01, 0, 100, 1, "area", "avg", ("SILO_SENSOR",), True, True, "LEVEL_GEOMETRY", True, 70),
+    MetricSpec(8, "BATTERY_VOLTAGE_MV", "Voltaje de bateria", "Tension medida en milivoltios.", "mV", "integer", 1, 0, 6000, 0, "line", "avg", ("SILO_SENSOR", "CAMPO_SENSOR", "GATEWAY"), True, False, None, True, 80),
+    MetricSpec(9, "BATTERY_PERCENT", "Bateria estimada", "Porcentaje de bateria reportado o derivado.", "percent", "float", 0.01, 0, 100, 0, "line", "last", ("SILO_SENSOR", "CAMPO_SENSOR", "RAIN_GAUGE", "GATEWAY"), True, True, "BATTERY_CURVE", True, 90),
+    MetricSpec(10, "SIGNAL_RSSI_DBM", "RSSI", "Potencia de senal recibida por el gateway.", "dBm", "integer", 1, -160, 20, 0, "line", "avg", ("GATEWAY",), False, False, None, True, 100),
+    MetricSpec(11, "SIGNAL_SNR_DB", "SNR", "Relacion senal a ruido observada por el gateway.", "dB", "float", 0.1, -40, 30, 1, "line", "avg", ("GATEWAY",), False, False, None, True, 110),
+    MetricSpec(12, "DEVICE_INTERNAL_TEMPERATURE_C", "Temperatura interna del nodo", "Temperatura interna, solo cuando existe un sensor fisico.", "degC", "float", 0.01, -40, 125, 2, "line", "avg", ("SILO_SENSOR", "CAMPO_SENSOR", "GATEWAY"), False, False, "OFFSET", True, 120),
+    MetricSpec(13, "GATEWAY_QUEUE_SIZE", "Cola del gateway", "Cantidad de eventos pendientes de entrega.", "count", "integer", 1, 0, None, 0, "bar", "avg", ("GATEWAY",), False, False, None, True, 130),
+    MetricSpec(14, "SENSOR_STATUS_FLAGS", "Estado de sensores", "Mascara de estados reportados por el nodo.", "flags", "integer", 1, 0, 65535, 0, "status", "avg", ("SILO_SENSOR", "CAMPO_SENSOR"), False, False, None, True, 140),
+    MetricSpec(15, "TIME_QUALITY", "Calidad temporal", "Fuente y confiabilidad del timestamp.", "code", "integer", 1, 0, 255, 0, "status", "avg", ("SILO_SENSOR", "CAMPO_SENSOR", "GATEWAY"), False, False, None, False, 150),
+    MetricSpec(16, "RAIN_DELTA_MM", "Precipitacion incremental", "Incremento de precipitacion desde la lectura anterior.", "mm", "float", 1, 0, None, 2, "bar", "sum", ("RAIN_GAUGE",), True, False, None, True, 160),
+    MetricSpec(17, "WIND_SPEED_KMH", "Velocidad del viento", "Velocidad del viento medida en kilometros por hora.", "km/h", "float", 1, 0, None, 1, "line", "avg", ("RAIN_GAUGE",), True, False, None, True, 170),
+    MetricSpec(18, "WIND_DIRECTION_DEG", "Direccion del viento", "Direccion meteorologica del viento en grados.", "degree", "float", 1, 0, 360, 0, "line", "circular_mean", ("RAIN_GAUGE",), True, False, None, False, 180),
 )
 
 METRICS_BY_CODE: Final = {item.metric_code: item for item in METRIC_REGISTRY}

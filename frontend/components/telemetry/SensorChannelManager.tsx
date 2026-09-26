@@ -40,13 +40,13 @@ export function SensorChannelManager({
           <p className="section-kicker">Configuración técnica</p>
           <h3 className="mt-1 font-black text-slate-950">Sensores y gráficas</h3>
         </div>
-        <button type="button" className="btn-secondary" onClick={() => setShowAdd((value) => !value)}>
+        {schema.device_profile !== "rain_gauge" ? <button type="button" className="btn-secondary" onClick={() => setShowAdd((value) => !value)}>
           <Plus className="mr-2" size={16} />
           Agregar sensor
-        </button>
+        </button> : null}
       </div>
       {error ? <p className="mt-3 rounded-lg bg-red-50 p-3 text-sm font-semibold text-red-700">{error}</p> : null}
-      {showAdd ? (
+      {showAdd && schema.device_profile !== "rain_gauge" ? (
         <AddChannelForm
           profile={schema.device_profile}
           onCancel={() => setShowAdd(false)}

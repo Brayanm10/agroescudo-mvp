@@ -28,7 +28,7 @@ from app.schemas import (
 from app.services.audit import record_audit_event
 from app.services.chart_context import build_device_chart_context
 from app.services.device_capabilities import channel_accepts_metric, channel_metric_codes
-from app.services.telemetry import sensor_profile
+from app.services.telemetry import product_code_for_device, sensor_profile
 from app.services.telemetry_queries import query_metric_readings
 
 router = APIRouter(prefix="/devices", dependencies=[Depends(get_current_user)])
@@ -127,6 +127,7 @@ def get_dashboard_schema(
                             "physical_max",
                             "default_decimals",
                             "default_chart_type",
+                            "aggregation_strategy",
                             "client_visibility",
                             "is_derived",
                             "calibration_method",
@@ -251,7 +252,7 @@ def create_device_channel(
         )
     ):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="El channel_key ya existe.")
-    profile_code = "CAMPO_SENSOR" if sensor_profile(device) == "field_sensor" else "SILO_SENSOR"
+    profile_code = product_code_for_device(device)
     definitions = []
     for metric_code in payload.metric_codes:
         definition = METRICS_BY_CODE.get(metric_code)

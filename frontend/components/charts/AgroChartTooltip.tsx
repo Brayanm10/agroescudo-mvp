@@ -1,18 +1,21 @@
 import type { AgroChartDatum, AgroChartThresholds } from "./chart-model";
 import { conditionFor } from "./chart-model";
+import { formatDateTimeInTimeZone } from "@/lib/format";
 
 export function AgroChartTooltip({
   active,
   payload,
   unit,
   decimals,
-  thresholds
+  thresholds,
+  timeZone
 }: {
   active?: boolean;
   payload?: Array<{ payload?: AgroChartDatum }>;
   unit: string;
   decimals: number;
   thresholds: AgroChartThresholds;
+  timeZone?: string;
 }) {
   const point = payload?.[0]?.payload;
   if (!active || !point || point.value === null) return null;
@@ -23,7 +26,7 @@ export function AgroChartTooltip({
     critical: "bg-rose-50 text-rose-800",
     muted: "bg-slate-100 text-slate-600"
   }[condition.tone];
-  const date = new Intl.DateTimeFormat("es-BO", { dateStyle: "medium", timeStyle: "short" }).format(new Date(point.timestamp));
+  const date = formatDateTimeInTimeZone(point.timestamp, timeZone);
   return (
     <div className="max-w-[280px] rounded-xl border border-emerald-950/10 bg-[#fbfaf6] p-3.5 text-left shadow-[0_16px_36px_rgba(2,60,46,0.14)]">
       <p className="text-[11px] font-bold text-slate-500">{date}</p>

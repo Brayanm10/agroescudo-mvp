@@ -41,6 +41,7 @@ from app.schemas import (
     UserProfileUpdate,
 )
 from app.services.audit import record_audit_event
+from app.services.company_features import enabled_features_for_user
 from app.services.email import EmailConfigurationError, send_transactional_email
 from app.services.sentinel import upsert_alert_contact
 
@@ -342,8 +343,9 @@ def reset_password(payload: PasswordResetPublicIn, db: Session = Depends(get_db)
 
 
 @router.get("/me", response_model=UserOut)
-def me(current_user: User = Depends(get_current_user)) -> User:
-    return current_user
+def me(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> UserOut:
+    output = UserOut.model_validate(current_user)
+    return output.model_copy(update={"features": enabled_features_for_user(db, current_user)})
 
 
 @router.patch("/me", response_model=UserOut)

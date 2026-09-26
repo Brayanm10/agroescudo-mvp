@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import math
+from datetime import datetime, timezone
 
 from app.models import Device, SensorReading, User
 from app.schemas import MetricValueOut, ReadingOut, SensorReadingCreate
 
 SILO_SENSOR_TYPES = {"silo_sensor", "esp32_iot_node", "esp32_lora_wifi_node", "esp32_lora_node"}
 FIELD_SENSOR_TYPES = {"field_sensor"}
+RAIN_GAUGE_TYPES = {"rain_gauge"}
 MAX_ULTRASONIC_DISTANCE_CM = 2000.0
 
 
@@ -14,15 +16,57 @@ def sensor_profile(device: Device) -> str:
     normalized = (device.device_type or "").strip().lower()
     if normalized in FIELD_SENSOR_TYPES:
         return "field_sensor"
-    return "silo_sensor"
+    if normalized in RAIN_GAUGE_TYPES:
+        return "rain_gauge"
+    if normalized in SILO_SENSOR_TYPES:
+        return "silo_sensor"
+    return "unknown"
 
 
 def validate_device_unit_compatibility(device_type: str, operation_type: str) -> None:
-    profile = "field_sensor" if device_type.strip().lower() == "field_sensor" else "silo_sensor"
-    expected = "field" if profile == "field_sensor" else "storage"
+    normalized = device_type.strip().lower()
+    if normalized in FIELD_SENSOR_TYPES:
+        profile = "field_sensor"
+    elif normalized in RAIN_GAUGE_TYPES:
+        profile = "rain_gauge"
+    elif normalized in SILO_SENSOR_TYPES:
+        profile = "silo_sensor"
+    else:
+        raise ValueError("El tipo de dispositivo no esta registrado.")
+    expected = "field" if profile in {"field_sensor", "rain_gauge"} else "storage"
     if operation_type != expected:
         label = "parcela/campo" if expected == "field" else "silo/almacenamiento"
         raise ValueError(f"El dispositivo solo puede registrarse en una unidad de tipo {label}.")
+
+
+def product_code_for_device(device: Device) -> str:
+    return {
+        "silo_sensor": "SILO_SENSOR",
+        "field_sensor": "CAMPO_SENSOR",
+        "rain_gauge": "RAIN_GAUGE",
+    }.get(sensor_profile(device), "UNKNOWN")
+
+
+def device_communication_status(device: Device, now: datetime | None = None) -> str:
+    if not device.is_active:
+        return "OFFLINE"
+    if device.operational_status in {"degraded", "calibration_pending"}:
+        return "DEGRADED"
+    if device.last_seen_at is None:
+        return "OFFLINE"
+    interval = device.expected_reading_interval_minutes
+    if not interval:
+        return "ONLINE"
+    reference = now or datetime.now(timezone.utc)
+    last_seen = device.last_seen_at
+    if last_seen.tzinfo is None:
+        last_seen = last_seen.replace(tzinfo=timezone.utc)
+    age_minutes = (reference - last_seen.astimezone(timezone.utc)).total_seconds() / 60
+    if age_minutes > interval * 6:
+        return "OFFLINE"
+    if age_minutes > interval * 2:
+        return "DELAYED"
+    return "ONLINE"
 
 
 def calculate_level_percent(device: Device, distance_cm: float | None) -> float | None:

@@ -54,7 +54,8 @@ class CalibrationResult:
 def validate_variable_for_device(device: Device, variable_type: str) -> None:
     from app.services.telemetry import sensor_profile
 
-    allowed = FIELD_VARIABLES if sensor_profile(device) == "field_sensor" else SILO_VARIABLES
+    profile = sensor_profile(device)
+    allowed = FIELD_VARIABLES if profile == "field_sensor" else SILO_VARIABLES if profile == "silo_sensor" else set()
     if variable_type not in allowed:
         raise ValueError("La variable no es compatible con el tipo de dispositivo.")
 

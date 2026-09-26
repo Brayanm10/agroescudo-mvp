@@ -30,6 +30,7 @@ from app.api.routes import (
     operations,
     operational_logs,
     pilots,
+    pluviometry,
     readings,
     reports,
     telemetry,
@@ -67,6 +68,7 @@ app.include_router(alerts.router, prefix="/api", tags=["alerts"])
 app.include_router(operational_logs.router, prefix="/api", tags=["operational-logs"])
 app.include_router(reports.router, prefix="/api", tags=["reports"])
 app.include_router(pilots.router, prefix="/api", tags=["pilots"])
+app.include_router(pluviometry.router, prefix="/api", tags=["pluviometry"])
 app.include_router(users.router, prefix="/api", tags=["users"])
 app.include_router(demo.router, prefix="/api", tags=["demo"])
 app.include_router(notifications.router, prefix="/api", tags=["notifications"])

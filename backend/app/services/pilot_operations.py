@@ -24,6 +24,7 @@ from app.models import (
     User,
     utc_now,
 )
+from app.services.telemetry import device_communication_status
 from app.schemas import GatewayOut, PilotMetricsOut, SystemHealthOut
 
 GATEWAY_ONLINE_AFTER = timedelta(minutes=5)
@@ -350,21 +351,7 @@ def _devices(db: Session, unit_ids: list[int]) -> list[Device]:
 
 
 def _device_status(device: Device, now: datetime) -> str:
-    if not device.is_active:
-        return "OFFLINE"
-    if device.operational_status in {"degraded", "calibration_pending"}:
-        return "DEGRADED"
-    if device.last_seen_at is None:
-        return "UNKNOWN"
-    interval = device.expected_reading_interval_minutes
-    if not interval:
-        return "ONLINE"
-    age_minutes = (now - _aware(device.last_seen_at)).total_seconds() / 60
-    if age_minutes > interval * DEVICE_DELAYED_MULTIPLIER:
-        return "OFFLINE"
-    if age_minutes > interval * DEVICE_ONLINE_MULTIPLIER:
-        return "DELAYED"
-    return "ONLINE"
+    return device_communication_status(device, now)
 
 
 def _estimate_device_availability(

@@ -106,7 +106,11 @@ def scan_device_qr(
     )
     db.commit()
     profile = sensor_profile(device)
-    product_name = "AgroEscudo CampoSensor" if profile == "field_sensor" else "AgroEscudo SiloSensor"
+    product_name = {
+        "field_sensor": "AgroEscudo CampoSensor",
+        "rain_gauge": "AgroEscudo Pluviometro",
+        "silo_sensor": "AgroEscudo SiloSensor",
+    }.get(profile, "AgroEscudo Dispositivo")
     if current_user is None:
         return DeviceScanOut(
             authenticated=False,

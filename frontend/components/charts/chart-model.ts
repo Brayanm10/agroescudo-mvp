@@ -4,6 +4,7 @@ import type {
   MetricDataGap,
   MetricSeriesSummary
 } from "@/lib/types";
+import { parseUtcTimestamp } from "@/lib/format";
 
 export type AgroChartThresholds = {
   min?: number | null;
@@ -38,7 +39,7 @@ export function buildAgroChartData(
   const data = points
     .map((point) => ({
       ...point,
-      at: new Date(point.timestamp).getTime(),
+      at: parseUtcTimestamp(point.timestamp).getTime(),
       events: [] as DeviceChartEvent[],
       actions: [] as DeviceChartAction[],
       gap: false
@@ -49,7 +50,7 @@ export function buildAgroChartData(
   if (!data.length) return [];
   const realPoints = data.filter((point) => point.value !== null);
   const nearest = (timestamp: string) => {
-    const at = new Date(timestamp).getTime();
+    const at = parseUtcTimestamp(timestamp).getTime();
     return realPoints.reduce<AgroChartDatum | null>(
       (best, point) => !best || Math.abs(point.at - at) < Math.abs(best.at - at) ? point : best,
       null
@@ -59,8 +60,8 @@ export function buildAgroChartData(
   actions.forEach((action) => nearest(action.timestamp)?.actions.push(action));
 
   const gapPoints = gaps.flatMap((gap) => {
-    const from = new Date(gap.from).getTime();
-    const to = new Date(gap.to).getTime();
+    const from = parseUtcTimestamp(gap.from).getTime();
+    const to = parseUtcTimestamp(gap.to).getTime();
     if (!Number.isFinite(from) || !Number.isFinite(to) || to <= from) return [];
     return [
       { timestamp: new Date(from + 1).toISOString(), at: from + 1 },

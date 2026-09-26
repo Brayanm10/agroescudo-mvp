@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -59,6 +59,7 @@ import { CalibrationWizard } from "@/components/telemetry/CalibrationWizard";
 import { DynamicDeviceDashboard } from "@/components/telemetry/DynamicDeviceDashboard";
 import { TimeRangeControl } from "@/components/telemetry/TimeRangeControl";
 import { SentinelAdminView } from "@/components/sentinel/SentinelAdminView";
+import { CompanyFeatureToggle } from "@/components/admin/CompanyFeatureToggle";
 import {
   ComparisonView,
   EvidenceOperationsView,
@@ -125,19 +126,14 @@ import {
   verifyEmail
 } from "@/lib/api";
 import { formatDateTime, formatNumber, statusFromAlerts } from "@/lib/format";
-import { LatestRequest } from "@/lib/latest-request";
+import { allowedViewsForRole, defaultViewForRole } from "@/lib/navigation";
+import { storeSessionToken } from "@/lib/session";
+import { useAuthenticatedSession } from "@/hooks/useAuthenticatedSession";
 import type { Alert, AppData, Company, Device, DeviceChartAction, DeviceChartEvent, DeviceSummary, DeviceWithApiKey, NotificationDelivery, OperationalLog, Pilot, Reading, ReportDocumentType, ReportPeriod, RiskStatus, StorageUnit, StorageUnitInsight, Thresholds, User, UserRole, ViewKey, WeeklyReport } from "@/lib/types";
-
-const TOKEN_KEY = "agroescudo_token";
 
 function confirmSafeDelete(label: string) {
   if (!window.confirm(`Vas a retirar ${label} de la operación. Los históricos y la auditoría se conservarán. ¿Continuar?`)) return false;
   return window.confirm(`Confirmación final: ${label} dejará de aparecer en la operación activa. Esta acción no borra evidencia histórica.`);
-}
-
-function clearStoredSession() {
-  window.localStorage.removeItem(TOKEN_KEY);
-  window.sessionStorage.removeItem(TOKEN_KEY);
 }
 
 function loginErrorMessage(err: unknown) {
@@ -146,17 +142,6 @@ function loginErrorMessage(err: unknown) {
     if (err.status === 0) return err.message;
   }
   return "No se pudo iniciar sesión. Intenta nuevamente.";
-}
-
-function allowedViewsForRole(role: UserRole): ViewKey[] {
-  const accountViews: ViewKey[] = ["profile", "changePassword", "preferences"];
-  if (role === "admin") return ["dashboard", "demo", "pilots", "companies", "storage", "sensors", "sites", "alerts", "logs", "maintenance", "installations", "evidence", "systemHealth", "gateways", "sentinel", "pilotMetrics", "comparison", "firmware", "exports", "history", "reports", "support", "users", "thresholds", "notifications", ...accountViews];
-  if (role === "technician") return ["dashboard", "sites", "sensors", "alerts", "maintenance", "installations", "evidence", "systemHealth", "gateways", "comparison", "firmware", "exports", "logs", "support", ...accountViews];
-  return ["dashboard", "sites", "alerts", "reports", "support", ...accountViews];
-}
-
-function defaultViewForRole(): ViewKey {
-  return "dashboard";
 }
 
 function canAcknowledge(role: UserRole) {
@@ -250,68 +235,32 @@ function siteStatus(data: AppData, units: StorageUnit[]): RiskStatus {
 }
 
 export default function Home() {
-  const [token, setToken] = useState<string | null>(null);
-  const [data, setData] = useState<AppData | null>(null);
+  const session = useAuthenticatedSession<AppData>(loadAppData);
+  const { token, data, loading, error, sessionExpired, setError, refresh, authenticate, logout: endSession } = session;
   const [view, setView] = useState<ViewKey>("dashboard");
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [loginNotice, setLoginNotice] = useState<string | null>(null);
   const [busyAlertId, setBusyAlertId] = useState<number | null>(null);
-  const refreshSequence = useRef(new LatestRequest());
 
   useEffect(() => {
-    const stored = window.localStorage.getItem(TOKEN_KEY);
-    if (!stored) {
-      setLoading(false);
-      return;
-    }
-    setToken(stored);
-    refresh(stored);
-  }, []);
-
-  async function refresh(currentToken = token) {
-    if (!currentToken) return;
-    const sequence = refreshSequence.current.begin();
-    setLoading(true);
-    setError(null);
-    try {
-      const appData = await loadAppData(currentToken);
-      if (!refreshSequence.current.isCurrent(sequence)) return;
-      setData(appData);
-      const allowed = allowedViewsForRole(appData.me.role);
-      setView((current) => allowed.includes(current) ? current : defaultViewForRole());
-    } catch (err) {
-      if (!refreshSequence.current.isCurrent(sequence)) return;
-      if (err instanceof ApiError && err.status === 401) {
-        clearStoredSession();
-        setToken(null);
-        setData(null);
-        setView("dashboard");
-        setLoginNotice("Sesión vencida. Inicia sesión nuevamente.");
-        return;
-      }
-      setError(err instanceof Error ? err.message : "No se pudo cargar la API.");
-    } finally {
-      if (refreshSequence.current.isCurrent(sequence)) setLoading(false);
-    }
-  }
+    if (!data) return;
+    const allowed = allowedViewsForRole(data.me.role, data.me.features);
+    const requested = new URLSearchParams(window.location.search).get("view") as ViewKey | null;
+    setView((current) => requested && allowed.includes(requested)
+      ? requested
+      : allowed.includes(current) ? current : defaultViewForRole());
+    if (requested) window.history.replaceState({}, "", "/");
+  }, [data]);
 
   async function handleLogin(email: string, password: string) {
     setError(null);
     setLoginNotice(null);
     const response = await login(email, password);
-    window.localStorage.setItem(TOKEN_KEY, response.access_token);
-    setToken(response.access_token);
-    await refresh(response.access_token);
+    await authenticate(response.access_token);
   }
 
   function logout() {
-    refreshSequence.current.cancelAll();
-    clearStoredSession();
-    setToken(null);
-    setData(null);
+    endSession();
     setView("dashboard");
-    setError(null);
     setLoginNotice(null);
   }
 
@@ -324,7 +273,7 @@ export default function Home() {
       } else {
         await resolveAlert(token, alert.id);
       }
-      await refresh(token);
+      await refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudo actualizar la alerta.");
     } finally {
@@ -333,7 +282,7 @@ export default function Home() {
   }
 
   if (!token) {
-    return <LoginScreen onLogin={handleLogin} initialMessage={loginNotice} />;
+    return <LoginScreen onLogin={handleLogin} initialMessage={sessionExpired ? "Sesión vencida. Inicia sesión nuevamente." : loginNotice} />;
   }
 
   if (loading && !data) {
@@ -343,20 +292,20 @@ export default function Home() {
   if (!data) {
     return (
       <FullScreenShell>
-        <ErrorState message={error || "No se pudo cargar AgroEscudo."} onRetry={() => refresh()} />
+        <ErrorState message={error || "No se pudo cargar AgroEscudo."} onRetry={refresh} />
       </FullScreenShell>
     );
   }
 
-  const allowedViews = allowedViewsForRole(data.me.role);
+  const allowedViews = allowedViewsForRole(data.me.role, data.me.features);
   const viewAllowed = allowedViews.includes(view);
   const canAck = canAcknowledge(data.me.role);
   const canClose = canResolve(data.me.role);
   const canLog = canCreateOperationalLog(data.me.role);
 
   return (
-    <AppLayout current={view} onChange={setView} allowedViews={allowedViews} user={data.me} onLogout={logout} onRefresh={() => refresh()}>
-      {error ? <div className="mb-4"><ErrorState message={error} onRetry={() => refresh()} /></div> : null}
+    <AppLayout current={view} onChange={setView} allowedViews={allowedViews} user={data.me} onLogout={logout} onRefresh={refresh}>
+      {error ? <div className="mb-4"><ErrorState message={error} onRetry={refresh} /></div> : null}
       {loading ? <div className="mb-4"><LoadingState label="Actualizando datos" /></div> : null}
       {!viewAllowed ? <UnauthorizedState /> : null}
       {viewAllowed && view === "dashboard" ? (
@@ -369,12 +318,12 @@ export default function Home() {
           canCreateLog={canLog}
         />
       ) : null}
-      {viewAllowed && view === "demo" ? <DemoGuidedView data={data} token={token} onNavigate={setView} onRefresh={() => refresh(token)} /> : null}
-      {viewAllowed && view === "pilots" ? <PilotsView data={data} token={token} onChanged={() => refresh(token)} /> : null}
-      {viewAllowed && view === "companies" ? <AdminCompaniesAndSitesView data={data} token={token} onChanged={() => refresh(token)} /> : null}
-      {viewAllowed && view === "storage" ? <StorageUnitsAdminView data={data} token={token} onChanged={() => refresh(token)} /> : null}
+      {viewAllowed && view === "demo" ? <DemoGuidedView data={data} token={token} onNavigate={setView} onRefresh={refresh} /> : null}
+      {viewAllowed && view === "pilots" ? <PilotsView data={data} token={token} onChanged={refresh} /> : null}
+      {viewAllowed && view === "companies" ? <AdminCompaniesAndSitesView data={data} token={token} onChanged={refresh} /> : null}
+      {viewAllowed && view === "storage" ? <StorageUnitsAdminView data={data} token={token} onChanged={refresh} /> : null}
       {viewAllowed && view === "sensors" ? (
-        data.me.role === "admin" ? <SensorsAdminView data={data} token={token} onChanged={() => refresh(token)} /> : <DevicesStatusView data={data} />
+        data.me.role === "admin" ? <SensorsAdminView data={data} token={token} onChanged={refresh} /> : <DevicesStatusView data={data} />
       ) : null}
       {viewAllowed && view === "sites" ? <SitesView data={data} token={token} onOpenLogs={() => setView("logs")} canCreateLog={canLog} /> : null}
       {viewAllowed && view === "silos" ? <SitesView data={data} token={token} operationType="storage" onOpenLogs={() => setView("logs")} canCreateLog={canLog} /> : null}
@@ -387,7 +336,7 @@ export default function Home() {
           busyAlertId={busyAlertId}
         />
       ) : null}
-      {viewAllowed && view === "logs" ? <LogsView data={data} token={token} onChanged={() => refresh(token)} canCreateLog={canLog} /> : null}
+      {viewAllowed && view === "logs" ? <LogsView data={data} token={token} onChanged={refresh} canCreateLog={canLog} /> : null}
       {viewAllowed && view === "maintenance" ? <MaintenanceOperationsView data={data} token={token} /> : null}
       {viewAllowed && view === "installations" ? <InstallationOperationsView data={data} token={token} /> : null}
       {viewAllowed && view === "evidence" ? <EvidenceOperationsView data={data} token={token} /> : null}
@@ -400,15 +349,15 @@ export default function Home() {
       {viewAllowed && view === "exports" ? <ExportsView data={data} token={token} /> : null}
       {viewAllowed && view === "history" ? <HistoryView data={data} /> : null}
       {viewAllowed && view === "thresholds" ? (
-        canEditThresholds(data.me.role) ? <ThresholdsView devices={data.devices} token={token} onChanged={() => refresh(token)} /> : <UnauthorizedState />
+        canEditThresholds(data.me.role) ? <ThresholdsView devices={data.devices} token={token} onChanged={refresh} /> : <UnauthorizedState />
       ) : null}
       {viewAllowed && view === "reports" ? <ReportsView data={data} token={token} /> : null}
-      {viewAllowed && view === "users" ? <UsersAdminView data={data} token={token} onChanged={() => refresh(token)} /> : null}
+      {viewAllowed && view === "users" ? <UsersAdminView data={data} token={token} onChanged={refresh} /> : null}
       {viewAllowed && view === "notifications" ? <NotificationsAdminView data={data} token={token} /> : null}
       {viewAllowed && view === "support" ? <SupportView data={data} token={token} onNavigate={setView} /> : null}
-      {viewAllowed && view === "profile" ? <ProfileView data={data} token={token} onChanged={() => refresh(token)} /> : null}
+      {viewAllowed && view === "profile" ? <ProfileView data={data} token={token} onChanged={refresh} /> : null}
       {viewAllowed && view === "changePassword" ? <ChangePasswordView token={token} /> : null}
-      {viewAllowed && view === "preferences" ? <PreferencesView data={data} token={token} onChanged={() => refresh(token)} /> : null}
+      {viewAllowed && view === "preferences" ? <PreferencesView data={data} token={token} onChanged={refresh} /> : null}
     </AppLayout>
   );
 }
@@ -771,7 +720,7 @@ function InviteAcceptForm({
       const password = formValue(data, "password");
       onSubmit(async () => {
         const result = await acceptInvite({ token, full_name: fullName, password });
-        window.localStorage.setItem(TOKEN_KEY, result.access_token);
+        storeSessionToken(result.access_token);
         await onLogin(formValue(data, "email"), password);
         return "Invitacion aceptada. Sesion iniciada.";
       });
@@ -3042,6 +2991,7 @@ function CompaniesAdminView({ data, token, onChanged }: { data: AppData; token: 
                   <Trash2 className="mr-2" size={15} />Eliminar
                 </button>
               </div>
+              <CompanyFeatureToggle company={company} token={token} onChanged={onChanged} />
             </article>
           );
         })}

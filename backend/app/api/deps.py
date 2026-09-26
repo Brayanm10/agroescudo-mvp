@@ -8,6 +8,7 @@ from app.core.security import ALGORITHM
 from app.core.config import settings
 from app.db.session import get_db
 from app.models import Alert, Company, Device, SensorReading, Site, StorageUnit, User, UserSession, utc_now
+from app.services.company_features import PLUVIOMETRY, require_company_feature
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 optional_oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
@@ -162,6 +163,8 @@ def require_device_access(db: Session, user: User, device_id: int) -> Device:
     if device is None or device.deleted_at is not None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Device not found")
     require_storage_unit_access(db, user, device.storage_unit_id)
+    if device.device_type == "rain_gauge":
+        require_company_feature(db, device.company_id, PLUVIOMETRY)
     return device
 
 

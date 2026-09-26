@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint, text
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -10,6 +10,21 @@ from app.db.base import Base
 def utc_now() -> datetime:
     return datetime.now(timezone.utc)
 
+
+class CompanyFeature(Base):
+    __tablename__ = "company_features"
+    __table_args__ = (
+        UniqueConstraint("company_id", "feature_code", name="uq_company_features_company_code"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
+    feature_code: Mapped[str] = mapped_column(String(64), index=True)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    enabled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    enabled_by_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
 
 class Company(Base):
     __tablename__ = "companies"
@@ -33,6 +48,13 @@ class Company(Base):
 
     users: Mapped[list["User"]] = relationship(back_populates="company", foreign_keys="User.company_id")
     sites: Mapped[list["Site"]] = relationship(back_populates="company")
+    feature_settings: Mapped[list[CompanyFeature]] = relationship(
+        cascade="all, delete-orphan",
+    )
+
+    @property
+    def features(self) -> list[str]:
+        return sorted(item.feature_code for item in self.feature_settings if item.enabled)
 
 
 class User(Base):
@@ -62,6 +84,10 @@ class User(Base):
 
     company: Mapped["Company"] = relationship(back_populates="users", foreign_keys=[company_id])
 
+    @property
+    def features(self) -> list[str]:
+        return self.company.features if self.company else []
+
 
 class Site(Base):
     __tablename__ = "sites"
@@ -76,6 +102,7 @@ class Site(Base):
     address: Mapped[str | None] = mapped_column(String(255), nullable=True)
     department: Mapped[str | None] = mapped_column(String(120), nullable=True)
     municipality: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    boundary_geojson: Mapped[dict] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
     company: Mapped["Company"] = relationship(back_populates="sites")
@@ -95,6 +122,7 @@ class StorageUnit(Base):
     surface_hectares: Mapped[float | None] = mapped_column(Float, nullable=True)
     location: Mapped[str | None] = mapped_column(String(255), nullable=True)
     crop_type: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    boundary_geojson: Mapped[dict] = mapped_column(JSON, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
     assigned_technician_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
     assigned_client_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
@@ -120,6 +148,8 @@ class Device(Base):
     device_type: Mapped[str] = mapped_column(String(80), default="esp32_iot_node", index=True)
     model_version: Mapped[str | None] = mapped_column(String(80), nullable=True)
     physical_location: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    latitude: Mapped[float | None] = mapped_column(Float, nullable=True)
+    longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
     installed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     template_code: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
     capabilities_version: Mapped[int] = mapped_column(Integer, default=1)
@@ -705,6 +735,7 @@ class MetricDefinition(Base):
     physical_max: Mapped[float | None] = mapped_column(Float, nullable=True)
     default_decimals: Mapped[int] = mapped_column(Integer, default=2)
     default_chart_type: Mapped[str] = mapped_column(String(32), default="line")
+    aggregation_strategy: Mapped[str] = mapped_column(String(24), default="avg")
     product_compatibility: Mapped[str] = mapped_column(String(160))
     client_visibility: Mapped[bool] = mapped_column(Boolean, default=True)
     is_derived: Mapped[bool] = mapped_column(Boolean, default=False)

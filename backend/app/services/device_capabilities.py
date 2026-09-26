@@ -31,7 +31,7 @@ def ensure_metric_registry(db: Session) -> None:
         for item in db.scalars(select(MetricDefinition)).all()
     }
     for specification in METRIC_REGISTRY:
-        values = specification.as_record()
+        values = specification.as_definition_record()
         definition = existing.get(specification.metric_code)
         if definition is None:
             db.add(MetricDefinition(**values))
@@ -46,7 +46,10 @@ def ensure_metric_registry(db: Session) -> None:
 
 
 def default_template_for_device(device: Device, capabilities: list[str] | None = None) -> str:
-    if sensor_profile(device) == "field_sensor":
+    profile = sensor_profile(device)
+    if profile == "rain_gauge":
+        return "RAIN_GAUGE_BASE"
+    if profile == "field_sensor":
         return "CAMPO_SENSOR_BASE"
     requested = {item.strip().lower() for item in (capabilities or [])}
     if requested.intersection({"level_distance_cm", "level_percent", "level_ultrasonic_1"}):
@@ -69,6 +72,8 @@ def sync_device_channels(
         raise ValueError("La plantilla CampoSensor requiere un dispositivo field_sensor.")
     if selected_template.startswith("SILO_") and profile != "silo_sensor":
         raise ValueError("La plantilla SiloSensor requiere un dispositivo silo_sensor.")
+    if selected_template.startswith("RAIN_GAUGE_") and profile != "rain_gauge":
+        raise ValueError("La plantilla de pluviometria requiere un dispositivo rain_gauge.")
 
     definitions = {item["channel_key"]: item for item in DEVICE_TEMPLATES[selected_template]}
     requested_keys = {

@@ -26,6 +26,7 @@ from app.schemas import (
     ThresholdsOut,
 )
 from app.services.audit import record_audit_event
+from app.services.company_features import PLUVIOMETRY, enabled_company_ids
 from app.services.calibration import create_calibration, preview_calibration
 from app.services.comparison import compare_device_periods
 from app.services.device_capabilities import sync_device_channels
@@ -43,6 +44,11 @@ def list_devices(
     db: Session = Depends(get_db),
 ) -> list[Device]:
     stmt = scope_storage_unit_records_query(select(Device).where(Device.deleted_at.is_(None)), Device, current_user, db)
+    entitled_company_ids = enabled_company_ids(db, PLUVIOMETRY)
+    stmt = stmt.where(
+        (Device.device_type != "rain_gauge")
+        | (Device.company_id.in_(entitled_company_ids) if entitled_company_ids else (Device.id == -1))
+    )
     if storage_unit_id is not None:
         storage_unit = db.get(StorageUnit, storage_unit_id)
         if storage_unit is None:
@@ -90,6 +96,8 @@ def create_device(
         device_type=payload.device_type,
         model_version=payload.model_version,
         physical_location=payload.physical_location,
+        latitude=payload.latitude,
+        longitude=payload.longitude,
         installed_at=payload.installed_at,
         template_code=payload.template_code,
         token_hash=hash_secret(payload.device_token),

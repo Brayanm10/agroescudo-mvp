@@ -363,6 +363,8 @@ def _process_reading(
     )
     db.add(iot_reading)
     device.last_seen_at = utc_now()
+    if device.operational_status == "awaiting_first_reading":
+        device.operational_status = "operational"
     db.flush()
     persist_normalized_telemetry(
         db,

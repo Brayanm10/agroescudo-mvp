@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from collections import defaultdict
 from datetime import datetime, timezone
+import math
 from statistics import median
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import Device, DeviceChannel, MetricReading, SensorReading, User
+from app.models import Device, DeviceChannel, MetricDefinition, MetricReading, SensorReading, User
 from app.schemas import (
     MetricDataGapOut,
     MetricReadingPointOut,
@@ -93,7 +94,11 @@ def query_metric_readings(
         chronological,
         device.expected_reading_interval_minutes if device else None,
     )
-    aggregated = _aggregate(chronological, resolution)
+    definition = db.scalar(
+        select(MetricDefinition).where(MetricDefinition.metric_code == metric_code)
+    )
+    aggregation_strategy = definition.aggregation_strategy if definition else "avg"
+    aggregated = _aggregate(chronological, resolution, aggregation_strategy)
     ordered = sorted(
         aggregated,
         key=lambda item: _epoch(item.sampled_at),
@@ -180,6 +185,7 @@ def _legacy_fallback(
 def _aggregate(
     points: list[MetricReadingPointOut],
     resolution: str,
+    strategy: str = "avg",
 ) -> list[MetricReadingPointOut]:
     seconds = {"raw": 0, "5m": 300, "15m": 900, "1h": 3600, "1d": 86400}[resolution]
     if seconds == 0 or not points:
@@ -195,6 +201,7 @@ def _aggregate(
         if not values:
             continue
         base = bucket_points[0]
+        aggregate_value = _aggregate_values(values, strategy)
         aggregated.append(
             base.model_copy(
                 update={
@@ -202,7 +209,7 @@ def _aggregate(
                     "telemetry_event_id": None,
                     "raw_value": None,
                     "calibrated_value": None,
-                    "value": sum(values) / len(values),
+                    "value": aggregate_value,
                     "quality_status": "AGGREGATED",
                     "sampled_at": datetime.fromtimestamp(key * seconds, tz=timezone.utc),
                     "bucket_min": min(values),
@@ -212,6 +219,25 @@ def _aggregate(
             )
         )
     return aggregated
+
+
+def _aggregate_values(values: list[float], strategy: str) -> float:
+    if strategy == "sum":
+        return sum(values)
+    if strategy == "min":
+        return min(values)
+    if strategy == "max":
+        return max(values)
+    if strategy == "last":
+        return values[-1]
+    if strategy == "circular_mean":
+        sin_mean = sum(math.sin(math.radians(value)) for value in values) / len(values)
+        cos_mean = sum(math.cos(math.radians(value)) for value in values) / len(values)
+        if math.isclose(sin_mean, 0.0, abs_tol=1e-12) and math.isclose(cos_mean, 0.0, abs_tol=1e-12):
+            return values[-1] % 360
+        angle = math.degrees(math.atan2(sin_mean, cos_mean)) % 360
+        return 0.0 if math.isclose(angle, 360.0, abs_tol=1e-12) else angle
+    return sum(values) / len(values)
 
 
 def _detect_gaps(

@@ -17,6 +17,8 @@ from app.schemas import (
     AdminDeviceOut,
     AdminNotificationTestIn,
     CompanyCreate,
+    CompanyFeatureOut,
+    CompanyFeatureUpdate,
     CompanyOut,
     CompanyUpdate,
     DeviceOut,
@@ -35,6 +37,7 @@ from app.schemas import (
 )
 from app.services.notifications import create_admin_test_delivery, upsert_preference
 from app.services.audit import record_audit_event
+from app.services.company_features import PLUVIOMETRY, list_company_features, require_company_feature, set_company_feature
 from app.services.calibration import create_calibration
 from app.services.device_capabilities import sync_device_channels
 from app.services.telemetry import validate_device_unit_compatibility
@@ -155,6 +158,33 @@ def deactivate_admin_company(company_id: int, db: Session = Depends(get_db)) -> 
     return company
 
 
+@router.get("/companies/{company_id}/features", response_model=list[CompanyFeatureOut])
+def get_admin_company_features(company_id: int, db: Session = Depends(get_db)):
+    _get_company(db, company_id)
+    return list_company_features(db, company_id)
+
+
+@router.patch("/companies/{company_id}/features/{feature_code}", response_model=CompanyFeatureOut)
+def update_admin_company_feature(
+    company_id: int,
+    feature_code: str,
+    payload: CompanyFeatureUpdate,
+    current_user: User = Depends(require_role("admin")),
+    db: Session = Depends(get_db),
+):
+    _get_company(db, company_id)
+    setting = set_company_feature(
+        db,
+        company_id=company_id,
+        feature_code=feature_code,
+        enabled=payload.enabled,
+        actor=current_user,
+    )
+    db.commit()
+    db.refresh(setting)
+    return setting
+
+
 @router.delete("/companies/{company_id}", response_model=DeletionOut)
 def delete_admin_company(
     company_id: int,
@@ -194,6 +224,17 @@ def create_admin_storage_unit(
     )
     db.add(unit)
     db.flush()
+    if unit.operation_type == "field":
+        record_audit_event(
+            db,
+            action="pluviometry.parcel_created",
+            summary=f"Parcela {unit.name} creada en el predio {site.name}.",
+            user=current_user,
+            company_id=unit.company_id,
+            resource_type="storage_unit",
+            resource_id=unit.id,
+            metadata={"site_id": unit.site_id, "has_boundary": unit.boundary_geojson is not None},
+        )
     if payload.emergency_phone and payload.emergency_contact_name:
         try:
             upsert_alert_contact(
@@ -216,6 +257,7 @@ def create_admin_storage_unit(
 def update_admin_storage_unit(
     storage_unit_id: int,
     payload: StorageUnitUpdate,
+    current_user: User = Depends(require_role("admin")),
     db: Session = Depends(get_db),
 ) -> StorageUnit:
     unit = _get_storage_unit(db, storage_unit_id)
@@ -232,7 +274,19 @@ def update_admin_storage_unit(
         values.get("assigned_technician_id", unit.assigned_technician_id),
         values.get("assigned_client_id", unit.assigned_client_id),
     )
+    boundary_changed = "boundary_geojson" in values and values["boundary_geojson"] != unit.boundary_geojson
     _apply_values(unit, values)
+    if boundary_changed and unit.operation_type == "field":
+        record_audit_event(
+            db,
+            action="pluviometry.parcel_boundary_updated",
+            summary=f"Limite geografico actualizado para la parcela {unit.name}.",
+            user=current_user,
+            company_id=unit.company_id,
+            resource_type="storage_unit",
+            resource_id=unit.id,
+            metadata={"site_id": unit.site_id},
+        )
     db.commit()
     db.refresh(unit)
     return unit
@@ -277,9 +331,20 @@ def list_admin_devices(storage_unit_id: int | None = None, db: Session = Depends
 
 
 @router.post("/devices", response_model=AdminDeviceSecretOut, status_code=status.HTTP_201_CREATED)
-def create_admin_device(payload: AdminDeviceCreate, db: Session = Depends(get_db)) -> Device:
+def create_admin_device(
+    payload: AdminDeviceCreate,
+    current_user: User = Depends(require_role("admin")),
+    db: Session = Depends(get_db),
+) -> Device:
     unit = _get_storage_unit(db, payload.storage_unit_id)
     _require_active_storage_unit(unit)
+    if payload.company_id is not None and payload.company_id != unit.company_id:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="La empresa no corresponde a la parcela seleccionada.")
+    if payload.site_id is not None and payload.site_id != unit.site_id:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="El predio no corresponde a la parcela seleccionada.")
+    if payload.device_type == "rain_gauge":
+        require_company_feature(db, unit.company_id, PLUVIOMETRY)
+        _validate_rain_gauge_configuration(unit, payload.template_code, payload.latitude, payload.longitude)
     try:
         validate_device_unit_compatibility(payload.device_type, unit.operation_type)
     except ValueError as exc:
@@ -296,9 +361,13 @@ def create_admin_device(payload: AdminDeviceCreate, db: Session = Depends(get_db
         device_type=payload.device_type,
         model_version=payload.model_version,
         physical_location=payload.physical_location,
-        installed_at=payload.installed_at,
-        template_code=payload.template_code,
+        latitude=payload.latitude,
+        longitude=payload.longitude,
+        installed_at=payload.installed_at or (utc_now() if payload.device_type == "rain_gauge" else None),
+        template_code="RAIN_GAUGE_BASE" if payload.device_type == "rain_gauge" else payload.template_code,
         token_hash=hash_secret(api_key),
+        operational_status="awaiting_first_reading" if payload.device_type == "rain_gauge" else "operational",
+        expected_reading_interval_minutes=payload.expected_reading_interval_minutes,
         is_active=payload.is_active,
     )
     db.add(device)
@@ -306,9 +375,20 @@ def create_admin_device(payload: AdminDeviceCreate, db: Session = Depends(get_db
     sync_device_channels(
         db,
         device,
-        template_code=payload.template_code,
+        template_code="RAIN_GAUGE_BASE" if payload.device_type == "rain_gauge" else payload.template_code,
         capabilities=payload.capabilities,
     )
+    if payload.device_type == "rain_gauge":
+        record_audit_event(
+            db,
+            action="pluviometry.device_installed",
+            summary="Pluviómetro instalado",
+            user=current_user,
+            company_id=unit.company_id,
+            resource_type="device",
+            resource_id=device.id,
+            metadata={"site_id": unit.site_id, "storage_unit_id": unit.id, "external_id": device.external_id, "latitude": device.latitude, "longitude": device.longitude},
+        )
     db.commit()
     db.refresh(device)
     setattr(device, "api_key", api_key)
@@ -316,9 +396,17 @@ def create_admin_device(payload: AdminDeviceCreate, db: Session = Depends(get_db
 
 
 @router.patch("/devices/{device_id}", response_model=AdminDeviceOut)
-def update_admin_device(device_id: int, payload: AdminDeviceUpdate, db: Session = Depends(get_db)) -> Device:
+def update_admin_device(
+    device_id: int,
+    payload: AdminDeviceUpdate,
+    current_user: User = Depends(require_role("admin")),
+    db: Session = Depends(get_db),
+) -> Device:
     device = _get_device(db, device_id)
     values = payload.model_dump(exclude_unset=True)
+    is_rain_gauge = device.device_type == "rain_gauge" or values.get("device_type") == "rain_gauge"
+    if device.device_type == "rain_gauge" and "external_id" in values and values["external_id"] != device.external_id:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="El ID físico de un pluviómetro instalado no puede modificarse.")
     if "external_id" in values and values["external_id"] != device.external_id:
         if db.scalar(select(Device).where(Device.external_id == values["external_id"], Device.id != device.id)) is not None:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Ya existe un sensor con ese device_id.")
@@ -326,12 +414,32 @@ def update_admin_device(device_id: int, payload: AdminDeviceUpdate, db: Session 
     template_code = values.pop("template_code", None)
     target_unit = db.get(StorageUnit, values.get("storage_unit_id", device.storage_unit_id))
     target_type = values.get("device_type", device.device_type)
+    target_latitude = values.get("latitude", device.latitude)
+    target_longitude = values.get("longitude", device.longitude)
+    if (target_latitude is None) != (target_longitude is None):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Latitud y longitud deben configurarse juntas.",
+        )
     if target_unit is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Unidad no encontrada.")
+    if is_rain_gauge:
+        require_company_feature(db, device.company_id, PLUVIOMETRY)
+        require_company_feature(db, target_unit.company_id, PLUVIOMETRY)
+        if target_unit.company_id != device.company_id:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="El pluviómetro solo puede moverse dentro de su empresa.")
+        if target_unit.site_id != device.site_id:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="La parcela debe pertenecer al mismo predio del pluviómetro.")
+        _validate_rain_gauge_configuration(target_unit, template_code or device.template_code, target_latitude, target_longitude)
+        if template_code is not None:
+            template_code = "RAIN_GAUGE_BASE"
     try:
         validate_device_unit_compatibility(target_type, target_unit.operation_type)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    old_unit_id = device.storage_unit_id
+    old_location = (device.latitude, device.longitude)
+    old_active = device.is_active
     if "storage_unit_id" in values:
         unit = _get_storage_unit(db, values["storage_unit_id"])
         device.company_id = unit.company_id
@@ -346,6 +454,14 @@ def update_admin_device(device_id: int, payload: AdminDeviceUpdate, db: Session 
             template_code=template_code,
             capabilities=capabilities,
         )
+    if is_rain_gauge:
+        common = dict(user=current_user, company_id=device.company_id, resource_type="device", resource_id=device.id)
+        if old_location != (device.latitude, device.longitude):
+            record_audit_event(db, action="pluviometry.location_updated", summary="Ubicación del pluviómetro actualizada", metadata={"before": old_location, "after": (device.latitude, device.longitude)}, **common)
+        if old_unit_id != device.storage_unit_id:
+            record_audit_event(db, action="pluviometry.parcel_changed", summary="Parcela del pluviómetro actualizada", metadata={"before": old_unit_id, "after": device.storage_unit_id}, **common)
+        if old_active != device.is_active:
+            record_audit_event(db, action="pluviometry.reactivated" if device.is_active else "pluviometry.deactivated", summary="Pluviómetro reactivado" if device.is_active else "Pluviómetro desactivado", metadata={"active": device.is_active}, **common)
     db.commit()
     db.refresh(device)
     return device
@@ -623,6 +739,38 @@ def _get_user(db: Session, user_id: int) -> User:
     if user is None or user.deleted_at is not None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
     return user
+
+
+def _validate_rain_gauge_configuration(
+    unit: StorageUnit,
+    template_code: str | None,
+    latitude: float | None,
+    longitude: float | None,
+) -> None:
+    if unit.operation_type != "field":
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Un pluviómetro debe instalarse en una parcela de campo.")
+    if template_code not in {None, "RAIN_GAUGE_BASE"}:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="El pluviómetro requiere la plantilla RAIN_GAUGE_BASE.")
+    if latitude is None or longitude is None:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Selecciona la ubicación del pluviómetro en el mapa.")
+    boundary = unit.boundary_geojson
+    if isinstance(boundary, dict) and boundary.get("type") == "Polygon":
+        rings = boundary.get("coordinates") or []
+        if rings and not _point_in_ring(longitude, latitude, rings[0]):
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="La ubicación debe quedar dentro de la parcela seleccionada.")
+
+
+def _point_in_ring(longitude: float, latitude: float, ring: list[list[float]]) -> bool:
+    inside = False
+    previous = len(ring) - 1
+    for current, (current_x, current_y, *_) in enumerate(ring):
+        previous_x, previous_y, *_ = ring[previous]
+        if (current_y > latitude) != (previous_y > latitude):
+            intersection = (previous_x - current_x) * (latitude - current_y) / (previous_y - current_y) + current_x
+            if longitude < intersection:
+                inside = not inside
+        previous = current
+    return inside
 
 
 def _apply_values(model, values: dict) -> None:

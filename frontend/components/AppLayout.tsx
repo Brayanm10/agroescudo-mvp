@@ -10,6 +10,7 @@ const pageCopy: Record<ViewKey, { eyebrow: string; title: string }> = {
   pilots: { eyebrow: "Operacion", title: "Alta y seguimiento de pilotos" },
   companies: { eyebrow: "Operacion", title: "Empresas, sitios y silos" },
   storage: { eyebrow: "Operacion", title: "Silos y galpones" },
+  pluviometry: { eyebrow: "Monitoreo meteorologico", title: "Pluviometría" },
   silos: { eyebrow: "SiloSensor", title: "Almacenamiento monitoreado" },
   fields: { eyebrow: "CampoSensor", title: "Parcelas monitoreadas" },
   sensors: { eyebrow: "Operacion", title: "Dispositivos y sensores" },

@@ -4,6 +4,7 @@ import type {
   AiAlertRecommendation,
   AppData,
   Company,
+  CompanyFeature,
   Calibration,
   CalibrationInput,
   CalibrationPreview,
@@ -48,6 +49,8 @@ import type {
   StorageUnit,
   Thresholds,
   User,
+  PluviometryMapSnapshot,
+  PluviometrySite,
   WeeklyReport
 } from "./types";
 
@@ -223,8 +226,36 @@ export function logout(token: string) {
   return request<{ message: string; status: string }>("/api/auth/logout", { token, method: "POST" });
 }
 
+export function getCurrentUser(token: string) {
+  return request<User>("/api/me", { token });
+}
+
+export function getPluviometrySites(token: string, signal?: AbortSignal) {
+  return request<PluviometrySite[]>("/api/pluviometry/sites", { token, signal });
+}
+
+export function getPluviometryMapSnapshot(token: string, siteId: number, signal?: AbortSignal) {
+  return request<PluviometryMapSnapshot>(`/api/pluviometry/sites/${siteId}/map`, { token, signal });
+}
+
+export function getSites(token: string, signal?: AbortSignal) {
+  return request<Site[]>("/api/sites", { token, signal });
+}
+
+export function getStorageUnits(token: string, siteId: number, signal?: AbortSignal) {
+  return request<StorageUnit[]>(`/api/storage-units?site_id=${siteId}`, { token, signal });
+}
+
+export function updateSite(token: string, siteId: number, payload: Partial<Site>) {
+  return request<Site>(`/api/sites/${siteId}`, { token, method: "PATCH", body: payload });
+}
+
+export function getDevice(token: string, deviceId: number, signal?: AbortSignal) {
+  return request<Device>(`/api/devices/${deviceId}`, { token, signal });
+}
+
 export async function loadAppData(token: string): Promise<AppData> {
-  const me = await request<User>("/api/me", { token });
+  const me = await getCurrentUser(token);
   const [companies, sites, storageUnits, devices, readings, alerts, activeAlerts, logs, pilots, users, insights, controlCenter, monitoring] = await Promise.all([
     request<Company[]>("/api/companies", { token }),
     request<Site[]>("/api/sites", { token }),
@@ -847,6 +878,18 @@ export function deactivateAdminCompany(token: string, companyId: number) {
   return request<Company>(`/api/admin/companies/${companyId}/deactivate`, { token, method: "POST" });
 }
 
+export function getAdminCompanyFeatures(token: string, companyId: number) {
+  return request<CompanyFeature[]>(`/api/admin/companies/${companyId}/features`, { token });
+}
+
+export function updateAdminCompanyFeature(token: string, companyId: number, featureCode: string, enabled: boolean) {
+  return request<CompanyFeature>(`/api/admin/companies/${companyId}/features/${encodeURIComponent(featureCode)}`, {
+    token,
+    method: "PATCH",
+    body: { enabled }
+  });
+}
+
 export function deleteAdminCompany(token: string, companyId: number) {
   return request<DeletionResult>(`/api/admin/companies/${companyId}`, { token, method: "DELETE" });
 }
@@ -863,6 +906,7 @@ export function createAdminStorageUnit(
     surface_hectares?: number | null;
     location?: string | null;
     crop_type?: string | null;
+    boundary_geojson?: import("./types").BoundaryGeoJson | null;
     assigned_technician_id?: number | null;
     assigned_client_id?: number | null;
     emergency_contact_name?: string | null;
@@ -892,14 +936,20 @@ export function deleteAdminStorageUnit(token: string, storageUnitId: number) {
 export function createAdminDevice(
   token: string,
   payload: {
+    company_id?: number;
+    site_id?: number;
     storage_unit_id: number;
     external_id: string;
     name: string;
     device_type: string;
     model_version?: string | null;
     physical_location?: string | null;
+    latitude?: number | null;
+    longitude?: number | null;
     installed_at?: string | null;
+    template_code?: "SILO_SENSOR_BASE" | "SILO_SENSOR_WITH_LEVEL" | "CAMPO_SENSOR_BASE" | "RAIN_GAUGE_BASE" | null;
     capabilities?: string[];
+    expected_reading_interval_minutes?: number | null;
     is_active?: boolean;
   }
 ) {
@@ -920,6 +970,11 @@ export function activateAdminDevice(token: string, deviceId: number) {
 
 export function deactivateAdminDevice(token: string, deviceId: number) {
   return request<Device>(`/api/admin/devices/${deviceId}/deactivate`, { token, method: "POST" });
+}
+
+export function getAdminDevices(token: string, storageUnitId?: number, signal?: AbortSignal) {
+  const query = storageUnitId ? `?storage_unit_id=${storageUnitId}` : "";
+  return request<Device[]>(`/api/admin/devices${query}`, { token, signal });
 }
 
 export function deleteAdminDevice(token: string, deviceId: number) {

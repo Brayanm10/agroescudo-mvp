@@ -8,7 +8,8 @@ from app.core.security import encrypt_secret, hash_password, hash_secret
 from app.db.base import Base
 from app.db.session import get_db
 from app.main import app
-from app.models import Company, Device, IotDevice, IotGateway, IotGatewayCredential, Site, StorageUnit, ThresholdConfig, User
+from app.models import Company, CompanyFeature, Device, IotDevice, IotGateway, IotGatewayCredential, Site, StorageUnit, ThresholdConfig, User
+from app.services.company_features import PLUVIOMETRY
 
 
 @pytest.fixture()
@@ -46,6 +47,7 @@ def seed_test_data(db: Session) -> None:
     company = Company(name="AgroEscudo Demo")
     db.add(company)
     db.flush()
+    db.add(CompanyFeature(company_id=company.id, feature_code=PLUVIOMETRY, enabled=True))
 
     site = Site(company_id=company.id, name="Centro de Acopio Norte", location="Santa Cruz, Bolivia")
     db.add(site)

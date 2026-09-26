@@ -5,6 +5,52 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
+def validate_boundary_geojson(value: dict[str, Any] | None) -> dict[str, Any] | None:
+    if value is None:
+        return None
+    if value.get("type") not in {"Polygon", "MultiPolygon"}:
+        raise ValueError("La geometria debe ser GeoJSON Polygon o MultiPolygon.")
+    coordinates = value.get("coordinates")
+    if not isinstance(coordinates, list) or not coordinates:
+        raise ValueError("La geometria GeoJSON requiere coordinates no vacias.")
+
+    def validate_position(position: Any) -> None:
+        if not isinstance(position, list) or len(position) < 2:
+            raise ValueError("Cada coordenada debe contener longitud y latitud.")
+        longitude, latitude = position[0], position[1]
+        if not isinstance(longitude, (int, float)) or not isinstance(latitude, (int, float)):
+            raise ValueError("Las coordenadas GeoJSON deben ser numericas.")
+        if not math.isfinite(longitude) or not math.isfinite(latitude):
+            raise ValueError("Las coordenadas GeoJSON deben ser finitas.")
+        if not -180 <= longitude <= 180 or not -90 <= latitude <= 90:
+            raise ValueError("Las coordenadas GeoJSON estan fuera de rango.")
+
+    def validate_ring(ring: Any) -> None:
+        if not isinstance(ring, list) or len(ring) < 4:
+            raise ValueError("Un poligono requiere al menos 3 vertices y su cierre.")
+        for position in ring:
+            validate_position(position)
+        if ring[0][:2] != ring[-1][:2]:
+            raise ValueError("El poligono GeoJSON debe estar cerrado.")
+        if len({(position[0], position[1]) for position in ring[:-1]}) < 3:
+            raise ValueError("Un poligono requiere al menos 3 vertices distintos.")
+
+    polygons = [coordinates] if value["type"] == "Polygon" else coordinates
+    if not polygons:
+        raise ValueError("La geometria MultiPolygon requiere al menos un poligono.")
+    for polygon in polygons:
+        if not isinstance(polygon, list) or not polygon:
+            raise ValueError("Cada poligono requiere al menos un anillo exterior.")
+        for ring in polygon:
+            validate_ring(ring)
+    return value
+
+
+def validate_device_location(latitude: float | None, longitude: float | None) -> None:
+    if (latitude is None) != (longitude is None):
+        raise ValueError("Latitud y longitud deben configurarse juntas.")
+
+
 class TokenOut(BaseModel):
     access_token: str
     token_type: str = "bearer"
@@ -89,6 +135,22 @@ class CompanyOut(BaseModel):
     created_at: datetime
     updated_at: datetime | None = None
     deleted_at: datetime | None = None
+    features: list[str] = []
+
+
+class CompanyFeatureOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    feature_code: str
+    enabled: bool
+    enabled_at: datetime | None = None
+    enabled_by_id: int | None = None
+
+
+class CompanyFeatureUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool
 
 
 class UserOut(BaseModel):
@@ -115,6 +177,7 @@ class UserOut(BaseModel):
     last_seen_at: datetime | None = None
     deleted_at: datetime | None = None
     company: CompanyOut | None = None
+    features: list[str] = []
 
 
 class UserCreate(BaseModel):
@@ -168,6 +231,23 @@ class SiteCreate(BaseModel):
     address: str | None = Field(default=None, max_length=255)
     department: str | None = Field(default=None, max_length=120)
     municipality: str | None = Field(default=None, max_length=120)
+    boundary_geojson: dict[str, Any] | None = None
+
+    _validate_boundary = field_validator("boundary_geojson")(validate_boundary_geojson)
+
+
+class SiteUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=160)
+    location: str | None = Field(default=None, max_length=255)
+    latitude: float | None = Field(default=None, ge=-90, le=90)
+    longitude: float | None = Field(default=None, ge=-180, le=180)
+    timezone: str | None = Field(default=None, min_length=1, max_length=64)
+    address: str | None = Field(default=None, max_length=255)
+    department: str | None = Field(default=None, max_length=120)
+    municipality: str | None = Field(default=None, max_length=120)
+    boundary_geojson: dict[str, Any] | None = None
+
+    _validate_boundary = field_validator("boundary_geojson")(validate_boundary_geojson)
 
 
 class SiteOut(BaseModel):
@@ -183,6 +263,7 @@ class SiteOut(BaseModel):
     address: str | None = None
     department: str | None = None
     municipality: str | None = None
+    boundary_geojson: dict[str, Any] | None = None
     created_at: datetime
 
 
@@ -196,6 +277,7 @@ class StorageUnitCreate(BaseModel):
     surface_hectares: float | None = Field(default=None, gt=0)
     location: str | None = Field(default=None, max_length=255)
     crop_type: str | None = Field(default=None, max_length=120)
+    boundary_geojson: dict[str, Any] | None = None
     assigned_technician_id: int | None = None
     assigned_client_id: int | None = None
     emergency_contact_name: str | None = Field(default=None, min_length=2, max_length=160)
@@ -208,6 +290,8 @@ class StorageUnitCreate(BaseModel):
             raise ValueError("Completa nombre y telefono del contacto de urgencia, o deja ambos vacios.")
         return self
 
+    _validate_boundary = field_validator("boundary_geojson")(validate_boundary_geojson)
+
 
 class StorageUnitUpdate(BaseModel):
     company_id: int | None = None
@@ -219,9 +303,12 @@ class StorageUnitUpdate(BaseModel):
     surface_hectares: float | None = Field(default=None, gt=0)
     location: str | None = Field(default=None, max_length=255)
     crop_type: str | None = Field(default=None, max_length=120)
+    boundary_geojson: dict[str, Any] | None = None
     assigned_technician_id: int | None = None
     assigned_client_id: int | None = None
     is_active: bool | None = None
+
+    _validate_boundary = field_validator("boundary_geojson")(validate_boundary_geojson)
 
 
 class StorageUnitOut(BaseModel):
@@ -237,6 +324,7 @@ class StorageUnitOut(BaseModel):
     surface_hectares: float | None = None
     location: str | None = None
     crop_type: str | None = None
+    boundary_geojson: dict[str, Any] | None = None
     is_active: bool = True
     assigned_technician_id: int | None = None
     assigned_client_id: int | None = None
@@ -251,12 +339,70 @@ class StorageUnitAssignmentsIn(BaseModel):
     assigned_client_id: int | None = None
 
 
+class PluviometrySiteOut(BaseModel):
+    id: int
+    name: str
+    latitude: float | None = None
+    longitude: float | None = None
+    timezone: str
+    rain_gauge_count: int
+
+
+class PluviometryMapSiteOut(BaseModel):
+    id: int
+    name: str
+    latitude: float | None = None
+    longitude: float | None = None
+    timezone: str
+    boundary_geojson: dict[str, Any] | None = None
+
+    _validate_boundary = field_validator("boundary_geojson")(validate_boundary_geojson)
+
+
+class PluviometryParcelOut(BaseModel):
+    id: int
+    name: str
+    boundary_geojson: dict[str, Any] | None = None
+    surface_hectares: float | None = None
+
+    _validate_boundary = field_validator("boundary_geojson")(validate_boundary_geojson)
+
+
+class RainGaugeLatestMetricsOut(BaseModel):
+    temperature_c: float | None = None
+    humidity_pct: float | None = None
+    wind_speed_kmh: float | None = None
+    wind_direction_deg: float | None = None
+    battery_pct: float | None = None
+
+
+class RainGaugeMapDeviceOut(BaseModel):
+    id: int
+    device_id: str
+    name: str
+    storage_unit_id: int
+    parcel_name: str
+    latitude: float | None = None
+    longitude: float | None = None
+    status: Literal["online", "delayed", "offline", "critical"]
+    last_seen_at: datetime | None = None
+    latest: RainGaugeLatestMetricsOut
+    rain_today_mm: float | None = None
+
+
+class PluviometryMapSnapshotOut(BaseModel):
+    site: PluviometryMapSiteOut
+    parcels: list[PluviometryParcelOut]
+    devices: list[RainGaugeMapDeviceOut]
+
+
 DEVICE_TYPES = {
     "silo_sensor",
     "field_sensor",
     "esp32_iot_node",
     "esp32_lora_wifi_node",
     "esp32_lora_node",
+    "rain_gauge",
 }
 
 
@@ -265,7 +411,7 @@ def validate_device_type_value(value: str | None) -> str | None:
         return None
     normalized = value.strip().lower()
     if normalized not in DEVICE_TYPES:
-        raise ValueError("El tipo de sensor debe ser silo_sensor o field_sensor.")
+        raise ValueError("El tipo de sensor no esta registrado.")
     return normalized
 
 
@@ -279,27 +425,44 @@ class DeviceCreate(BaseModel):
     device_type: str = Field(default="silo_sensor", min_length=1, max_length=80)
     model_version: str | None = Field(default=None, max_length=80)
     physical_location: str | None = Field(default=None, max_length=255)
+    latitude: float | None = Field(default=None, ge=-90, le=90)
+    longitude: float | None = Field(default=None, ge=-180, le=180)
     installed_at: datetime | None = None
+    template_code: Literal["SILO_SENSOR_BASE", "SILO_SENSOR_WITH_LEVEL", "CAMPO_SENSOR_BASE", "RAIN_GAUGE_BASE"] | None = None
     capabilities: list[str] = []
     is_active: bool = True
 
     _validate_device_type = field_validator("device_type")(validate_device_type_value)
 
+    @model_validator(mode="after")
+    def validate_location_pair(self):
+        validate_device_location(self.latitude, self.longitude)
+        return self
+
 
 class AdminDeviceCreate(BaseModel):
+    company_id: int | None = None
+    site_id: int | None = None
     storage_unit_id: int
     external_id: str = Field(min_length=1, max_length=80)
     name: str = Field(min_length=1, max_length=160)
     device_type: str = Field(default="silo_sensor", min_length=1, max_length=80)
     model_version: str | None = Field(default=None, max_length=80)
     physical_location: str | None = Field(default=None, max_length=255)
+    latitude: float | None = Field(default=None, ge=-90, le=90)
+    longitude: float | None = Field(default=None, ge=-180, le=180)
     installed_at: datetime | None = None
-    template_code: Literal["SILO_SENSOR_BASE", "SILO_SENSOR_WITH_LEVEL", "CAMPO_SENSOR_BASE"] | None = None
-    template_code: Literal["SILO_SENSOR_BASE", "SILO_SENSOR_WITH_LEVEL", "CAMPO_SENSOR_BASE"] | None = None
+    template_code: Literal["SILO_SENSOR_BASE", "SILO_SENSOR_WITH_LEVEL", "CAMPO_SENSOR_BASE", "RAIN_GAUGE_BASE"] | None = None
     capabilities: list[str] = []
+    expected_reading_interval_minutes: int | None = Field(default=None, ge=1, le=1440)
     is_active: bool = True
 
     _validate_device_type = field_validator("device_type")(validate_device_type_value)
+
+    @model_validator(mode="after")
+    def validate_location_pair(self):
+        validate_device_location(self.latitude, self.longitude)
+        return self
 
 
 class AdminDeviceUpdate(BaseModel):
@@ -309,9 +472,12 @@ class AdminDeviceUpdate(BaseModel):
     device_type: str | None = Field(default=None, min_length=1, max_length=80)
     model_version: str | None = Field(default=None, max_length=80)
     physical_location: str | None = Field(default=None, max_length=255)
+    latitude: float | None = Field(default=None, ge=-90, le=90)
+    longitude: float | None = Field(default=None, ge=-180, le=180)
     installed_at: datetime | None = None
-    template_code: Literal["SILO_SENSOR_BASE", "SILO_SENSOR_WITH_LEVEL", "CAMPO_SENSOR_BASE"] | None = None
+    template_code: Literal["SILO_SENSOR_BASE", "SILO_SENSOR_WITH_LEVEL", "CAMPO_SENSOR_BASE", "RAIN_GAUGE_BASE"] | None = None
     capabilities: list[str] | None = None
+    expected_reading_interval_minutes: int | None = Field(default=None, ge=1, le=1440)
     is_active: bool | None = None
 
     _validate_device_type = field_validator("device_type")(validate_device_type_value)
@@ -341,9 +507,13 @@ class DeviceOut(BaseModel):
     device_type: str = "esp32_iot_node"
     model_version: str | None = None
     physical_location: str | None = None
+    latitude: float | None = None
+    longitude: float | None = None
     installed_at: datetime | None = None
     template_code: str | None = None
     capabilities_version: int = 1
+    operational_status: str = "operational"
+    expected_reading_interval_minutes: int | None = None
     is_active: bool
     created_at: datetime
     last_seen_at: datetime | None = None
@@ -406,6 +576,17 @@ class IotMetricIn(BaseModel):
             raise ValueError("La metrica debe contener un valor finito.")
         return value
 
+    @model_validator(mode="after")
+    def validate_canonical_range(self):
+        value = self.raw_value
+        if self.metric_code in {"RAIN_DELTA_MM", "WIND_SPEED_KMH"} and value < 0:
+            raise ValueError(f"{self.metric_code} debe ser mayor o igual a cero.")
+        if self.metric_code in {"AMBIENT_RELATIVE_HUMIDITY_PCT", "BATTERY_PERCENT"} and not 0 <= value <= 100:
+            raise ValueError(f"{self.metric_code} debe estar entre 0 y 100.")
+        if self.metric_code == "WIND_DIRECTION_DEG" and not 0 <= value < 360:
+            raise ValueError("WIND_DIRECTION_DEG debe estar entre 0 inclusive y 360 exclusivo.")
+        return self
+
 
 class IotBatchReadingIn(BaseModel):
     device_id: int | str
@@ -417,7 +598,7 @@ class IotBatchReadingIn(BaseModel):
     time_quality: int | str
     protocol_version: int = 1
     capabilities_version: int = 1
-    sensor_profile: Literal["silo_sensor", "field_sensor"] | None = None
+    sensor_profile: Literal["silo_sensor", "field_sensor", "rain_gauge"] | None = None
     metric_flags: int | None = None
     grain_temp_c_x100: int | None = None
     air_temp_c_x100: int | None = None
@@ -439,6 +620,10 @@ class IotBatchReadingIn(BaseModel):
         if self.timestamp_utc is None and self.sampled_at is None:
             raise ValueError("La lectura requiere timestamp_utc o sampled_at.")
         if self.timestamp_utc is None and self.sampled_at is not None:
+            if self.sensor_profile == "rain_gauge" and (
+                self.sampled_at.tzinfo is None or self.sampled_at.utcoffset() is None
+            ):
+                raise ValueError("sampled_at debe incluir timezone para rain_gauge.")
             self.timestamp_utc = int(self.sampled_at.timestamp())
         if self.sensor_status_flags is not None:
             self.sensor_status = self.sensor_status_flags
@@ -540,6 +725,7 @@ class MetricDefinitionOut(BaseModel):
     physical_max: float | None = None
     default_decimals: int
     default_chart_type: str
+    aggregation_strategy: Literal["avg", "sum", "min", "max", "last", "circular_mean"] = "avg"
     client_visibility: bool
     is_derived: bool
     calibration_method: str | None = None
@@ -623,7 +809,7 @@ class DeviceDashboardSchemaOut(BaseModel):
     device_id: int
     device_external_id: str
     device_name: str
-    device_profile: Literal["silo_sensor", "field_sensor"]
+    device_profile: Literal["silo_sensor", "field_sensor", "rain_gauge"]
     template_code: str | None = None
     channels: list[SensorChannelOut]
     metrics: list[DashboardMetricOut]
@@ -980,9 +1166,12 @@ class PilotUpdate(BaseModel):
     capacity_tons: float | None = Field(default=None, ge=0)
     location: str | None = Field(default=None, max_length=255)
     crop_type: str | None = Field(default=None, max_length=120)
+    boundary_geojson: dict[str, Any] | None = None
     technician_user_id: int | None = None
     client_user_id: int | None = None
     is_active: bool | None = None
+
+    _validate_boundary = field_validator("boundary_geojson")(validate_boundary_geojson)
 
 
 class PilotOut(BaseModel):
