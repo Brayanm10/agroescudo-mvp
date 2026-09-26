@@ -6,7 +6,7 @@ landing/
 output/
 tmp/
 dist/
-scripts/
+/scripts/
 .git/
 .github/
 *.pdf
