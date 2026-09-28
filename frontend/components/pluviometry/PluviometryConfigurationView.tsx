@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, Check, ChevronRight, CloudRain, LandPlot, MapPin, MapPinned, Pencil, Plus, RotateCcw, Save, Undo2, X } from "lucide-react";
 import { EmptyState } from "@/components/EmptyState";
 import { ErrorState } from "@/components/ErrorState";
@@ -10,6 +10,9 @@ import { createAdminDevice, createAdminStorageUnit, getAdminCompanyFeatures, get
 import type { BoundaryGeoJson, Device, GeoJsonPosition, Site, StorageUnit, UserRole } from "@/lib/types";
 import { BoundaryEditorMap } from "./BoundaryEditorMap";
 import { boundaryStatus, closePolygon, municipalityLabel, parcelAppearsOutside, pointInsideBoundary } from "./configuration-model";
+import { LocationAssistant } from "./LocationAssistant";
+import { cameraTargetForBoundary, cameraTargetForResult, initialCameraTarget, loadLastSessionSearch, saveLastSessionSearch } from "./location-assistant";
+import type { LocationSearchResult, MapCameraCommand, MapCameraTarget, MapMode } from "./location-assistant";
 
 type SiteDraft = Pick<Site, "name" | "location" | "municipality" | "latitude" | "longitude" | "timezone" | "address">;
 type ParcelDraft = { name: string; crop_type: string; surface_hectares: string };
@@ -66,12 +69,29 @@ function AdminConfigurationWorkspace({ token }: { token: string }) {
   const [editingGaugeId, setEditingGaugeId] = useState<number | null>(null);
   const [selectingLocation, setSelectingLocation] = useState(false);
   const [pluviometryEnabled, setPluviometryEnabled] = useState(false);
+  const [mapMode, setMapMode] = useState<MapMode>("satellite");
+  const [cameraCommand, setCameraCommand] = useState<MapCameraCommand | null>(null);
+  const [lastSearch, setLastSearch] = useState<LocationSearchResult | null>(null);
+  const [sessionSearchLoaded, setSessionSearchLoaded] = useState(false);
+  const cameraSequence = useRef(0);
+  const initialFocusKey = useRef<string | null>(null);
+  const mapTilerKey = process.env.NEXT_PUBLIC_MAPTILER_KEY?.trim();
 
   const selectedSite = useMemo(() => sites.find((site) => site.id === selectedSiteId) ?? null, [selectedSiteId, sites]);
   const selectedParcel = useMemo(() => parcels.find((parcel) => parcel.id === selectedParcelId) ?? null, [parcels, selectedParcelId]);
   const formDirty = Boolean(selectedSite && form && JSON.stringify(form) !== JSON.stringify(siteDraft(selectedSite)));
   const hasUnsavedChanges = formDirty || drawTarget !== null || parcelForm !== null || gaugeDraft !== null;
   const siteGauges = useMemo(() => devices.filter((device) => device.device_type === "rain_gauge" && device.site_id === selectedSiteId), [devices, selectedSiteId]);
+
+  const moveMap = useCallback((target: MapCameraTarget, source: MapCameraCommand["source"]) => {
+    cameraSequence.current += 1;
+    setCameraCommand({ ...target, id: cameraSequence.current, source } as MapCameraCommand);
+  }, []);
+
+  useEffect(() => {
+    setLastSearch(loadLastSessionSearch(typeof window === "undefined" ? undefined : window.sessionStorage));
+    setSessionSearchLoaded(true);
+  }, []);
 
   const loadSites = useCallback(async () => {
     setLoading(true);
@@ -101,6 +121,16 @@ function AdminConfigurationWorkspace({ token }: { token: string }) {
       .finally(() => { if (!controller.signal.aborted) setParcelsLoading(false); });
     return () => controller.abort();
   }, [selectedSite, token]);
+
+  useEffect(() => {
+    if (!selectedSite || parcelsLoading || !sessionSearchLoaded) return;
+    const key = `${selectedSite.id}:${selectedParcelId ?? "site"}`;
+    if (initialFocusKey.current === key) return;
+    const parcel = parcels.find((item) => item.id === selectedParcelId);
+    const siteCenter = selectedSite.latitude != null && selectedSite.longitude != null ? [selectedSite.longitude, selectedSite.latitude] as GeoJsonPosition : null;
+    moveMap(initialCameraTarget({ parcelBoundary: parcel?.boundary_geojson, siteBoundary: selectedSite.boundary_geojson, siteCenter, lastSearch }), "initial");
+    initialFocusKey.current = key;
+  }, [lastSearch, moveMap, parcels, parcelsLoading, selectedParcelId, selectedSite, sessionSearchLoaded]);
 
   useEffect(() => {
     const warn = (event: BeforeUnloadEvent) => { if (hasUnsavedChanges) event.preventDefault(); };
@@ -163,6 +193,24 @@ function AdminConfigurationWorkspace({ token }: { token: string }) {
 
   function beginSiteBoundary() {
     setDrawTarget("site"); setVertices([]); setDraftBoundary(null); setParcelForm(null); setSuccess(null);
+  }
+
+  function selectSearchResult(result: LocationSearchResult) {
+    setLastSearch(result);
+    saveLastSessionSearch(typeof window === "undefined" ? undefined : window.sessionStorage, result);
+    moveMap(cameraTargetForResult(result), result.source === "geolocation" ? "geolocation" : "search");
+  }
+
+  function centerSite() {
+    if (!selectedSite) return;
+    const target = cameraTargetForBoundary(selectedSite.boundary_geojson)
+      ?? (selectedSite.latitude != null && selectedSite.longitude != null ? { kind: "center" as const, center: [selectedSite.longitude, selectedSite.latitude] as GeoJsonPosition, zoom: 15 } : null);
+    if (target) moveMap(target, "site");
+  }
+
+  function centerParcel() {
+    const target = cameraTargetForBoundary(selectedParcel?.boundary_geojson);
+    if (target) moveMap(target, "parcel");
   }
 
   function beginNewParcel() {
@@ -302,13 +350,14 @@ function AdminConfigurationWorkspace({ token }: { token: string }) {
 
         <div className="panel overflow-hidden p-3">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-3 px-1">
-            <div><p className="text-sm font-black text-slate-950">Mapa satelital · {selectedSite?.name}</p><p className="text-xs text-slate-500">Predio blanco · parcela seleccionada ámbar · dibujo cian</p></div>
+            <div><p className="text-sm font-black text-slate-950">Mapa de ubicación · {selectedSite?.name}</p><p className="text-xs text-slate-500">Predio blanco · parcela seleccionada ámbar · dibujo cian</p></div>
             {drawTarget ? <div className="flex flex-wrap gap-2"><button type="button" className="btn-secondary gap-1" disabled={!vertices.length || Boolean(draftBoundary)} onClick={() => setVertices((current) => current.slice(0, -1))}><Undo2 size={15} />Deshacer</button><button type="button" className="btn-secondary gap-1" disabled={vertices.length < 3 || Boolean(draftBoundary)} onClick={finishPolygon}><RotateCcw size={15} />Cerrar polígono</button><button type="button" className="btn-secondary" onClick={cancelChanges}>Cancelar cambios</button></div> : null}
           </div>
+          <LocationAssistant apiKey={mapTilerKey} mapMode={mapMode} hasSiteTarget={Boolean(cameraTargetForBoundary(selectedSite?.boundary_geojson) || (selectedSite?.latitude != null && selectedSite.longitude != null))} hasParcelTarget={Boolean(cameraTargetForBoundary(selectedParcel?.boundary_geojson))} onMapModeChange={setMapMode} onSelectResult={selectSearchResult} onCenterSite={centerSite} onCenterParcel={centerParcel} />
           {drawTarget && !draftBoundary ? <p className="mb-3 rounded-lg bg-cyan-50 px-3 py-2 text-xs font-bold text-cyan-900">Haz clic en el mapa para marcar los vértices. Necesitas al menos tres.</p> : null}
           {selectingLocation ? <p className="mb-3 rounded-lg bg-orange-50 px-3 py-2 text-xs font-bold text-orange-900">Haz clic dentro de la parcela seleccionada para ubicar el pluviómetro. Puedes volver a seleccionarlo antes de guardar.</p> : null}
           {outsideWarning ? <p className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-900">Advertencia: parte de la parcela parece quedar fuera del límite del predio.</p> : null}
-          <BoundaryEditorMap siteBoundary={selectedSite?.boundary_geojson ?? null} parcels={parcels} selectedParcelId={selectedParcelId} draftBoundary={draftBoundary} draftVertices={vertices} drawing={drawTarget !== null && !draftBoundary} onAddVertex={addVertex} devices={siteGauges} provisionalLocation={gaugeDraft?.location ?? null} selectingLocation={selectingLocation} onSelectLocation={selectGaugeLocation} />
+          <BoundaryEditorMap siteBoundary={selectedSite?.boundary_geojson ?? null} parcels={parcels} selectedParcelId={selectedParcelId} draftBoundary={draftBoundary} draftVertices={vertices} drawing={drawTarget !== null && !draftBoundary} onAddVertex={addVertex} devices={siteGauges} provisionalLocation={gaugeDraft?.location ?? null} selectingLocation={selectingLocation} onSelectLocation={selectGaugeLocation} mapMode={mapMode} cameraCommand={cameraCommand} />
           <p className="mt-3 text-xs text-slate-500 sm:hidden">Para editar polígonos con mayor precisión recomendamos una pantalla más grande.</p>
           <p className="mt-2 text-xs text-slate-500">El editor crea polígonos simples. Los límites MultiPolygon existentes se conservan y visualizan sin alteración mientras no los reemplaces.</p>
         </div>

@@ -6,7 +6,7 @@ import type { GeoJSONSource, Map as MapLibreMap, MapMouseEvent } from "maplibre-
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { BoundaryGeoJson, Device, GeoJsonPosition, StorageUnit } from "@/lib/types";
 import { buildSatelliteStyle, BOLIVIA_INITIAL_VIEW } from "./RainGaugeMap";
-import { geometryPositions } from "./configuration-model";
+import type { MapCameraCommand, MapMode } from "./location-assistant";
 
 type Props = {
   siteBoundary: BoundaryGeoJson | null;
@@ -21,6 +21,8 @@ type Props = {
   selectingLocation?: boolean;
   onSelectLocation?: (position: GeoJsonPosition) => void;
   apiKey?: string | null;
+  mapMode?: MapMode;
+  cameraCommand?: MapCameraCommand | null;
 };
 
 const emptyCollection = { type: "FeatureCollection" as const, features: [] };
@@ -32,12 +34,13 @@ function featureCollection(boundaries: Array<{ id: number | string; geometry: Bo
   };
 }
 
-export function BoundaryEditorMap({ siteBoundary, parcels, selectedParcelId, draftBoundary, draftVertices, drawing, onAddVertex, devices = [], provisionalLocation = null, selectingLocation = false, onSelectLocation, apiKey }: Props) {
+export function BoundaryEditorMap({ siteBoundary, parcels, selectedParcelId, draftBoundary, draftVertices, drawing, onAddVertex, devices = [], provisionalLocation = null, selectingLocation = false, onSelectLocation, apiKey, mapMode = "satellite", cameraCommand = null }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const clickRef = useRef(onAddVertex);
   const locationRef = useRef(onSelectLocation);
   const selectingRef = useRef(selectingLocation);
+  const modeRef = useRef<MapMode>(mapMode);
   const [ready, setReady] = useState(false);
   const [failed, setFailed] = useState(false);
   const mapKey = (apiKey === undefined ? process.env.NEXT_PUBLIC_MAPTILER_KEY : apiKey)?.trim();
@@ -51,7 +54,7 @@ export function BoundaryEditorMap({ siteBoundary, parcels, selectedParcelId, dra
     void import("maplibre-gl").then((maplibregl) => {
       if (cancelled || !containerRef.current) return;
       maplibregl.setWorkerUrl("/maplibre/maplibre-gl-worker.mjs");
-      const map = new maplibregl.Map({ container: containerRef.current, style: buildSatelliteStyle(mapKey), ...BOLIVIA_INITIAL_VIEW, dragRotate: false, pitchWithRotate: false });
+      const map = new maplibregl.Map({ container: containerRef.current, style: configurationMapStyle(mapKey, modeRef.current), ...BOLIVIA_INITIAL_VIEW, dragRotate: false, pitchWithRotate: false });
       map.addControl(new maplibregl.NavigationControl({ showCompass: true, showZoom: true, visualizePitch: false }), "top-right");
       map.on("click", (event: MapMouseEvent) => selectingRef.current ? locationRef.current?.([event.lngLat.lng, event.lngLat.lat]) : clickRef.current([event.lngLat.lng, event.lngLat.lat]));
       map.once("load", () => {
@@ -63,6 +66,18 @@ export function BoundaryEditorMap({ siteBoundary, parcels, selectedParcelId, dra
     }).catch(() => setFailed(true));
     return () => { cancelled = true; mapRef.current?.remove(); mapRef.current = null; };
   }, [mapKey]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapKey || modeRef.current === mapMode) return;
+    modeRef.current = mapMode;
+    setReady(false);
+    map.setStyle(configurationMapStyle(mapKey, mapMode));
+    map.once("style.load", () => {
+      addSourcesAndLayers(map);
+      setReady(true);
+    });
+  }, [mapKey, mapMode]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -81,13 +96,14 @@ export function BoundaryEditorMap({ siteBoundary, parcels, selectedParcelId, dra
     setSource(map, "config-provisional", provisionalLocation ? { type: "Feature", properties: {}, geometry: { type: "Point", coordinates: provisionalLocation } } : emptyCollection);
     map.getCanvas().style.cursor = drawing || selectingLocation ? "crosshair" : "grab";
 
-    const selectedPositions = geometryPositions(parcels.find((parcel) => parcel.id === selectedParcelId)?.boundary_geojson);
-    const positions = selectedPositions.length ? selectedPositions : [...geometryPositions(siteBoundary), ...parcels.flatMap((parcel) => geometryPositions(parcel.boundary_geojson))];
-    if (positions.length && !draftVertices.length) {
-      const bounds = maplibreglBounds(positions);
-      map.fitBounds(bounds, { padding: 64, maxZoom: 16, duration: 0 });
-    }
   }, [devices, draftBoundary, draftVertices, drawing, parcels, provisionalLocation, ready, selectedParcelId, selectingLocation, siteBoundary]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!ready || !map || !cameraCommand) return;
+    if (cameraCommand.kind === "bounds") map.fitBounds(cameraCommand.bounds, { padding: 64, maxZoom: cameraCommand.maxZoom ?? 16, duration: cameraCommand.source === "initial" ? 0 : 700 });
+    else map.flyTo({ center: [cameraCommand.center[0], cameraCommand.center[1]], zoom: cameraCommand.zoom, duration: cameraCommand.source === "initial" ? 0 : 700, essential: true });
+  }, [cameraCommand, ready]);
 
   if (!mapKey || failed) return <div className="flex min-h-[28rem] items-center justify-center rounded-2xl border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-sm text-slate-600">Configura MapTiler para utilizar el editor cartográfico.</div>;
   function captureMapPoint(event: ReactMouseEvent<HTMLButtonElement>) {
@@ -98,7 +114,7 @@ export function BoundaryEditorMap({ siteBoundary, parcels, selectedParcelId, dra
     const position: GeoJsonPosition = [coordinate.lng, coordinate.lat];
     if (selectingLocation) onSelectLocation?.(position); else onAddVertex(position);
   }
-  return <div className="relative min-h-[28rem] overflow-hidden rounded-2xl bg-slate-200 lg:min-h-[38rem]" role="region" aria-label="Editor satelital de límites"><div ref={containerRef} className="absolute inset-0" style={{ position: "absolute", inset: 0 }} />{(drawing || selectingLocation) && ready ? <button type="button" className="absolute inset-0 z-10 cursor-crosshair bg-transparent" aria-label={selectingLocation ? "Área de selección: haz clic para ubicar el pluviómetro" : "Área de dibujo: haz clic para agregar un vértice"} onClick={captureMapPoint} /> : null}{!ready ? <div className="absolute inset-0 flex items-center justify-center bg-slate-900/15"><span className="rounded-full bg-white px-4 py-2 text-xs font-bold">Cargando editor satelital</span></div> : null}</div>;
+  return <div className="relative min-h-[28rem] overflow-hidden rounded-2xl bg-slate-200 lg:min-h-[38rem]" role="region" aria-label="Editor cartográfico de límites"><div ref={containerRef} className="absolute inset-0" style={{ position: "absolute", inset: 0 }} />{(drawing || selectingLocation) && ready ? <button type="button" className="absolute inset-0 z-10 cursor-crosshair bg-transparent" aria-label={selectingLocation ? "Área de selección: haz clic para ubicar el pluviómetro" : "Área de dibujo: haz clic para agregar un vértice"} onClick={captureMapPoint} /> : null}{!ready ? <div className="absolute inset-0 flex items-center justify-center bg-slate-900/15"><span className="rounded-full bg-white px-4 py-2 text-xs font-bold">Cargando mapa</span></div> : null}</div>;
 }
 
 function setSource(map: MapLibreMap, id: string, data: object) {
@@ -121,9 +137,8 @@ function addSourcesAndLayers(map: MapLibreMap) {
   map.addLayer({ id: "config-provisional-layer", type: "circle", source: "config-provisional", paint: { "circle-radius": 10, "circle-color": "#f97316", "circle-stroke-width": 4, "circle-stroke-color": "#ffffff" } });
 }
 
-function maplibreglBounds(positions: GeoJsonPosition[]) {
-  const first = positions[0];
-  let west = first[0], east = first[0], south = first[1], north = first[1];
-  positions.forEach(([longitude, latitude]) => { west = Math.min(west, longitude); east = Math.max(east, longitude); south = Math.min(south, latitude); north = Math.max(north, latitude); });
-  return [[west, south], [east, north]] as [[number, number], [number, number]];
+function configurationMapStyle(apiKey: string, mode: MapMode) {
+  return mode === "hybrid"
+    ? `https://api.maptiler.com/maps/hybrid/style.json?key=${encodeURIComponent(apiKey)}`
+    : buildSatelliteStyle(apiKey);
 }
