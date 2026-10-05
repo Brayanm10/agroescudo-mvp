@@ -2,6 +2,8 @@
 
 Estado inicial obligatorio: `PENDING_INSTALLATION`. No cambiar a `ACTIVE` hasta completar la sección de activación.
 
+Identificadores reservados: SiloSensor `AE-ADEPLEC-SILO-001`, gateway `AE-ADEPLEC-GW-001` y nombre lógico de nodo `AE-ADEPLEC-NODE-001`. El protocolo v4 exige un `node_id` entero distinto; capturarlo del firmware antes del aprovisionamiento y no inventarlo.
+
 ## Antes de salir
 
 - [ ] Confirmar responsable ADEPLEC y técnico AgroEscudo, teléfonos y hora de llegada.

@@ -4,8 +4,16 @@ Fecha: __________  Sitio: ____________________  Responsable: ___________________
 
 ## Equipo y preparación
 
-- [ ] SiloSensor  ID: ____________________  Serial: ____________________
-- [ ] Gateway  ID: ____________________  Serial: ____________________
+- [ ] Gateway ADEPLEC Gateway 01 (`AE-ADEPLEC-GW-001`)
+- [ ] SiloSensor ADEPLEC SiloSensor 01 (`AE-ADEPLEC-SILO-001`)
+- [ ] Node lógico `AE-ADEPLEC-NODE-001`; `node_id` numérico de protocolo: ______
+- [ ] Antena gateway  [ ] Antena nodo — nunca transmitir LoRa sin antena
+- [ ] Sonda DS18B20  [ ] Sensor SHT31
+- [ ] Fuente gateway  [ ] Cable USB  [ ] Adaptador 220 V  [ ] Batería/respaldo
+- [ ] Cables  [ ] conectores  [ ] prensaestopas  [ ] caja  [ ] bridas
+- [ ] Cinta  [ ] tornillos  [ ] herramientas  [ ] multímetro
+- [ ] Laptop  [ ] celular  [ ] hotspot  [ ] cargadores
+- [ ] Repuesto SiloSensor si existe  [ ] Repuesto Gateway si existe
 - [ ] Antenas  [ ] cables  [ ] cargadores  [ ] respaldo  [ ] multímetro
 - [ ] Laptop  [ ] celular  [ ] hotspot  [ ] herramientas  [ ] repuestos
 - [ ] Dashboard y API saludables  [ ] credenciales disponibles de forma segura
@@ -15,6 +23,10 @@ Fecha: __________  Sitio: ____________________  Responsable: ___________________
 - [ ] Responsable identificado  [ ] energía confirmada  [ ] internet confirmado
 - [ ] Ubicación nodo segura  [ ] ubicación gateway segura  [ ] antena fuera de metal
 - [ ] Foto previa  Archivo/referencia: ____________________
+- [ ] Razón social exacta  [ ] NIT confirmado  [ ] email/teléfono Pamela confirmados
+- [ ] GPS  [ ] dirección  [ ] SSID/acceso (no escribir contraseña)  [ ] 220 V/punto de conexión
+- [ ] Ubicación gateway  [ ] ubicación SiloSensor  [ ] ubicación sonda
+- [ ] Foto durante  [ ] foto final
 
 ## Instalación y primera lectura
 
