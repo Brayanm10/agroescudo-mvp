@@ -124,6 +124,7 @@ class StorageUnit(Base):
     crop_type: Mapped[str | None] = mapped_column(String(120), nullable=True)
     boundary_geojson: Mapped[dict] = mapped_column(JSON, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    pilot_status: Mapped[str] = mapped_column(String(32), default="ACTIVE", index=True)
     assigned_technician_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
     assigned_client_id: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
     last_report_generated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
