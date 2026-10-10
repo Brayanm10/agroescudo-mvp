@@ -248,7 +248,9 @@ export type CanonicalMetricPoint = {
   quality_status: string;
   calibration_version: number | null;
   sampled_at: string;
-  source: "normalized" | "legacy_fallback";
+  source: "normalized" | "legacy_fallback" | "derived";
+  ultrasonic_distance_mm: number | null;
+  product_height_mm: number | null;
   bucket_min: number | null;
   bucket_max: number | null;
   sample_count: number;

@@ -122,6 +122,12 @@ export function CalibrationWizard({ token, device, role, onChanged }: Props) {
     loadHistory().catch(() => setMessage("No se pudo consultar el historial de calibración."));
   }, [device, loadHistory]);
 
+  useEffect(() => {
+    if (role === "technician" && form.variable_type === "level_percent") {
+      setForm((current) => ({ ...current, variable_type: "grain_temperature", method: "OFFSET" }));
+    }
+  }, [form.variable_type, role]);
+
   async function previewCalibration() {
     setBusy(true);
     setMessage(null);
@@ -195,7 +201,7 @@ export function CalibrationWizard({ token, device, role, onChanged }: Props) {
   }
 
   return (
-    <section className="panel overflow-hidden">
+    <section id="level-calibration" className="panel overflow-hidden">
       <div className="border-b border-slate-200 bg-slate-50 px-5 py-4">
         <div className="flex items-center gap-3">
           <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-100 text-emerald-800">
@@ -203,7 +209,7 @@ export function CalibrationWizard({ token, device, role, onChanged }: Props) {
           </span>
           <div>
             <p className="section-kicker">Asistente técnico</p>
-            <h3 className="font-black text-slate-950">Calibración versionada</h3>
+            <h3 className="font-black text-slate-950">Configuración y calibración</h3>
           </div>
         </div>
         <p className="mt-2 text-sm leading-6 text-slate-600">Previsualiza el resultado antes de crear una versión. El valor raw y las versiones anteriores se conservan.</p>
@@ -220,7 +226,7 @@ export function CalibrationWizard({ token, device, role, onChanged }: Props) {
                 setPreview(null);
               }}
             >
-              {variables.map((variable) => <option key={variable} value={variable}>{labelByVariable[variable]}</option>)}
+              {variables.filter((variable) => role === "admin" || variable !== "level_percent").map((variable) => <option key={variable} value={variable}>{labelByVariable[variable]}</option>)}
             </select>
           </Label>
           <Label text="Método">
@@ -248,8 +254,9 @@ export function CalibrationWizard({ token, device, role, onChanged }: Props) {
           ) : null}
           {form.method === "LEVEL_GEOMETRY" ? (
             <>
-              <Label text="Distancia en vacío (cm)"><input className="input" type="number" min="0.1" step="0.1" value={form.empty_distance_cm} onChange={(event) => setForm({ ...form, empty_distance_cm: Number(event.target.value) })} /></Label>
-              <Label text="Distancia en lleno (cm)"><input className="input" type="number" min="0.1" step="0.1" value={form.full_distance_cm} onChange={(event) => setForm({ ...form, full_distance_cm: Number(event.target.value) })} /></Label>
+              <Label text="Distancia silo vacío (mm)"><input className="input" type="number" min="1" step="1" value={form.empty_distance_cm * 10} onChange={(event) => setForm({ ...form, empty_distance_cm: Number(event.target.value) / 10 })} /></Label>
+              <Label text="Distancia silo lleno (mm)"><input className="input" type="number" min="1" step="1" value={form.full_distance_cm * 10} onChange={(event) => setForm({ ...form, full_distance_cm: Number(event.target.value) / 10 })} /></Label>
+              <Label text="Unidad"><input className="input" value="mm (vista) / m (altura estimada)" disabled /></Label>
             </>
           ) : null}
           <Label text="Instrumento de referencia"><input className="input" value={form.reference_instrument} onChange={(event) => setForm({ ...form, reference_instrument: event.target.value })} placeholder="Opcional" /></Label>

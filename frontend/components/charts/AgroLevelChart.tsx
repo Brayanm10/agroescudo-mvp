@@ -2,12 +2,14 @@ import { AgroTrendChart, type AgroTrendChartProps } from "./AgroTrendChart";
 import { conditionFor } from "./chart-model";
 
 export function AgroLevelChart({
-  distanceCm,
+  distanceMm,
+  productHeightMm,
   updatedAt,
   calibrationStatus,
   ...props
 }: Omit<AgroTrendChartProps, "title" | "eyebrow" | "color" | "variant" | "percentage"> & {
-  distanceCm?: number | null;
+  distanceMm?: number | null;
+  productHeightMm?: number | null;
   updatedAt?: string | null;
   calibrationStatus?: "configured" | "pending" | "not_applicable";
 }) {
@@ -19,7 +21,7 @@ export function AgroLevelChart({
     <div className="grid gap-4 lg:grid-cols-[260px_minmax(0,1fr)]">
       <section className="rounded-lg border border-emerald-950/10 bg-[#fbfaf6] p-5 shadow-[0_12px_38px_rgba(2,60,46,0.07)]">
         <p className="text-[10px] font-black uppercase tracking-[0.14em] text-emerald-800">Gemelo operativo</p>
-        <h3 className="mt-1 text-base font-black text-[#1b2622]">Nivel del silo</h3>
+        <h3 className="mt-1 text-base font-black text-[#1b2622]">Nivel de llenado</h3>
         <p className="mt-1 text-xs leading-5 text-slate-500">Altura ocupada estimada. No representa volumen ni toneladas.</p>
         <svg viewBox="0 0 180 245" className="mx-auto mt-5 h-56 w-44" role="img" aria-label={current === null ? "Nivel no disponible" : `Nivel ${current.toFixed(1)} por ciento`}>
           <defs>
@@ -33,20 +35,21 @@ export function AgroLevelChart({
         </svg>
         <div className="mt-2 text-center">
           <p className="text-4xl font-black text-[#1b2622]">{current === null ? "--" : `${current.toFixed(1)}%`}</p>
-          <p className="mt-1 text-xs font-bold" style={{ color: tone }}>{condition.label}</p>
+          <p className="mt-1 text-xs font-bold uppercase" style={{ color: tone }}>{condition.label === "Atención" ? "Precaución" : condition.label}</p>
         </div>
         <dl className="mt-5 space-y-2 text-xs">
           <LevelRow label="Variación" value={props.summary.change === null ? "Sin dato" : `${props.summary.change > 0 ? "+" : ""}${props.summary.change.toFixed(1)} pts`} />
-          <LevelRow label="Distancia" value={distanceCm === null || distanceCm === undefined ? "Sin dato" : `${distanceCm.toFixed(1)} cm`} />
+          <LevelRow label="Altura estimada del producto" value={productHeightMm === null || productHeightMm === undefined ? "Sin dato" : `${(productHeightMm / 1000).toFixed(2)} m`} />
+          <LevelRow label="Distancia sensor → producto" value={distanceMm === null || distanceMm === undefined ? "Sin dato" : `${distanceMm.toFixed(0)} mm`} />
           <LevelRow label="Calibración" value={calibrationStatus === "configured" ? "Configurada" : calibrationStatus === "pending" ? "Pendiente" : "No aplica"} />
           <LevelRow label="Actualización" value={updatedAt ? new Intl.DateTimeFormat("es-BO", { dateStyle: "short", timeStyle: "short" }).format(new Date(updatedAt)) : "Sin dato"} />
         </dl>
       </section>
       <AgroTrendChart
         {...props}
-        title="Tendencia del nivel"
+        title="Nivel de llenado · últimas 24 horas"
         eyebrow="Evolución del periodo"
-        description="Cambios de altura ocupada y ventanas sin información"
+        description="Porcentaje derivado dinámicamente desde la distancia ultrasónica cruda"
         color="#0f766e"
         variant="compact"
         percentage

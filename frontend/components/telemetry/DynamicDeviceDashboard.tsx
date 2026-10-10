@@ -140,7 +140,7 @@ export function DynamicDeviceDashboard({
   if (!schema) return null;
 
   const visibleMetrics = schema.metrics
-    .filter((metric) => metric.chart_enabled)
+    .filter((metric) => metric.chart_enabled && metric.metric_code !== "LEVEL_DISTANCE_MM")
     .sort((a, b) => metricPriority(a.metric_code) - metricPriority(b.metric_code) || a.display_order - b.display_order);
   const distanceSeries = Object.values(series).find((item) => item.metric_code === "LEVEL_DISTANCE_MM");
   const distanceCurrent = distanceSeries?.summary?.current ?? null;
@@ -167,6 +167,9 @@ export function DynamicDeviceDashboard({
             const channel = channels.get(metric.channel_id);
             if (!channel) return null;
             const annotations = annotationsForMetric(metric.metric_code, context);
+            if (metric.metric_code === "LEVEL_PERCENT" && !metricSeries?.points.length && distanceCurrent !== null) {
+              return <LevelCalibrationPending key={key} canConfigure={role === "admin"} />;
+            }
             return metricSeries?.points.length
               ? <MetricChart
                   key={key}
@@ -281,6 +284,17 @@ function thresholdsForMetric(metricCode: string, values: Record<string, number>)
     default:
       return {};
   }
+}
+
+function LevelCalibrationPending({ canConfigure }: { canConfigure: boolean }) {
+  return (
+    <section className="panel p-6 xl:col-span-2">
+      <p className="section-kicker">Nivel pendiente de calibración</p>
+      <h3 className="mt-1 text-lg font-black text-slate-950">Nivel de llenado</h3>
+      <p className="mt-3 text-sm text-slate-600">Configura la calibración del nivel para convertir la distancia ultrasónica en porcentaje.</p>
+      {canConfigure ? <button type="button" className="btn-primary mt-4" onClick={() => document.getElementById("level-calibration")?.scrollIntoView({ behavior: "smooth" })}>Configurar nivel</button> : null}
+    </section>
+  );
 }
 
 function metricPriority(metricCode: string) {

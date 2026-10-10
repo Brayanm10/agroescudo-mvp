@@ -66,7 +66,7 @@ export function ReadingChart({
     return (
       <AgroLevelChart
         {...shared}
-        distanceCm={latest?.level_distance_cm}
+        distanceMm={latest?.level_distance_cm == null ? null : latest.level_distance_cm * 10}
         updatedAt={latest?.timestamp}
         calibrationStatus={summary.current === null && latest?.level_distance_cm != null ? "pending" : "configured"}
       />

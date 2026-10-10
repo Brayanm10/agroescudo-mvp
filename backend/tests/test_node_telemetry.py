@@ -4,6 +4,7 @@ from sqlalchemy import select
 
 from app.core.security import hash_secret
 from app.models import Device, SensorReading, StorageUnit
+from app.services.telemetry import calculate_fill_metrics
 
 
 def auth_headers(client, email="admin@agroescudo.local", password="admin123"):
@@ -85,6 +86,38 @@ def test_ultrasonic_level_clamps_and_pending_calibration(client, db_session):
     empty = client.post("/api/readings", json=payload(level_distance_cm=700))
     assert full.json()["reading"]["level_percent"] == 100
     assert empty.json()["reading"]["level_percent"] == 0
+
+
+def test_fill_metrics_use_mm_formula_and_preserve_height():
+    assert calculate_fill_metrics(2000, 3500, 500) == (50.0, 1500)
+    assert calculate_fill_metrics(100, 3500, 500) == (100.0, 3400)
+    assert calculate_fill_metrics(4000, 3500, 500) == (0.0, 0.0)
+
+
+def test_fill_metrics_missing_and_invalid_calibration():
+    assert calculate_fill_metrics(2000, None, None) is None
+    import pytest
+    with pytest.raises(ValueError, match="calibracion"):
+        calculate_fill_metrics(2000, 500, 3500)
+
+
+def test_technician_cannot_change_level_calibration(client, db_session):
+    device = db_session.scalar(select(Device).where(Device.external_id == "SILO-001"))
+    response = client.post(
+        f"/api/devices/{device.id}/calibrations",
+        headers=auth_headers(client, "tecnico@agroescudo.local", "tecnico123"),
+        json={
+            "variable_type": "level_percent",
+            "method": "LEVEL_GEOMETRY",
+            "raw_value": 200,
+            "parameters": {
+                "mode": "two_distance",
+                "empty_distance_cm": 350,
+                "full_distance_cm": 50,
+            },
+        },
+    )
+    assert response.status_code == 403
 
 
 def test_invalid_ultrasonic_values_and_calibration_are_rejected(client, db_session):

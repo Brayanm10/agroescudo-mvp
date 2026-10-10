@@ -10,6 +10,7 @@ SILO_SENSOR_TYPES = {"silo_sensor", "esp32_iot_node", "esp32_lora_wifi_node", "e
 FIELD_SENSOR_TYPES = {"field_sensor"}
 RAIN_GAUGE_TYPES = {"rain_gauge"}
 MAX_ULTRASONIC_DISTANCE_CM = 2000.0
+MAX_ULTRASONIC_DISTANCE_MM = MAX_ULTRASONIC_DISTANCE_CM * 10
 
 
 def sensor_profile(device: Device) -> str:
@@ -69,19 +70,41 @@ def device_communication_status(device: Device, now: datetime | None = None) -> 
     return "ONLINE"
 
 
-def calculate_level_percent(device: Device, distance_cm: float | None) -> float | None:
-    if distance_cm is None:
+def calculate_fill_metrics(
+    measured_distance_mm: float | None,
+    empty_distance_mm: float | None,
+    full_distance_mm: float | None,
+) -> tuple[float, float] | None:
+    """Derive fill percentage and product height without changing the raw distance."""
+    if measured_distance_mm is None:
         return None
-    if not math.isfinite(distance_cm) or distance_cm <= 0 or distance_cm > MAX_ULTRASONIC_DISTANCE_CM:
+    if (
+        not math.isfinite(measured_distance_mm)
+        or measured_distance_mm <= 0
+        or measured_distance_mm > MAX_ULTRASONIC_DISTANCE_MM
+    ):
         raise ValueError("La distancia ultrasonica esta fuera del rango fisico permitido.")
-    empty = device.empty_distance_cm
-    full = device.full_distance_cm
-    if empty is None or full is None:
+    if empty_distance_mm is None or full_distance_mm is None:
         return None
-    if not math.isfinite(empty) or not math.isfinite(full) or empty <= full or full <= 0:
+    if (
+        not math.isfinite(empty_distance_mm)
+        or not math.isfinite(full_distance_mm)
+        or empty_distance_mm <= full_distance_mm
+        or full_distance_mm <= 0
+    ):
         raise ValueError("La calibracion del nivel no es valida.")
-    raw = ((empty - distance_cm) / (empty - full)) * 100
-    return round(max(0.0, min(100.0, raw)), 2)
+    product_height_mm = empty_distance_mm - measured_distance_mm
+    raw_percent = (product_height_mm / (empty_distance_mm - full_distance_mm)) * 100
+    return round(max(0.0, min(100.0, raw_percent)), 2), round(max(0.0, product_height_mm), 2)
+
+
+def calculate_level_percent(device: Device, distance_cm: float | None) -> float | None:
+    result = calculate_fill_metrics(
+        None if distance_cm is None else distance_cm * 10,
+        None if device.empty_distance_cm is None else device.empty_distance_cm * 10,
+        None if device.full_distance_cm is None else device.full_distance_cm * 10,
+    )
+    return result[0] if result else None
 
 
 def validate_telemetry(device: Device, payload: SensorReadingCreate) -> None:

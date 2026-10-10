@@ -276,6 +276,8 @@ def create_device_calibration(
     db: Session = Depends(get_db),
 ) -> CalibrationOut:
     device = require_device_access(db, current_user, device_id)
+    if payload.variable_type == "level_percent" and current_user.role != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Solo ADMIN puede cambiar la calibracion de nivel.")
     try:
         calibration = create_calibration(db, device, payload, current_user)
     except ValueError as exc:
@@ -325,6 +327,8 @@ def activate_device_calibration(
     calibration = db.get(SensorCalibration, calibration_id)
     if calibration is None or calibration.device_id != device_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Calibracion no encontrada.")
+    if calibration.variable_type == "level_percent" and current_user.role != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Solo ADMIN puede cambiar la calibracion de nivel.")
     stmt = select(SensorCalibration).where(
         SensorCalibration.device_id == device_id,
         SensorCalibration.variable_type == calibration.variable_type,
@@ -364,6 +368,8 @@ def deactivate_device_calibration(
     calibration = db.get(SensorCalibration, calibration_id)
     if calibration is None or calibration.device_id != device_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Calibracion no encontrada.")
+    if calibration.variable_type == "level_percent" and current_user.role != "admin":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Solo ADMIN puede cambiar la calibracion de nivel.")
     calibration.is_active = False
     calibration.deactivated_at = utc_now()
     record_audit_event(

@@ -57,7 +57,9 @@ export function MetricChart({
     value: point.value,
     bucketMin: point.bucket_min,
     bucketMax: point.bucket_max,
-    sampleCount: point.sample_count
+    sampleCount: point.sample_count,
+    ultrasonicDistanceMm: point.ultrasonic_distance_mm,
+    productHeightMm: point.product_height_mm
   }));
   const summary = series.summary ?? summarizePoints(points);
   const shared = {
@@ -77,7 +79,13 @@ export function MetricChart({
     : metric.metric_code === "AMBIENT_RELATIVE_HUMIDITY_PCT"
       ? <AgroHumidityChart {...shared} />
       : metric.metric_code === "LEVEL_PERCENT"
-        ? <AgroLevelChart {...shared} distanceCm={levelDistanceCm} updatedAt={series.period?.to} calibrationStatus={calibrationStatus} />
+        ? <AgroLevelChart
+            {...shared}
+            distanceMm={series.points.at(-1)?.ultrasonic_distance_mm ?? (levelDistanceCm === null || levelDistanceCm === undefined ? null : levelDistanceCm * 10)}
+            productHeightMm={series.points.at(-1)?.product_height_mm ?? null}
+            updatedAt={series.period?.to}
+            calibrationStatus={calibrationStatus}
+          />
         : (
           <AgroTrendChart
             {...shared}

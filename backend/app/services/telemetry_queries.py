@@ -16,6 +16,7 @@ from app.schemas import (
     MetricSeriesPeriodOut,
     MetricSeriesSummaryOut,
 )
+from app.services.telemetry import calculate_fill_metrics
 
 
 LEGACY_METRIC_FIELDS = {
@@ -43,6 +44,14 @@ def query_metric_readings(
     limit: int,
     order: str,
 ) -> MetricReadingsOut:
+    device = db.get(Device, device_id)
+    if metric_code == "LEVEL_PERCENT":
+        points = _derived_level_points(
+            db, device=device, channel=channel, user=user, from_=from_, to=to, order=order
+        ) if device else []
+        normalized = []
+    else:
+        points = []
     stmt = select(MetricReading).where(
         MetricReading.device_id == device_id,
         MetricReading.sensor_channel_id == channel.id,
@@ -53,7 +62,7 @@ def query_metric_readings(
     if to is not None:
         stmt = stmt.where(MetricReading.sampled_at <= to)
     direction = MetricReading.sampled_at.asc() if order == "asc" else MetricReading.sampled_at.desc()
-    normalized = list(db.scalars(stmt.order_by(direction)).all())
+    normalized = list(db.scalars(stmt.order_by(direction)).all()) if metric_code != "LEVEL_PERCENT" else []
     if normalized:
         points = [
             MetricReadingPointOut(
@@ -76,7 +85,7 @@ def query_metric_readings(
             )
             for row in normalized
         ]
-    else:
+    elif metric_code != "LEVEL_PERCENT":
         points = _legacy_fallback(
             db,
             device_id=device_id,
@@ -89,7 +98,6 @@ def query_metric_readings(
             order=order,
         )
     chronological = sorted(points, key=lambda item: _epoch(item.sampled_at))
-    device = db.get(Device, device_id)
     gaps, coverage_seconds = _detect_gaps(
         chronological,
         device.expected_reading_interval_minutes if device else None,
@@ -99,11 +107,7 @@ def query_metric_readings(
     )
     aggregation_strategy = definition.aggregation_strategy if definition else "avg"
     aggregated = _aggregate(chronological, resolution, aggregation_strategy)
-    ordered = sorted(
-        aggregated,
-        key=lambda item: _epoch(item.sampled_at),
-        reverse=order == "desc",
-    )
+    ordered = sorted(aggregated, key=lambda item: _epoch(item.sampled_at), reverse=order == "desc")
     visible = ordered[:limit]
     values = [point.value for point in chronological if point.value is not None]
     period_from = from_ or (chronological[0].sampled_at if chronological else None)
@@ -131,6 +135,56 @@ def query_metric_readings(
         ),
         gaps=gaps,
     )
+
+
+def _derived_level_points(
+    db: Session,
+    *,
+    device: Device,
+    channel: DeviceChannel,
+    user: User,
+    from_: datetime | None,
+    to: datetime | None,
+    order: str,
+) -> list[MetricReadingPointOut]:
+    stmt = select(SensorReading).where(SensorReading.device_id == device.id)
+    if from_ is not None:
+        stmt = stmt.where(SensorReading.timestamp >= from_)
+    if to is not None:
+        stmt = stmt.where(SensorReading.timestamp <= to)
+    direction = SensorReading.timestamp.asc() if order == "asc" else SensorReading.timestamp.desc()
+    result: list[MetricReadingPointOut] = []
+    empty_mm = None if device.empty_distance_cm is None else device.empty_distance_cm * 10
+    full_mm = None if device.full_distance_cm is None else device.full_distance_cm * 10
+    for row in db.scalars(stmt.order_by(direction)).all():
+        if row.level_distance_cm is None:
+            continue
+        distance_mm = float(row.level_distance_cm) * 10
+        try:
+            derived = calculate_fill_metrics(distance_mm, empty_mm, full_mm)
+        except ValueError:
+            derived = None
+        if derived is None:
+            continue
+        fill_percent, height_mm = derived
+        result.append(MetricReadingPointOut(
+            device_id=device.id,
+            channel_key=channel.channel_key,
+            metric_code="LEVEL_PERCENT",
+            raw_value=distance_mm if user.role in {"admin", "technician"} else None,
+            calibrated_value=fill_percent,
+            value=fill_percent,
+            unit="percent",
+            quality_status="DERIVED_FROM_RAW",
+            sampled_at=row.timestamp,
+            source="derived",
+            ultrasonic_distance_mm=distance_mm,
+            product_height_mm=height_mm,
+            bucket_min=fill_percent,
+            bucket_max=fill_percent,
+            sample_count=1,
+        ))
+    return result
 
 
 def _legacy_fallback(
@@ -215,10 +269,17 @@ def _aggregate(
                     "bucket_min": min(values),
                     "bucket_max": max(values),
                     "sample_count": sum(point.sample_count for point in bucket_points),
+                    "ultrasonic_distance_mm": _average_optional(point.ultrasonic_distance_mm for point in bucket_points),
+                    "product_height_mm": _average_optional(point.product_height_mm for point in bucket_points),
                 }
             )
         )
     return aggregated
+
+
+def _average_optional(values) -> float | None:
+    present = [value for value in values if value is not None]
+    return sum(present) / len(present) if present else None
 
 
 def _aggregate_values(values: list[float], strategy: str) -> float:

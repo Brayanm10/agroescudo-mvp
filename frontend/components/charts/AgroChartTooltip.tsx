@@ -34,6 +34,13 @@ export function AgroChartTooltip({
         <p className="text-xl font-black text-[#1b2622]">{point.value.toFixed(decimals)}{unit}</p>
         <span className={`rounded-md px-2 py-1 text-[10px] font-black uppercase ${conditionClass}`}>{condition.label}</span>
       </div>
+      {point.productHeightMm !== null && point.productHeightMm !== undefined ? (
+        <div className="mt-2 space-y-1 text-[11px] font-semibold text-slate-600">
+          <p>Nivel: {point.value.toFixed(decimals)}%</p>
+          <p>Altura estimada: {(point.productHeightMm / 1000).toFixed(2)} m</p>
+          <p>Distancia ultrasónica cruda: {point.ultrasonicDistanceMm?.toFixed(0) ?? "--"} mm</p>
+        </div>
+      ) : null}
       {point.sampleCount && point.sampleCount > 1 ? (
         <p className="mt-2 text-[11px] text-slate-500">
           Intervalo: {point.bucketMin?.toFixed(decimals)}–{point.bucketMax?.toFixed(decimals)}{unit} · {point.sampleCount} muestras

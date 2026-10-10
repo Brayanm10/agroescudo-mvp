@@ -54,7 +54,6 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { SupportChatbot } from "@/components/SupportChatbot";
 import { PremiumClientDashboard } from "@/components/dashboard/PremiumClientDashboard";
 import { ReportDownloadButton } from "@/components/reports/ReportDownloadButton";
-import { SiloLevelIndicator } from "@/components/telemetry/SiloLevelIndicator";
 import { CalibrationWizard } from "@/components/telemetry/CalibrationWizard";
 import { DynamicDeviceDashboard } from "@/components/telemetry/DynamicDeviceDashboard";
 import { TimeRangeControl } from "@/components/telemetry/TimeRangeControl";
@@ -119,6 +118,7 @@ import {
   testAdminNotification,
   updateAdminCompany,
   updateAdminDevice,
+  updateDeviceCalibration,
   updateAdminStorageUnit,
   updateAdminUser,
   updatePilot,
@@ -2321,16 +2321,7 @@ function StorageUnitDetail({
         </div>
       </div>
       {!isClient && profile === "silo_sensor" ? (
-        <div className="grid gap-4 xl:grid-cols-[0.8fr_1.2fr]">
-          <SiloLevelIndicator
-            percent={latest?.level_percent ?? null}
-            distanceCm={latest?.level_distance_cm ?? null}
-            updatedAt={latest?.timestamp}
-            calibrationStatus={summary?.calibration_status || "pending"}
-            sensorConnected={isOnline}
-          />
-          <CalibrationWizard token={token} device={device} role={data.me.role} onChanged={() => setNodeReload((current) => current + 1)} />
-        </div>
+        <CalibrationWizard token={token} device={device} role={data.me.role} onChanged={() => setNodeReload((current) => current + 1)} />
       ) : !isClient ? <CalibrationWizard token={token} device={device} role={data.me.role} onChanged={() => setNodeReload((current) => current + 1)} /> : null}
       <DynamicDeviceDashboard
         token={token}
@@ -3025,6 +3016,7 @@ function StorageUnitsAdminView({ data, token, onChanged }: { data: AppData; toke
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [editingUnit, setEditingUnit] = useState<StorageUnit | null>(null);
+  const [levelCalibration, setLevelCalibration] = useState<{ deviceId: number; emptyMm: string; fullMm: string } | null>(null);
 
   async function run(action: () => Promise<unknown>, success: string): Promise<boolean> {
     setBusy(true);
@@ -3129,22 +3121,34 @@ function StorageUnitsAdminView({ data, token, onChanged }: { data: AppData; toke
           className="panel grid gap-4 border-emerald-200 p-5 lg:grid-cols-4"
           onSubmit={(event) => {
             event.preventDefault();
-            run(() => updateAdminStorageUnit(token, editingUnit.id, {
-              name: editingUnit.name,
-              unit_type: editingUnit.unit_type,
-              capacity_tons: editingUnit.capacity_tons,
-              surface_hectares: editingUnit.surface_hectares,
-              crop_type: editingUnit.crop_type,
-              location: editingUnit.location
-            }), "Unidad actualizada.").then((saved) => { if (saved) setEditingUnit(null); });
+            run(async () => {
+              await updateAdminStorageUnit(token, editingUnit.id, {
+                name: editingUnit.name,
+                unit_type: editingUnit.unit_type,
+                capacity_tons: editingUnit.capacity_tons,
+                surface_hectares: editingUnit.surface_hectares,
+                crop_type: editingUnit.crop_type,
+                location: editingUnit.location
+              });
+              if (levelCalibration?.deviceId && levelCalibration.emptyMm && levelCalibration.fullMm) {
+                await updateDeviceCalibration(token, levelCalibration.deviceId, Number(levelCalibration.emptyMm) / 10, Number(levelCalibration.fullMm) / 10);
+              }
+            }, "Unidad y calibración de nivel actualizadas.").then((saved) => { if (saved) { setEditingUnit(null); setLevelCalibration(null); } });
           }}
         >
           <div className="lg:col-span-4"><p className="section-kicker">Editar unidad</p><h3 className="font-black text-slate-950">{editingUnit.name}</h3></div>
           <Field label="Nombre *"><input required className="input" value={editingUnit.name} onChange={(event) => setEditingUnit({ ...editingUnit, name: event.target.value })} /></Field>
           <Field label="Tipo"><input className="input" value={editingUnit.unit_type} onChange={(event) => setEditingUnit({ ...editingUnit, unit_type: event.target.value })} /></Field>
+          <Field label="Capacidad nominal (t)"><input className="input" type="number" min="0" step="0.01" value={editingUnit.capacity_tons ?? ""} onChange={(event) => setEditingUnit({ ...editingUnit, capacity_tons: event.target.value ? Number(event.target.value) : null })} /></Field>
           <Field label="Producto / cultivo"><input className="input" value={editingUnit.crop_type || ""} onChange={(event) => setEditingUnit({ ...editingUnit, crop_type: event.target.value || null })} /></Field>
           <Field label="Ubicación"><input className="input" value={editingUnit.location || ""} onChange={(event) => setEditingUnit({ ...editingUnit, location: event.target.value || null })} /></Field>
-          <div className="flex gap-2 lg:col-span-4"><button disabled={busy} className="btn-primary">Guardar cambios</button><button type="button" className="btn-secondary" onClick={() => setEditingUnit(null)}>Cancelar</button></div>
+          {levelCalibration ? <>
+            <div className="lg:col-span-4"><p className="section-kicker">Calibración del nivel · mm</p></div>
+            <Field label="Distancia silo vacío"><input required className="input" type="number" min="1" step="1" value={levelCalibration.emptyMm} onChange={(event) => setLevelCalibration({ ...levelCalibration, emptyMm: event.target.value })} /></Field>
+            <Field label="Distancia silo lleno"><input required className="input" type="number" min="1" step="1" value={levelCalibration.fullMm} onChange={(event) => setLevelCalibration({ ...levelCalibration, fullMm: event.target.value })} /></Field>
+            <Field label="Unidad"><input className="input" value="mm" disabled /></Field>
+          </> : editingUnit.operation_type === "storage" ? <p className="self-end text-sm text-amber-700 lg:col-span-4">Registra un SiloSensor en esta unidad para configurar el nivel.</p> : null}
+          <div className="flex gap-2 lg:col-span-4"><button disabled={busy} className="btn-primary">Guardar cambios</button><button type="button" className="btn-secondary" onClick={() => { setEditingUnit(null); setLevelCalibration(null); }}>Cancelar</button></div>
         </form>
       ) : null}
       <div className="grid gap-4 xl:grid-cols-3">
@@ -3163,7 +3167,15 @@ function StorageUnitsAdminView({ data, token, onChanged }: { data: AppData; toke
               <div className="rounded-xl bg-slate-50 p-3"><p className="text-xs font-black uppercase tracking-[0.12em] text-slate-500">Sensores</p><p className="font-black">{data.devices.filter((device) => device.storage_unit_id === unit.id).length}</p></div>
             </div>
             <div className="mt-4 flex flex-wrap gap-2">
-              <button disabled={busy} type="button" className="btn-secondary" onClick={() => setEditingUnit({ ...unit })}>Editar</button>
+              <button disabled={busy} type="button" className="btn-secondary" onClick={() => {
+                setEditingUnit({ ...unit });
+                const levelDevice = data.devices.find((device) => device.storage_unit_id === unit.id && deviceProfile(device) === "silo_sensor");
+                setLevelCalibration(levelDevice ? {
+                  deviceId: levelDevice.id,
+                  emptyMm: levelDevice.empty_distance_cm == null ? "" : String(levelDevice.empty_distance_cm * 10),
+                  fullMm: levelDevice.full_distance_cm == null ? "" : String(levelDevice.full_distance_cm * 10)
+                } : null);
+              }}>Editar</button>
               <button disabled={busy} type="button" className="btn-secondary" onClick={() => run(() => unit.is_active ? deactivateAdminStorageUnit(token, unit.id) : activateAdminStorageUnit(token, unit.id), unit.is_active ? "Unidad desactivada." : "Unidad activada.")}>{unit.is_active ? "Desactivar" : "Activar"}</button>
               <button
                 disabled={busy}

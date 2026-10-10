@@ -19,6 +19,8 @@ export type AgroChartInputPoint = {
   bucketMin?: number | null;
   bucketMax?: number | null;
   sampleCount?: number;
+  ultrasonicDistanceMm?: number | null;
+  productHeightMm?: number | null;
 };
 
 export type AgroChartDatum = AgroChartInputPoint & {

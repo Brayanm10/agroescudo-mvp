@@ -830,7 +830,9 @@ class MetricReadingPointOut(BaseModel):
     quality_status: str
     calibration_version: int | None = None
     sampled_at: datetime
-    source: Literal["normalized", "legacy_fallback"]
+    source: Literal["normalized", "legacy_fallback", "derived"]
+    ultrasonic_distance_mm: float | None = None
+    product_height_mm: float | None = None
     bucket_min: float | None = None
     bucket_max: float | None = None
     sample_count: int = 1

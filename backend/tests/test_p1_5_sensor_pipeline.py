@@ -202,6 +202,33 @@ def test_dashboard_schema_and_series_are_exact_per_channel_and_role(client, db_s
     assert technical.json()["points"][0]["raw_value"] == 25.4
 
 
+def test_level_series_is_recalculated_from_raw_distance(client, db_session):
+    device = _prepare_device(db_session)
+    sync_device_channels(db_session, device, template_code="SILO_SENSOR_WITH_LEVEL")
+    device.empty_distance_cm = 350
+    device.full_distance_cm = 50
+    db_session.commit()
+    response = _post_event(client, sequence=4110, metrics=[{
+        "channel_key": "level_ultrasonic_1",
+        "metric_code": "LEVEL_DISTANCE_MM",
+        "raw_value": 2000,
+        "unit": "mm",
+        "quality": "VALID",
+    }])
+    assert response.status_code == 200
+    series = client.get(
+        f"/api/devices/{device.id}/metrics/LEVEL_PERCENT/readings",
+        params={"channel_key": "level_ultrasonic_1", "resolution": "raw"},
+        headers=_headers(client),
+    )
+    assert series.status_code == 200
+    point = series.json()["points"][0]
+    assert point["value"] == 50.0
+    assert point["product_height_mm"] == 1500.0
+    assert point["ultrasonic_distance_mm"] == 2000.0
+    assert point["source"] == "derived"
+
+
 def test_hiding_chart_preserves_metric_history(client, db_session):
     device = _prepare_device(db_session)
     _post_event(client, sequence=4105)
