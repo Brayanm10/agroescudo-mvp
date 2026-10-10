@@ -139,6 +139,12 @@ export type StorageUnit = {
   operation_type: "storage" | "field";
   surface_hectares: number | null;
   boundary_geojson?: BoundaryGeoJson | null;
+  emc_enabled?: boolean;
+  emc_crop?: "MAIZE";
+  emc_reference_moisture_wb?: number | null;
+  emc_reference_timestamp?: string | null;
+  emc_raw_at_reference_wb?: number | null;
+  emc_calibration_offset_pp?: number | null;
   is_active: boolean;
   assigned_technician_id: number | null;
   assigned_client_id: number | null;
@@ -251,6 +257,11 @@ export type CanonicalMetricPoint = {
   source: "normalized" | "legacy_fallback" | "derived";
   ultrasonic_distance_mm: number | null;
   product_height_mm: number | null;
+  emc_raw_wb: number | null;
+  grain_temperature_c: number | null;
+  intergranular_temperature_c: number | null;
+  intergranular_humidity_pct: number | null;
+  calibration_offset_pp: number | null;
   bucket_min: number | null;
   bucket_max: number | null;
   sample_count: number;

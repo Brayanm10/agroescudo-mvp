@@ -21,6 +21,11 @@ export type AgroChartInputPoint = {
   sampleCount?: number;
   ultrasonicDistanceMm?: number | null;
   productHeightMm?: number | null;
+  emcRawWb?: number | null;
+  grainTemperatureC?: number | null;
+  intergranularTemperatureC?: number | null;
+  intergranularHumidityPct?: number | null;
+  calibrationOffsetPp?: number | null;
 };
 
 export type AgroChartDatum = AgroChartInputPoint & {

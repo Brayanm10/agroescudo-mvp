@@ -29,7 +29,7 @@ from app.services.audit import record_audit_event
 from app.services.chart_context import build_device_chart_context
 from app.services.device_capabilities import channel_accepts_metric, channel_metric_codes
 from app.services.telemetry import product_code_for_device, sensor_profile
-from app.services.telemetry_queries import query_metric_readings
+from app.services.telemetry_queries import query_emc_readings, query_metric_readings
 
 router = APIRouter(prefix="/devices", dependencies=[Depends(get_current_user)])
 
@@ -210,6 +210,29 @@ def get_metric_readings(
         channel=channel,
         metric_code=metric_code,
         user=current_user,
+        from_=from_,
+        to=to,
+        resolution=resolution,
+        limit=limit,
+        order=order,
+    )
+
+
+@router.get("/{device_id}/emc-readings", response_model=MetricReadingsOut)
+def get_emc_readings(
+    device_id: int,
+    from_: datetime | None = Query(default=None, alias="from"),
+    to: datetime | None = None,
+    resolution: str = Query(default="raw", pattern="^(raw|5m|15m|1h|1d)$"),
+    limit: int = Query(default=1000, ge=1, le=5000),
+    order: str = Query(default="asc", pattern="^(asc|desc)$"),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> MetricReadingsOut:
+    device = require_device_access(db, current_user, device_id)
+    return query_emc_readings(
+        db,
+        device=device,
         from_=from_,
         to=to,
         resolution=resolution,

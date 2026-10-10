@@ -325,6 +325,12 @@ class StorageUnitOut(BaseModel):
     location: str | None = None
     crop_type: str | None = None
     boundary_geojson: dict[str, Any] | None = None
+    emc_enabled: bool = True
+    emc_crop: str = "MAIZE"
+    emc_reference_moisture_wb: float | None = None
+    emc_reference_timestamp: datetime | None = None
+    emc_raw_at_reference_wb: float | None = None
+    emc_calibration_offset_pp: float | None = None
     is_active: bool = True
     assigned_technician_id: int | None = None
     assigned_client_id: int | None = None
@@ -337,6 +343,19 @@ class StorageUnitOut(BaseModel):
 class StorageUnitAssignmentsIn(BaseModel):
     assigned_technician_id: int | None = None
     assigned_client_id: int | None = None
+
+
+class EmcConfigurationIn(BaseModel):
+    enabled: bool = True
+    crop: Literal["MAIZE"] = "MAIZE"
+    reference_moisture_wb: float | None = Field(default=None, gt=0, lt=100)
+    reference_timestamp: datetime | None = None
+
+    @model_validator(mode="after")
+    def validate_reference(self):
+        if bool(self.reference_moisture_wb is not None) != bool(self.reference_timestamp is not None):
+            raise ValueError("La humedad fisica y la fecha de referencia deben informarse juntas.")
+        return self
 
 
 class PluviometrySiteOut(BaseModel):
@@ -833,6 +852,11 @@ class MetricReadingPointOut(BaseModel):
     source: Literal["normalized", "legacy_fallback", "derived"]
     ultrasonic_distance_mm: float | None = None
     product_height_mm: float | None = None
+    emc_raw_wb: float | None = None
+    grain_temperature_c: float | None = None
+    intergranular_temperature_c: float | None = None
+    intergranular_humidity_pct: float | None = None
+    calibration_offset_pp: float | None = None
     bucket_min: float | None = None
     bucket_max: float | None = None
     sample_count: int = 1

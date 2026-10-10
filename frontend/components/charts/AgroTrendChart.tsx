@@ -47,6 +47,7 @@ export type AgroTrendChartProps = {
   percentage?: boolean;
   hideStats?: boolean;
   timeZone?: string;
+  variationUnit?: string;
 };
 
 export function AgroTrendChart({
@@ -67,7 +68,8 @@ export function AgroTrendChart({
   variant = "secondary",
   percentage = false,
   hideStats = false,
-  timeZone
+  timeZone,
+  variationUnit
 }: AgroTrendChartProps) {
   const gradientId = `agro-${useId().replaceAll(":", "")}`;
   const data = buildAgroChartData(points, gaps, events, actions);
@@ -182,7 +184,7 @@ export function AgroTrendChart({
         <ChartStat label="Mínimo" value={formatValue(summary.minimum, decimals, unit)} />
         <ChartStat label="Promedio" value={formatValue(summary.average, decimals, unit)} />
         <ChartStat label="Máximo" value={formatValue(summary.maximum, decimals, unit)} emphasis />
-        <ChartStat label="Variación" value={formatSigned(summary.change, decimals, unit)} trend={summary.change} />
+        <ChartStat label="Variación" value={formatSigned(summary.change, decimals, variationUnit ?? unit)} trend={summary.change} />
       </div> : null}
 
       <AnnotationRail events={events} actions={actions} gaps={gaps} timeZone={timeZone} />

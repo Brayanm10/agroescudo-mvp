@@ -41,6 +41,16 @@ export function AgroChartTooltip({
           <p>Distancia ultrasónica cruda: {point.ultrasonicDistanceMm?.toFixed(0) ?? "--"} mm</p>
         </div>
       ) : null}
+      {point.emcRawWb !== null && point.emcRawWb !== undefined ? (
+        <div className="mt-2 space-y-1 text-[11px] font-semibold text-slate-600">
+          <p>EMC calibrada: {point.value.toFixed(decimals)}% wb</p>
+          <p>EMC cruda: {point.emcRawWb.toFixed(decimals)}% wb</p>
+          <p>Temp. grano: {point.grainTemperatureC?.toFixed(1) ?? "--"} °C</p>
+          <p>Temp. intergranular: {point.intergranularTemperatureC?.toFixed(1) ?? "--"} °C</p>
+          <p>HR intergranular: {point.intergranularHumidityPct?.toFixed(1) ?? "--"}%</p>
+          <p>{point.calibrationOffsetPp === null || point.calibrationOffsetPp === undefined ? "Sin calibración local" : `Offset: ${point.calibrationOffsetPp >= 0 ? "+" : ""}${point.calibrationOffsetPp.toFixed(2)} pp`}</p>
+        </div>
+      ) : null}
       {point.sampleCount && point.sampleCount > 1 ? (
         <p className="mt-2 text-[11px] text-slate-500">
           Intervalo: {point.bucketMin?.toFixed(decimals)}–{point.bucketMax?.toFixed(decimals)}{unit} · {point.sampleCount} muestras

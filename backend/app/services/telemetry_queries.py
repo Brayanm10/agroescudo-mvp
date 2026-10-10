@@ -8,7 +8,8 @@ from statistics import median
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import Device, DeviceChannel, MetricDefinition, MetricReading, SensorReading, User
+from app.domain.emc import apply_emc_offset, calculate_maize_emc_wb
+from app.models import Device, DeviceChannel, MetricDefinition, MetricReading, SensorReading, StorageUnit, User
 from app.schemas import (
     MetricDataGapOut,
     MetricReadingPointOut,
@@ -16,7 +17,7 @@ from app.schemas import (
     MetricSeriesPeriodOut,
     MetricSeriesSummaryOut,
 )
-from app.services.telemetry import calculate_fill_metrics
+from app.services.telemetry import calculate_fill_metrics, sensor_profile
 
 
 LEGACY_METRIC_FIELDS = {
@@ -29,6 +30,85 @@ LEGACY_METRIC_FIELDS = {
     "BATTERY_VOLTAGE_MV": ("battery_voltage", "mV", 1000.0),
     "SIGNAL_RSSI_DBM": ("signal_quality", "dBm", 1.0),
 }
+
+
+def query_emc_readings(
+    db: Session,
+    *,
+    device: Device,
+    from_: datetime | None,
+    to: datetime | None,
+    resolution: str,
+    limit: int,
+    order: str,
+) -> MetricReadingsOut:
+    unit = db.get(StorageUnit, device.storage_unit_id)
+    points: list[MetricReadingPointOut] = []
+    if unit is not None and unit.emc_enabled and sensor_profile(device) == "silo_sensor":
+        stmt = select(SensorReading).where(SensorReading.device_id == device.id)
+        if from_ is not None:
+            stmt = stmt.where(SensorReading.timestamp >= from_)
+        if to is not None:
+            stmt = stmt.where(SensorReading.timestamp <= to)
+        direction = SensorReading.timestamp.asc() if order == "asc" else SensorReading.timestamp.desc()
+        for row in db.scalars(stmt.order_by(direction)).all():
+            if row.ambient_temperature is None or row.ambient_humidity is None:
+                continue
+            try:
+                raw_emc = calculate_maize_emc_wb(row.ambient_temperature, row.ambient_humidity)
+            except ValueError:
+                continue
+            calibrated = apply_emc_offset(raw_emc, unit.emc_calibration_offset_pp)
+            points.append(MetricReadingPointOut(
+                device_id=device.id,
+                channel_key="emc_derived",
+                metric_code="GRAIN_MOISTURE_EMC_PCT",
+                raw_value=raw_emc,
+                calibrated_value=calibrated,
+                value=calibrated,
+                unit="percent_wb",
+                quality_status="DERIVED_CALIBRATED" if unit.emc_calibration_offset_pp is not None else "DERIVED_UNCALIBRATED",
+                sampled_at=row.timestamp,
+                source="derived",
+                emc_raw_wb=raw_emc,
+                grain_temperature_c=row.grain_temperature,
+                intergranular_temperature_c=row.ambient_temperature,
+                intergranular_humidity_pct=row.ambient_humidity,
+                calibration_offset_pp=unit.emc_calibration_offset_pp,
+                bucket_min=calibrated,
+                bucket_max=calibrated,
+            ))
+    chronological = sorted(points, key=lambda item: _epoch(item.sampled_at))
+    gaps, coverage_seconds = _detect_gaps(chronological, device.expected_reading_interval_minutes)
+    aggregated = _aggregate(chronological, resolution)
+    ordered = sorted(aggregated, key=lambda item: _epoch(item.sampled_at), reverse=order == "desc")
+    values = [point.value for point in chronological if point.value is not None]
+    current = values[-1] if values else None
+    initial = values[0] if values else None
+    return MetricReadingsOut(
+        device_id=device.id,
+        channel_key="emc_derived",
+        metric_code="GRAIN_MOISTURE_EMC_PCT",
+        resolution=resolution,
+        reconciliation_approved=False,
+        points=ordered[:limit],
+        period=MetricSeriesPeriodOut(
+            from_=from_ or (chronological[0].sampled_at if chronological else None),
+            to=to or (chronological[-1].sampled_at if chronological else None),
+        ),
+        summary=MetricSeriesSummaryOut(
+            current=current,
+            initial=initial,
+            minimum=min(values) if values else None,
+            maximum=max(values) if values else None,
+            average=sum(values) / len(values) if values else None,
+            change=current - initial if current is not None and initial is not None else None,
+            sample_count=len(values),
+            point_count=len(aggregated),
+            coverage_seconds=coverage_seconds,
+        ),
+        gaps=gaps,
+    )
 
 
 def query_metric_readings(
@@ -271,6 +351,11 @@ def _aggregate(
                     "sample_count": sum(point.sample_count for point in bucket_points),
                     "ultrasonic_distance_mm": _average_optional(point.ultrasonic_distance_mm for point in bucket_points),
                     "product_height_mm": _average_optional(point.product_height_mm for point in bucket_points),
+                    "emc_raw_wb": _average_optional(point.emc_raw_wb for point in bucket_points),
+                    "grain_temperature_c": _average_optional(point.grain_temperature_c for point in bucket_points),
+                    "intergranular_temperature_c": _average_optional(point.intergranular_temperature_c for point in bucket_points),
+                    "intergranular_humidity_pct": _average_optional(point.intergranular_humidity_pct for point in bucket_points),
+                    "calibration_offset_pp": _average_optional(point.calibration_offset_pp for point in bucket_points),
                 }
             )
         )

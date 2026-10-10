@@ -9,7 +9,7 @@ from app.api.deps import require_role
 from app.core.config import settings
 from app.core.security import hash_password, hash_secret
 from app.db.session import get_db
-from app.models import Company, Device, NotificationDelivery, NotificationPreference, Site, StorageUnit, User, utc_now
+from app.models import Company, Device, NotificationDelivery, NotificationPreference, SensorReading, Site, StorageUnit, User, utc_now
 from app.schemas import (
     AdminDeviceCreate,
     AdminDeviceSecretOut,
@@ -25,6 +25,7 @@ from app.schemas import (
     DeviceCalibrationIn,
     CalibrationCreateIn,
     DeletionOut,
+    EmcConfigurationIn,
     NotificationDeliveryOut,
     PasswordResetIn,
     StorageUnitCreate,
@@ -35,6 +36,7 @@ from app.schemas import (
     UserStorageUnitAssignmentsIn,
     UserUpdate,
 )
+from app.domain.emc import calculate_maize_emc_wb
 from app.services.notifications import create_admin_test_delivery, upsert_preference
 from app.services.audit import record_audit_event
 from app.services.company_features import PLUVIOMETRY, list_company_features, require_company_feature, set_company_feature
@@ -287,6 +289,60 @@ def update_admin_storage_unit(
             resource_id=unit.id,
             metadata={"site_id": unit.site_id},
         )
+    db.commit()
+    db.refresh(unit)
+    return unit
+
+
+@router.put("/storage-units/{storage_unit_id}/emc-configuration", response_model=StorageUnitOut)
+def update_storage_unit_emc_configuration(
+    storage_unit_id: int,
+    payload: EmcConfigurationIn,
+    current_user: User = Depends(require_role("admin")),
+    db: Session = Depends(get_db),
+) -> StorageUnit:
+    unit = _get_storage_unit(db, storage_unit_id)
+    raw_at_reference = None
+    offset = None
+    if payload.reference_timestamp is not None and payload.reference_moisture_wb is not None:
+        row = db.scalar(
+            select(SensorReading)
+            .join(Device, SensorReading.device_id == Device.id)
+            .where(
+                Device.storage_unit_id == unit.id,
+                SensorReading.timestamp <= payload.reference_timestamp,
+                SensorReading.ambient_temperature.is_not(None),
+                SensorReading.ambient_humidity.is_not(None),
+            )
+            .order_by(SensorReading.timestamp.desc())
+            .limit(1)
+        )
+        if row is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="No existe telemetria ambiental valida en la fecha de referencia.",
+            )
+        try:
+            raw_at_reference = calculate_maize_emc_wb(row.ambient_temperature, row.ambient_humidity)
+        except ValueError as exc:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+        offset = payload.reference_moisture_wb - raw_at_reference
+    unit.emc_enabled = payload.enabled
+    unit.emc_crop = payload.crop
+    unit.emc_reference_moisture_wb = payload.reference_moisture_wb
+    unit.emc_reference_timestamp = payload.reference_timestamp
+    unit.emc_raw_at_reference_wb = raw_at_reference
+    unit.emc_calibration_offset_pp = offset
+    record_audit_event(
+        db,
+        action="storage_unit.emc_configuration_updated",
+        summary=f"Configuracion EMC actualizada para {unit.name}.",
+        user=current_user,
+        company_id=unit.company_id,
+        resource_type="storage_unit",
+        resource_id=unit.id,
+        metadata={"enabled": payload.enabled, "crop": payload.crop, "calibrated": offset is not None},
+    )
     db.commit()
     db.refresh(unit)
     return unit

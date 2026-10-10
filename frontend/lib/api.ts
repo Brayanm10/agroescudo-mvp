@@ -545,6 +545,17 @@ export function getCanonicalMetricReadings(
   );
 }
 
+export function getEmcReadings(
+  token: string,
+  deviceId: number,
+  options: { from?: string; to?: string; resolution?: "raw" | "5m" | "15m" | "1h" | "1d"; limit?: number; signal?: AbortSignal }
+) {
+  const params = new URLSearchParams({ resolution: options.resolution ?? "raw", limit: String(options.limit ?? 1000), order: "asc" });
+  if (options.from) params.set("from", options.from);
+  if (options.to) params.set("to", options.to);
+  return request<CanonicalMetricSeries>(`/api/devices/${deviceId}/emc-readings?${params}`, { token, signal: options.signal });
+}
+
 export function updateSensorChannel(
   token: string,
   deviceId: number,
@@ -919,6 +930,14 @@ export function createAdminStorageUnit(
 
 export function updateAdminStorageUnit(token: string, storageUnitId: number, payload: Partial<StorageUnit>) {
   return request<StorageUnit>(`/api/admin/storage-units/${storageUnitId}`, { token, method: "PATCH", body: payload });
+}
+
+export function updateStorageUnitEmcConfiguration(
+  token: string,
+  storageUnitId: number,
+  payload: { enabled: boolean; crop: "MAIZE"; reference_moisture_wb: number | null; reference_timestamp: string | null }
+) {
+  return request<StorageUnit>(`/api/admin/storage-units/${storageUnitId}/emc-configuration`, { token, method: "PUT", body: payload });
 }
 
 export function activateAdminStorageUnit(token: string, storageUnitId: number) {

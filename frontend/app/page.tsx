@@ -56,6 +56,7 @@ import { PremiumClientDashboard } from "@/components/dashboard/PremiumClientDash
 import { ReportDownloadButton } from "@/components/reports/ReportDownloadButton";
 import { CalibrationWizard } from "@/components/telemetry/CalibrationWizard";
 import { DynamicDeviceDashboard } from "@/components/telemetry/DynamicDeviceDashboard";
+import { formatEmcSummary } from "@/components/telemetry/emc-model";
 import { TimeRangeControl } from "@/components/telemetry/TimeRangeControl";
 import { SentinelAdminView } from "@/components/sentinel/SentinelAdminView";
 import { CompanyFeatureToggle } from "@/components/admin/CompanyFeatureToggle";
@@ -120,6 +121,7 @@ import {
   updateAdminDevice,
   updateDeviceCalibration,
   updateAdminStorageUnit,
+  updateStorageUnitEmcConfiguration,
   updateAdminUser,
   updatePilot,
   updateThresholds,
@@ -2121,6 +2123,7 @@ function StorageUnitDetail({
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
   const [derivedLevel, setDerivedLevel] = useState<DerivedLevelSummary | null>(null);
+  const [emcSummary, setEmcSummary] = useState<{ status: "value" | "pending"; value: number | null } | null>(null);
   const telemetryFrom = useMemo(
     () => period === "custom" ? (customFrom ? new Date(customFrom).toISOString() : undefined) : periodStart(period),
     [customFrom, period]
@@ -2131,6 +2134,9 @@ function StorageUnitDetail({
   );
   const updateDerivedLevel = useCallback((next: DerivedLevelSummary) => {
     setDerivedLevel((current) => current?.status === next.status && current.percent === next.percent ? current : next);
+  }, []);
+  const updateEmcSummary = useCallback((next: { status: "value" | "pending"; value: number | null }) => {
+    setEmcSummary((current) => current?.status === next.status && current.value === next.value ? current : next);
   }, []);
 
   useEffect(() => {
@@ -2155,6 +2161,7 @@ function StorageUnitDetail({
     setReadings([]);
     setSummary(null);
     setDerivedLevel(null);
+    setEmcSummary(null);
     window.history.replaceState({}, "", nodeSelectionPath(window.location.href, deviceId));
     if (period === "custom" && (!customFrom || !customTo || new Date(customFrom) >= new Date(customTo))) {
       setLoadingNode(false);
@@ -2265,6 +2272,7 @@ function StorageUnitDetail({
             <Metric icon={Activity} label="Humedad ambiente" value={formatNumber(latest?.ambient_humidity, "%")} />
             {profile === "field_sensor" && latest?.soil_temperature_c !== null ? <Metric icon={Thermometer} label="Temp. suelo" value={formatNumber(latest?.soil_temperature_c, " C")} /> : null}
             {profile === "silo_sensor" ? <Metric icon={Gauge} label="Nivel de llenado" value={formatDerivedLevelSummary(derivedLevel)} /> : null}
+            {profile === "silo_sensor" ? <Metric icon={Activity} label="Humedad grano EMC" value={formatEmcSummary(emcSummary?.value)} /> : null}
             {profile === "silo_sensor" && !isClient ? <Metric icon={Radio} label="Distancia" value={formatNumber(latest?.level_distance_cm, " cm")} /> : null}
             {!isClient ? <Metric icon={Battery} label="Bateria" value={formatNumber(latest?.battery_voltage, " V", 2)} /> : null}
             {canSeeDiagnostics ? <Metric icon={Wifi} label="Senal" value={latest?.signal_quality === null || latest?.signal_quality === undefined ? "Sin dato" : `${latest.signal_quality} dBm`} /> : null}
@@ -2274,6 +2282,7 @@ function StorageUnitDetail({
             <div className={`relative mt-5 rounded-2xl border p-4 text-sm leading-6 shadow-soft ${insightStyles(insight.status)}`}>
               <p className="text-xs font-black uppercase tracking-[0.14em] opacity-75">Consulta operativa</p>
               <p className="mt-2 font-bold">{insight.summary}</p>
+              {profile === "silo_sensor" && emcSummary?.value != null ? <p className="mt-2 font-semibold">EMC actual: {emcSummary.value.toFixed(1)}% wb · temperatura intergranular {formatNumber(latest?.ambient_temperature, " °C")} · HR intergranular {formatNumber(latest?.ambient_humidity, "%")} · nivel {formatDerivedLevelSummary(derivedLevel)}.</p> : null}
               {insight.recommendations[0] ? <p className="mt-2 font-black">Recomendacion: {insight.recommendations[0]}</p> : null}
             </div>
           ) : null}
@@ -2345,6 +2354,7 @@ function StorageUnitDetail({
         resolution={resolution}
         rangeLabel={telemetryRangeLabel(period, customFrom || undefined, customTo || undefined)}
         onLevelSummary={updateDerivedLevel}
+        onEmcSummary={updateEmcSummary}
       />
       <section className="panel p-5">
         <p className="section-kicker">Trazabilidad</p>
@@ -3031,6 +3041,7 @@ function StorageUnitsAdminView({ data, token, onChanged }: { data: AppData; toke
   const [error, setError] = useState<string | null>(null);
   const [editingUnit, setEditingUnit] = useState<StorageUnit | null>(null);
   const [levelCalibration, setLevelCalibration] = useState<{ deviceId: number; emptyMm: string; fullMm: string } | null>(null);
+  const [emcCalibration, setEmcCalibration] = useState<{ enabled: boolean; referenceMoisture: string; referenceTimestamp: string } | null>(null);
 
   async function run(action: () => Promise<unknown>, success: string): Promise<boolean> {
     setBusy(true);
@@ -3147,7 +3158,15 @@ function StorageUnitsAdminView({ data, token, onChanged }: { data: AppData; toke
               if (levelCalibration?.deviceId && levelCalibration.emptyMm && levelCalibration.fullMm) {
                 await updateDeviceCalibration(token, levelCalibration.deviceId, Number(levelCalibration.emptyMm) / 10, Number(levelCalibration.fullMm) / 10);
               }
-            }, "Unidad y calibración de nivel actualizadas.").then((saved) => { if (saved) { setEditingUnit(null); setLevelCalibration(null); } });
+              if (emcCalibration) {
+                await updateStorageUnitEmcConfiguration(token, editingUnit.id, {
+                  enabled: emcCalibration.enabled,
+                  crop: "MAIZE",
+                  reference_moisture_wb: emcCalibration.referenceMoisture ? Number(emcCalibration.referenceMoisture) : null,
+                  reference_timestamp: emcCalibration.referenceTimestamp ? new Date(emcCalibration.referenceTimestamp).toISOString() : null
+                });
+              }
+            }, "Unidad, nivel y configuración EMC actualizados.").then((saved) => { if (saved) { setEditingUnit(null); setLevelCalibration(null); setEmcCalibration(null); } });
           }}
         >
           <div className="lg:col-span-4"><p className="section-kicker">Editar unidad</p><h3 className="font-black text-slate-950">{editingUnit.name}</h3></div>
@@ -3162,7 +3181,16 @@ function StorageUnitsAdminView({ data, token, onChanged }: { data: AppData; toke
             <Field label="Distancia silo lleno"><input required className="input" type="number" min="1" step="1" value={levelCalibration.fullMm} onChange={(event) => setLevelCalibration({ ...levelCalibration, fullMm: event.target.value })} /></Field>
             <Field label="Unidad"><input className="input" value="mm" disabled /></Field>
           </> : editingUnit.operation_type === "storage" ? <p className="self-end text-sm text-amber-700 lg:col-span-4">Registra un SiloSensor en esta unidad para configurar el nivel.</p> : null}
-          <div className="flex gap-2 lg:col-span-4"><button disabled={busy} className="btn-primary">Guardar cambios</button><button type="button" className="btn-secondary" onClick={() => { setEditingUnit(null); setLevelCalibration(null); }}>Cancelar</button></div>
+          {emcCalibration && editingUnit.operation_type === "storage" ? <>
+            <div className="lg:col-span-4"><p className="section-kicker">Humedad estimada del grano · EMC</p><p className="mt-1 text-sm text-slate-600">La estimación usa temperatura y humedad del aire intergranular. La temperatura de grano se muestra solo como contexto.</p></div>
+            <label className="flex items-center gap-2 rounded-xl border border-emerald-100 px-3 py-2 text-sm font-bold"><input type="checkbox" checked={emcCalibration.enabled} onChange={(event) => setEmcCalibration({ ...emcCalibration, enabled: event.target.checked })} /> Activar estimación EMC</label>
+            <Field label="Cultivo"><input className="input" value="Maíz" disabled /></Field>
+            <Field label="Humedad física de referencia (% wb)"><input className="input" type="number" min="0.1" max="99.9" step="0.1" value={emcCalibration.referenceMoisture} onChange={(event) => setEmcCalibration({ ...emcCalibration, referenceMoisture: event.target.value })} placeholder="Opcional" /></Field>
+            <Field label="Fecha de referencia"><input className="input" type="datetime-local" value={emcCalibration.referenceTimestamp} onChange={(event) => setEmcCalibration({ ...emcCalibration, referenceTimestamp: event.target.value })} /></Field>
+            <div className="rounded-xl bg-slate-50 p-3 text-sm lg:col-span-2"><p className="font-black">Resultado guardado</p><p>EMC cruda: {editingUnit.emc_raw_at_reference_wb?.toFixed(2) ?? "Sin calibrar"}% wb</p><p>Offset: {editingUnit.emc_calibration_offset_pp == null ? "Sin calibrar" : `${editingUnit.emc_calibration_offset_pp.toFixed(2)} pp`}</p></div>
+            <div className="flex items-end"><button type="button" className="btn-secondary" onClick={() => setEmcCalibration({ ...emcCalibration, referenceMoisture: "", referenceTimestamp: "" })}>Quitar calibración</button></div>
+          </> : null}
+          <div className="flex gap-2 lg:col-span-4"><button disabled={busy} className="btn-primary">Guardar cambios</button><button type="button" className="btn-secondary" onClick={() => { setEditingUnit(null); setLevelCalibration(null); setEmcCalibration(null); }}>Cancelar</button></div>
         </form>
       ) : null}
       <div className="grid gap-4 xl:grid-cols-3">
@@ -3189,6 +3217,11 @@ function StorageUnitsAdminView({ data, token, onChanged }: { data: AppData; toke
                   emptyMm: levelDevice.empty_distance_cm == null ? "" : String(levelDevice.empty_distance_cm * 10),
                   fullMm: levelDevice.full_distance_cm == null ? "" : String(levelDevice.full_distance_cm * 10)
                 } : null);
+                setEmcCalibration({
+                  enabled: unit.emc_enabled ?? true,
+                  referenceMoisture: unit.emc_reference_moisture_wb == null ? "" : String(unit.emc_reference_moisture_wb),
+                  referenceTimestamp: unit.emc_reference_timestamp ? unit.emc_reference_timestamp.slice(0, 16) : ""
+                });
               }}>Editar</button>
               <button disabled={busy} type="button" className="btn-secondary" onClick={() => run(() => unit.is_active ? deactivateAdminStorageUnit(token, unit.id) : activateAdminStorageUnit(token, unit.id), unit.is_active ? "Unidad desactivada." : "Unidad activada.")}>{unit.is_active ? "Desactivar" : "Activar"}</button>
               <button

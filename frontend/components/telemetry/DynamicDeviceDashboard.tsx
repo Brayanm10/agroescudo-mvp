@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { RefreshCw } from "lucide-react";
-import { ApiError, getCanonicalMetricReadings, getDeviceChartContext, getDeviceDashboardSchema, getDeviceReadings } from "@/lib/api";
+import { ApiError, getCanonicalMetricReadings, getDeviceChartContext, getDeviceDashboardSchema, getDeviceReadings, getEmcReadings } from "@/lib/api";
 import type { CanonicalMetricSeries, DeviceChartContext, DeviceDashboardSchema, Reading, UserRole } from "@/lib/types";
 import { automaticResolution, type DerivedLevelSummary, type ReadingMetric, type TelemetryResolution } from "@/lib/telemetry";
 import { EmptyState } from "@/components/EmptyState";
@@ -10,6 +10,7 @@ import { ErrorState } from "@/components/ErrorState";
 import { LoadingState } from "@/components/LoadingState";
 import { ReadingChart, type ChartThresholds } from "@/components/ReadingChart";
 import { MetricChart } from "./MetricChart";
+import { EmcMetricChart } from "./EmcMetricChart";
 import { SensorStatusCard } from "./SensorStatusCard";
 import { SensorChannelManager } from "./SensorChannelManager";
 
@@ -21,7 +22,8 @@ export function DynamicDeviceDashboard({
   to,
   resolution = "auto",
   rangeLabel,
-  onLevelSummary
+  onLevelSummary,
+  onEmcSummary
 }: {
   token: string;
   deviceId: number;
@@ -31,9 +33,11 @@ export function DynamicDeviceDashboard({
   resolution?: TelemetryResolution;
   rangeLabel?: string;
   onLevelSummary?: (summary: DerivedLevelSummary) => void;
+  onEmcSummary?: (summary: { status: "value" | "pending"; value: number | null }) => void;
 }) {
   const [schema, setSchema] = useState<DeviceDashboardSchema | null>(null);
   const [series, setSeries] = useState<Record<string, CanonicalMetricSeries>>({});
+  const [emcSeries, setEmcSeries] = useState<CanonicalMetricSeries | null>(null);
   const [context, setContext] = useState<DeviceChartContext | null>(null);
   const [legacyReadings, setLegacyReadings] = useState<Reading[] | null>(null);
   const [error, setError] = useState("");
@@ -47,20 +51,24 @@ export function DynamicDeviceDashboard({
     setError("");
     setSchema(null);
     setSeries({});
+    setEmcSeries(null);
     setContext(null);
     setLegacyReadings(null);
     (async () => {
       try {
-        const [nextSchema, nextContext] = await Promise.all([
+        const [nextSchema, nextContext, nextEmc] = await Promise.all([
           getDeviceDashboardSchema(token, deviceId, controller.signal),
           getDeviceChartContext(token, deviceId, { from, to, signal: controller.signal }).catch((cause) => {
             if (cause instanceof ApiError && cause.status === 404) return null;
             throw cause;
-          })
+          }),
+          getEmcReadings(token, deviceId, { from, to, resolution: effectiveResolution, limit: 2000, signal: controller.signal })
         ]);
         if (controller.signal.aborted) return;
         setSchema(nextSchema);
         setContext(nextContext);
+        setEmcSeries(nextEmc);
+        onEmcSummary?.(nextEmc.summary.current == null ? { status: "pending", value: null } : { status: "value", value: nextEmc.summary.current });
         if (nextSchema.metrics.length === 0) {
           const readings = await getDeviceReadings(token, deviceId, controller.signal, {
             from,
@@ -132,7 +140,7 @@ export function DynamicDeviceDashboard({
       }
     })();
     return () => controller.abort();
-  }, [deviceId, effectiveResolution, from, reload, to, token, onLevelSummary]);
+  }, [deviceId, effectiveResolution, from, reload, to, token, onLevelSummary, onEmcSummary]);
 
   const channels = useMemo(
     () => new Map(schema?.channels.map((channel) => [channel.id, channel]) ?? []),
@@ -213,6 +221,17 @@ export function DynamicDeviceDashboard({
       ) : (
         <EmptyState title="Sin gráficas habilitadas" message="Los datos históricos se conservan aunque una gráfica esté oculta." />
       )}
+      {schema.device_profile === "silo_sensor" && emcSeries?.points.length ? (
+        <div className="grid gap-4 xl:grid-cols-2">
+          <EmcMetricChart series={emcSeries} periodLabel={rangeLabel} resolutionLabel={resolutionName(effectiveResolution)} />
+        </div>
+      ) : schema.device_profile === "silo_sensor" ? (
+        <section className="panel p-6">
+          <p className="section-kicker">Humedad del grano EMC</p>
+          <h3 className="mt-1 text-lg font-black text-slate-950">Pendiente</h3>
+          <p className="mt-2 text-sm text-slate-600">Se necesitan temperatura y humedad del aire intergranular válidas. Esto no afecta el estado del sensor.</p>
+        </section>
+      ) : null}
       {role === "admin" || role === "technician" ? (
         <SensorChannelManager
           token={token}

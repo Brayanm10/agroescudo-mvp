@@ -7,8 +7,10 @@ from typing import Literal
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.domain.emc import apply_emc_offset, calculate_maize_emc_wb
 from app.models import Alert, Device, OperationalLog, SensorReading, StorageUnit, ThresholdConfig, utc_now
 from app.schemas import InsightEvidenceOut, StorageUnitInsightOut
+from app.services.telemetry import calculate_fill_metrics
 
 Period = Literal["24h", "7d", "30d"]
 
@@ -62,15 +64,40 @@ def build_storage_unit_insight(db: Session, storage_unit: StorageUnit, period: P
     recommendations = _recommendations(storage_unit, readings, active_alerts, devices, thresholds)
     summary = _summary(storage_unit, readings, active_alerts, devices, thresholds)
 
+    emc_values = _emc_values(storage_unit, readings)
+    if emc_values:
+        emc_change = emc_values[-1] - emc_values[0]
+        summary += f" EMC estimada actual {emc_values[-1]:.1f}% wb, con variacion de {emc_change:+.1f} pp en el periodo."
+        evidence.extend([
+            InsightEvidenceOut(label="Humedad grano EMC", value=f"{emc_values[-1]:.1f}% wb"),
+            InsightEvidenceOut(label="Tendencia EMC", value=f"{emc_change:+.1f} pp"),
+        ])
     if readings:
         latest = readings[-1]
-        evidence.extend(
-            [
-                InsightEvidenceOut(label="Ultima temperatura grano", value=f"{latest.grain_temperature:.1f} C"),
-                InsightEvidenceOut(label="Ultima humedad", value=f"{latest.ambient_humidity:.1f}%"),
-                InsightEvidenceOut(label="Ultima bateria", value=f"{latest.battery_voltage:.2f} V"),
-            ]
-        )
+        context_parts = []
+        if latest.grain_temperature is not None:
+            context_parts.append(f"temperatura del grano {latest.grain_temperature:.1f} C")
+        if latest.ambient_humidity is not None:
+            context_parts.append(f"HR intergranular {latest.ambient_humidity:.1f}%")
+        level = _latest_fill_percentage(latest, devices)
+        if level is not None:
+            context_parts.append(f"nivel de llenado {level:.1f}%")
+        if context_parts:
+            summary += " Contexto actual: " + ", ".join(context_parts) + "."
+
+    if readings:
+        latest = readings[-1]
+        if latest.grain_temperature is not None:
+            evidence.append(InsightEvidenceOut(label="Ultima temperatura grano", value=f"{latest.grain_temperature:.1f} C"))
+        if latest.ambient_temperature is not None:
+            evidence.append(InsightEvidenceOut(label="Temperatura intergranular", value=f"{latest.ambient_temperature:.1f} C"))
+        if latest.ambient_humidity is not None:
+            evidence.append(InsightEvidenceOut(label="HR intergranular", value=f"{latest.ambient_humidity:.1f}%"))
+        if latest.battery_voltage is not None:
+            evidence.append(InsightEvidenceOut(label="Ultima bateria", value=f"{latest.battery_voltage:.2f} V"))
+        level = _latest_fill_percentage(latest, devices)
+        if level is not None:
+            evidence.append(InsightEvidenceOut(label="Nivel de llenado", value=f"{level:.1f}%"))
 
     return StorageUnitInsightOut(
         storage_unit_id=storage_unit.id,
@@ -84,6 +111,38 @@ def build_storage_unit_insight(db: Session, storage_unit: StorageUnit, period: P
         evidence=evidence,
         generated_at=utc_now(),
     )
+
+
+def _emc_values(storage_unit: StorageUnit, readings: list[SensorReading]) -> list[float]:
+    if not storage_unit.emc_enabled or storage_unit.operation_type != "storage":
+        return []
+    values: list[float] = []
+    for reading in readings:
+        if reading.ambient_temperature is None or reading.ambient_humidity is None:
+            continue
+        try:
+            raw = calculate_maize_emc_wb(reading.ambient_temperature, reading.ambient_humidity)
+        except ValueError:
+            continue
+        values.append(apply_emc_offset(raw, storage_unit.emc_calibration_offset_pp))
+    return values
+
+
+def _latest_fill_percentage(reading: SensorReading, devices: list[Device]) -> float | None:
+    if reading.level_distance_cm is None:
+        return None
+    device = next((item for item in devices if item.id == reading.device_id), None)
+    if device is None or device.empty_distance_cm is None or device.full_distance_cm is None:
+        return None
+    try:
+        derived = calculate_fill_metrics(
+            reading.level_distance_cm * 10,
+            device.empty_distance_cm * 10,
+            device.full_distance_cm * 10,
+        )
+    except ValueError:
+        return None
+    return derived[0] if derived else None
 
 
 def _thresholds(db: Session, storage_unit_id: int) -> dict[str, float]:
