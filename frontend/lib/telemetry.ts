@@ -12,6 +12,16 @@ export type ReadingMetric =
 
 export type TelemetryRange = "6h" | "24h" | "7d" | "30d" | "90d" | "custom";
 export type TelemetryResolution = "auto" | "raw" | "5m" | "15m" | "1h" | "1d";
+export type DerivedLevelSummary = {
+  status: "configured" | "pending" | "no_data";
+  percent: number | null;
+};
+
+export function formatDerivedLevelSummary(summary: DerivedLevelSummary | null): string {
+  if (!summary || summary.status === "no_data") return "Sin dato";
+  if (summary.status === "pending") return "Pendiente de calibración";
+  return summary.percent === null ? "Sin dato" : `${summary.percent.toFixed(1)}%`;
+}
 
 export function deviceProfile(device: Device | undefined): "silo_sensor" | "field_sensor" {
   return device?.device_type?.toLowerCase() === "field_sensor" ? "field_sensor" : "silo_sensor";

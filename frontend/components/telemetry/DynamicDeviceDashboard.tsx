@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { ApiError, getCanonicalMetricReadings, getDeviceChartContext, getDeviceDashboardSchema, getDeviceReadings } from "@/lib/api";
 import type { CanonicalMetricSeries, DeviceChartContext, DeviceDashboardSchema, Reading, UserRole } from "@/lib/types";
-import { automaticResolution, type ReadingMetric, type TelemetryResolution } from "@/lib/telemetry";
+import { automaticResolution, type DerivedLevelSummary, type ReadingMetric, type TelemetryResolution } from "@/lib/telemetry";
 import { EmptyState } from "@/components/EmptyState";
 import { ErrorState } from "@/components/ErrorState";
 import { LoadingState } from "@/components/LoadingState";
@@ -20,7 +20,8 @@ export function DynamicDeviceDashboard({
   from,
   to,
   resolution = "auto",
-  rangeLabel
+  rangeLabel,
+  onLevelSummary
 }: {
   token: string;
   deviceId: number;
@@ -29,6 +30,7 @@ export function DynamicDeviceDashboard({
   to?: string;
   resolution?: TelemetryResolution;
   rangeLabel?: string;
+  onLevelSummary?: (summary: DerivedLevelSummary) => void;
 }) {
   const [schema, setSchema] = useState<DeviceDashboardSchema | null>(null);
   const [series, setSeries] = useState<Record<string, CanonicalMetricSeries>>({});
@@ -66,7 +68,17 @@ export function DynamicDeviceDashboard({
             limit: 2000,
             order: "desc"
           });
-          if (!controller.signal.aborted) setLegacyReadings(readings);
+          if (!controller.signal.aborted) {
+            setLegacyReadings(readings);
+            const latest = readings[0];
+            onLevelSummary?.(
+              latest?.level_percent != null
+                ? { status: "configured", percent: latest.level_percent }
+                : latest?.level_distance_cm != null
+                  ? { status: "pending", percent: null }
+                  : { status: "no_data", percent: null }
+            );
+          }
           return;
         }
         const visible = nextSchema.metrics.filter((metric) => metric.chart_enabled);
@@ -83,7 +95,19 @@ export function DynamicDeviceDashboard({
             })
           ] as const)
         );
-        if (!controller.signal.aborted) setSeries(Object.fromEntries(loaded));
+        if (!controller.signal.aborted) {
+          const nextSeries = Object.fromEntries(loaded);
+          setSeries(nextSeries);
+          const level = Object.values(nextSeries).find((item) => item.metric_code === "LEVEL_PERCENT");
+          const distance = Object.values(nextSeries).find((item) => item.metric_code === "LEVEL_DISTANCE_MM");
+          onLevelSummary?.(
+            level?.summary.current != null
+              ? { status: "configured", percent: level.summary.current }
+              : distance?.summary.current != null
+                ? { status: "pending", percent: null }
+                : { status: "no_data", percent: null }
+          );
+        }
       } catch (cause) {
         if (controller.signal.aborted) return;
         if (cause instanceof ApiError && cause.status === 404) {
@@ -108,7 +132,7 @@ export function DynamicDeviceDashboard({
       }
     })();
     return () => controller.abort();
-  }, [deviceId, effectiveResolution, from, reload, to, token]);
+  }, [deviceId, effectiveResolution, from, reload, to, token, onLevelSummary]);
 
   const channels = useMemo(
     () => new Map(schema?.channels.map((channel) => [channel.id, channel]) ?? []),

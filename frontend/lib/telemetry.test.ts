@@ -4,6 +4,7 @@ import {
   automaticResolution,
   chartSeries,
   deviceProfile,
+  formatDerivedLevelSummary,
   nodeSelectionPath,
   periodStart,
   readingsForDevice,
@@ -87,6 +88,12 @@ describe("telemetria por nodo", () => {
     const elapsedHours = (Date.now() - start) / (60 * 60 * 1000);
     expect(elapsedHours).toBeGreaterThan(23.9);
     expect(elapsedHours).toBeLessThan(24.1);
+  });
+
+  it("formatea el resumen usando el estado derivado canónico", () => {
+    expect(formatDerivedLevelSummary({ status: "configured", percent: 84.25 })).toBe("84.3%");
+    expect(formatDerivedLevelSummary({ status: "pending", percent: null })).toBe("Pendiente de calibración");
+    expect(formatDerivedLevelSummary({ status: "no_data", percent: null })).toBe("Sin dato");
   });
 
   it("elige una resolución defendible según la ventana temporal", () => {

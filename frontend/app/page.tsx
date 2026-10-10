@@ -70,7 +70,7 @@ import {
   PilotMetricsView,
   SystemHealthView
 } from "@/components/p1/PilotOperationsViews";
-import { canViewDeviceDiagnostics, deviceProfile, nodeSelectionPath, periodStart, replaceNodeReadings, storageOperation, storageUnitSelectionPath, telemetryRangeLabel, type TelemetryRange, type TelemetryResolution } from "@/lib/telemetry";
+import { canViewDeviceDiagnostics, deviceProfile, formatDerivedLevelSummary, nodeSelectionPath, periodStart, replaceNodeReadings, storageOperation, storageUnitSelectionPath, telemetryRangeLabel, type DerivedLevelSummary, type TelemetryRange, type TelemetryResolution } from "@/lib/telemetry";
 import {
   ApiError,
   acknowledgeAlert,
@@ -2120,6 +2120,7 @@ function StorageUnitDetail({
   const [resolution, setResolution] = useState<TelemetryResolution>("auto");
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
+  const [derivedLevel, setDerivedLevel] = useState<DerivedLevelSummary | null>(null);
 
   useEffect(() => {
     if (!selected || !unitDevices.length) {
@@ -2142,6 +2143,7 @@ function StorageUnitDetail({
     setNodeError(null);
     setReadings([]);
     setSummary(null);
+    setDerivedLevel(null);
     window.history.replaceState({}, "", nodeSelectionPath(window.location.href, deviceId));
     if (period === "custom" && (!customFrom || !customTo || new Date(customFrom) >= new Date(customTo))) {
       setLoadingNode(false);
@@ -2251,7 +2253,7 @@ function StorageUnitDetail({
             <Metric icon={Thermometer} label="Temp. ambiente" value={formatNumber(latest?.ambient_temperature, " C")} />
             <Metric icon={Activity} label="Humedad ambiente" value={formatNumber(latest?.ambient_humidity, "%")} />
             {profile === "field_sensor" && latest?.soil_temperature_c !== null ? <Metric icon={Thermometer} label="Temp. suelo" value={formatNumber(latest?.soil_temperature_c, " C")} /> : null}
-            {profile === "silo_sensor" ? <Metric icon={Gauge} label="Nivel estimado" value={formatNumber(latest?.level_percent, "%")} /> : null}
+            {profile === "silo_sensor" ? <Metric icon={Gauge} label="Nivel de llenado" value={formatDerivedLevelSummary(derivedLevel)} /> : null}
             {profile === "silo_sensor" && !isClient ? <Metric icon={Radio} label="Distancia" value={formatNumber(latest?.level_distance_cm, " cm")} /> : null}
             {!isClient ? <Metric icon={Battery} label="Bateria" value={formatNumber(latest?.battery_voltage, " V", 2)} /> : null}
             {canSeeDiagnostics ? <Metric icon={Wifi} label="Senal" value={latest?.signal_quality === null || latest?.signal_quality === undefined ? "Sin dato" : `${latest.signal_quality} dBm`} /> : null}
@@ -2331,6 +2333,7 @@ function StorageUnitDetail({
         to={period === "custom" && customTo ? new Date(customTo).toISOString() : undefined}
         resolution={resolution}
         rangeLabel={telemetryRangeLabel(period, customFrom || undefined, customTo || undefined)}
+        onLevelSummary={setDerivedLevel}
       />
       <section className="panel p-5">
         <p className="section-kicker">Trazabilidad</p>
