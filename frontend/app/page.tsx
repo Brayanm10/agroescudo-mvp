@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
@@ -2121,6 +2121,17 @@ function StorageUnitDetail({
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
   const [derivedLevel, setDerivedLevel] = useState<DerivedLevelSummary | null>(null);
+  const telemetryFrom = useMemo(
+    () => period === "custom" ? (customFrom ? new Date(customFrom).toISOString() : undefined) : periodStart(period),
+    [customFrom, period]
+  );
+  const telemetryTo = useMemo(
+    () => period === "custom" && customTo ? new Date(customTo).toISOString() : undefined,
+    [customTo, period]
+  );
+  const updateDerivedLevel = useCallback((next: DerivedLevelSummary) => {
+    setDerivedLevel((current) => current?.status === next.status && current.percent === next.percent ? current : next);
+  }, []);
 
   useEffect(() => {
     if (!selected || !unitDevices.length) {
@@ -2329,11 +2340,11 @@ function StorageUnitDetail({
         token={token}
         deviceId={device.id}
         role={data.me.role}
-        from={period === "custom" ? (customFrom ? new Date(customFrom).toISOString() : undefined) : periodStart(period)}
-        to={period === "custom" && customTo ? new Date(customTo).toISOString() : undefined}
+        from={telemetryFrom}
+        to={telemetryTo}
         resolution={resolution}
         rangeLabel={telemetryRangeLabel(period, customFrom || undefined, customTo || undefined)}
-        onLevelSummary={setDerivedLevel}
+        onLevelSummary={updateDerivedLevel}
       />
       <section className="panel p-5">
         <p className="section-kicker">Trazabilidad</p>
