@@ -11,6 +11,7 @@ import { getPluviometryMapSnapshot, getPluviometrySites } from "@/lib/api";
 import { readSessionToken } from "@/lib/session";
 import type { PluviometryMapSnapshot, PluviometrySite, UserRole } from "@/lib/types";
 import { RainGaugeMap } from "./RainGaugeMap";
+import { DemoNotice } from "./DemoNotice";
 import { pluviometryQueryPath, rainGaugeDetailPath, resolveSelectedSite, STATUS_PRESENTATION } from "./map-model";
 
 export function PluviometryMapView({ role }: { role?: UserRole }) {
@@ -75,6 +76,21 @@ export function PluviometryMapView({ role }: { role?: UserRole }) {
     setSelectedSiteId(siteId);
     window.history.replaceState(null, "", pluviometryQueryPath(siteId));
   }, []);
+  useEffect(() => {
+    const token = readSessionToken();
+    if (!token || selectedSiteId == null) return;
+    const controller = new AbortController();
+    let busy = false;
+    const timer = window.setInterval(() => {
+      if (busy || document.hidden) return;
+      busy = true;
+      void getPluviometryMapSnapshot(token, selectedSiteId, controller.signal)
+        .then((nextSnapshot) => { if (!controller.signal.aborted) setSnapshot(nextSnapshot); })
+        .catch((reason: unknown) => { if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : "Error al actualizar el mapa."); })
+        .finally(() => { busy = false; });
+    }, 30000);
+    return () => { controller.abort(); window.clearInterval(timer); };
+  }, [selectedSiteId]);
   const openDevice = useCallback((deviceId: number) => router.push(rainGaugeDetailPath(deviceId)), [router]);
 
   return (
@@ -124,6 +140,7 @@ export function PluviometryMapContent({
 
   return (
     <section className="space-y-5" aria-labelledby="pluviometry-title">
+      {snapshot?.devices.some((device) => device.is_demo) ? <DemoNotice /> : null}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p className="section-kicker">Monitoreo meteorológico</p>

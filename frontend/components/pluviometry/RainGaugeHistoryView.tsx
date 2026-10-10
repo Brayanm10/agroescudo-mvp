@@ -40,6 +40,7 @@ import {
 } from "./detail-model";
 import { pluviometryQueryPath, STATUS_PRESENTATION } from "./map-model";
 import { WindDirectionSummary } from "./WindDirectionSummary";
+import { DemoNotice } from "./DemoNotice";
 
 export function RainGaugeHistoryView({ deviceId }: { deviceId: number }) {
   const router = useRouter();
@@ -148,6 +149,34 @@ export function RainGaugeHistoryView({ deviceId }: { deviceId: number }) {
     setPeriod(nextPeriod);
   }, [deviceId]);
 
+  useEffect(() => {
+    const token = readSessionToken();
+    const siteId = snapshot?.site.id;
+    if (!token || !metric || siteId == null) return;
+    const controller = new AbortController();
+    let busy = false;
+    const timer = window.setInterval(() => {
+      if (busy || document.hidden) return;
+      busy = true;
+      const request = ++requestSequence.current;
+      void Promise.all([
+        getPluviometryMapSnapshot(token, siteId, controller.signal),
+        getCanonicalMetricReadings(token, deviceId, metric.metric_code, {
+          channelKey: metric.channel_key, ...periodRequest(period), signal: controller.signal
+        })
+      ]).then(([nextSnapshot, nextSeries]) => {
+        if (controller.signal.aborted || request !== requestSequence.current) return;
+        setSnapshot(nextSnapshot);
+        setMapDevice(nextSnapshot.devices.find((item) => item.id === deviceId) ?? null);
+        setSeries(nextSeries);
+        setError(null);
+      }).catch((reason: unknown) => {
+        if (!controller.signal.aborted) setError(detailError(reason));
+      }).finally(() => { busy = false; });
+    }, 30000);
+    return () => { controller.abort(); window.clearInterval(timer); };
+  }, [deviceId, metric, period, snapshot?.site.id]);
+
   if (metaLoading) return <LoadingState label="Cargando pluviómetro autorizado" />;
   if (error && !schema) return <ErrorState message={error} onRetry={() => setReload((value) => value + 1)} />;
   if (!schema || !snapshot || !mapDevice) return <EmptyState title="Pluviómetro no disponible" message="No se encontró un pluviómetro autorizado para esta ruta." />;
@@ -215,6 +244,7 @@ export function RainGaugeHistoryContent({
 
   return (
     <section className="space-y-5" aria-labelledby="rain-gauge-detail-title">
+      {device.is_demo ? <DemoNotice /> : null}
       <nav className="flex flex-wrap items-center gap-2 text-sm font-bold text-slate-500" aria-label="Migas de pan">
         <Link href={pluviometryQueryPath(snapshot.site.id)} className="rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-600">Pluviometría</Link>
         <span aria-hidden="true">/</span>

@@ -44,6 +44,7 @@ export function RainGaugeMap({ snapshot, apiKey, onOpenDevice }: Props) {
   const mapRef = useRef<MapLibreMap | null>(null);
   const moduleRef = useRef<typeof import("maplibre-gl") | null>(null);
   const markersRef = useRef<Marker[]>([]);
+  const displayedSiteRef = useRef<number | null>(null);
   const [initializationFailed, setInitializationFailed] = useState(false);
   const [mapLoadError, setMapLoadError] = useState(false);
   const [ready, setReady] = useState(false);
@@ -103,7 +104,9 @@ export function RainGaugeMap({ snapshot, apiKey, onOpenDevice }: Props) {
     setGeoJsonSource(map, "parcel-boundaries", parcelFeatureCollection(snapshot));
     ensureBoundaryLayers(map);
 
-    setSelectedDevice(null);
+    const siteChanged = displayedSiteRef.current !== snapshot.site.id;
+    displayedSiteRef.current = snapshot.site.id;
+    if (siteChanged) setSelectedDevice(null);
     markersRef.current.forEach((marker) => marker.remove());
     markersRef.current = locatedDevices(snapshot).flatMap((device) => {
       if (device.latitude == null || device.longitude == null) return [];
@@ -114,6 +117,7 @@ export function RainGaugeMap({ snapshot, apiKey, onOpenDevice }: Props) {
       return [marker];
     });
 
+    if (!siteChanged) return;
     const viewport = mapViewport(snapshot);
     if (viewport.kind === "bounds") {
       const bounds = new maplibregl.LngLatBounds();
@@ -127,6 +131,7 @@ export function RainGaugeMap({ snapshot, apiKey, onOpenDevice }: Props) {
   }, [onOpenDevice, ready, snapshot]);
 
   if (!mapTilerKey || initializationFailed) return <MapUnavailable />;
+  const liveSelectedDevice = selectedDevice ? snapshot?.devices.find((device) => device.id === selectedDevice.id) : null;
 
   return (
     <div
@@ -141,13 +146,13 @@ export function RainGaugeMap({ snapshot, apiKey, onOpenDevice }: Props) {
         data-testid="maplibre-container"
         style={{ position: "absolute", inset: 0 }}
       />
-      {selectedDevice ? (
+      {liveSelectedDevice ? (
         <MapPopupCard
-          device={selectedDevice}
-          isDemo={snapshot?.site.name.toLowerCase().includes("demo") ?? false}
+          device={liveSelectedDevice}
+          isDemo={liveSelectedDevice.is_demo || (snapshot?.site.name.toLowerCase().includes("demo") ?? false)}
           timeZone={snapshot?.site.timezone}
           onClose={() => setSelectedDevice(null)}
-          onOpen={() => onOpenDevice?.(selectedDevice.id)}
+          onOpen={() => onOpenDevice?.(liveSelectedDevice.id)}
         />
       ) : null}
       {!ready ? (
@@ -202,6 +207,7 @@ export function MapPopupCard({ device, isDemo, timeZone, onClose, onOpen }: { de
       <button type="button" onClick={onClose} className="absolute right-2 top-2 rounded-md px-2 py-1 text-sm font-black text-slate-500 hover:bg-slate-100" aria-label="Cerrar popup">×</button>
       <h3 className="pr-7 text-base font-black">{device.name}</h3>
       {isDemo ? <span className="mt-1 inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-amber-900">DEMO · ubicación aproximada</span> : null}
+      {device.is_demo ? <p className="mt-2 text-xs font-bold text-amber-900">MODO DEMOSTRACIÓN — DATOS SIMULADOS</p> : null}
       <p className="mt-1 text-xs text-slate-500">{device.parcel_name}</p>
       <p className="mt-2 text-xs font-black uppercase tracking-wide" style={{ color: presentation.color }}>{presentation.label}</p>
       <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-xs">

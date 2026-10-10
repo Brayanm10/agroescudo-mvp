@@ -196,6 +196,15 @@ def _process_reading(
         return _record_event(db, gateway, batch, reading, "rejected_unknown_device", "IoT device not registered"), []
     if not iot_device.is_active:
         return _record_event(db, gateway, batch, reading, "rejected_unauthorized", "IoT device is inactive"), []
+    if iot_device.gateway_id != gateway.id:
+        return _record_event(db, gateway, batch, reading, "rejected_unauthorized", "Device is not assigned to this gateway"), []
+    linked_device = db.get(Device, iot_device.device_id)
+    if linked_device is not None and (
+        (gateway.company_id is not None and gateway.company_id != linked_device.company_id)
+        or (gateway.site_id is not None and gateway.site_id != linked_device.site_id)
+        or (gateway.storage_unit_id is not None and gateway.storage_unit_id != linked_device.storage_unit_id)
+    ):
+        return _record_event(db, gateway, batch, reading, "rejected_unauthorized", "Gateway scope does not match device"), []
     if status_value is not None:
         return _record_event(db, gateway, batch, reading, "rejected_invalid", status_value), []
 
@@ -362,7 +371,9 @@ def _process_reading(
         snr_db_x10=reading.snr_db_x10,
     )
     db.add(iot_reading)
-    device.last_seen_at = utc_now()
+    demo_device = device.model_version == "AGUA_SUELO_DEMO_V1"
+    if not (demo_device and str(reading.firmware_version) == "demo-history-1.0.0"):
+        device.last_seen_at = utc_now()
     if device.operational_status == "awaiting_first_reading":
         device.operational_status = "operational"
     db.flush()
@@ -375,7 +386,7 @@ def _process_reading(
         iot_reading=iot_reading,
     )
 
-    alerts = evaluate_alerts(db=db, device=device, reading=sensor_reading)
+    alerts = [] if demo_device else evaluate_alerts(db=db, device=device, reading=sensor_reading)
     new_alerts = [(alert, sensor_reading) for alert in alerts if getattr(alert, "_was_created", False)]
     return _record_event(db, gateway, batch, reading, "accepted", None), new_alerts
 

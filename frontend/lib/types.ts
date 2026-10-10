@@ -85,6 +85,7 @@ export type RainGaugeLatestMetrics = {
 export type RainGaugeStatus = "online" | "delayed" | "offline" | "critical";
 
 export type RainGaugeMapDevice = {
+  is_demo?: boolean;
   id: number;
   device_id: string;
   name: string;

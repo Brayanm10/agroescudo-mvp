@@ -218,6 +218,7 @@ def build_pluviometry_map_snapshot(
                 last_seen_at=device.last_seen_at,
                 latest=RainGaugeLatestMetricsOut(**latest.get(device.id, {})),
                 rain_today_mm=rain.get(device.id),
+                is_demo=device.model_version == "AGUA_SUELO_DEMO_V1" or device.model_version == "DEMO",
             )
         )
 

@@ -114,6 +114,13 @@ const snapshot: PluviometryMapSnapshot = {
 afterEach(() => vi.unstubAllGlobals());
 
 describe("detalle histórico del pluviómetro", () => {
+  it("identifica el histórico DEMO y mantiene el histórico real sin etiqueta simulada", () => {
+    const content = (isDemo: boolean) => renderToStaticMarkup(
+      <RainGaugeHistoryContent schema={schema} snapshot={snapshot} device={{ ...snapshot.devices[0], is_demo: isDemo }} metrics={metrics} metric={rainMetric} period="24h" series={series()} seriesLoading={false} error={null} onMetricChange={() => undefined} onPeriodChange={() => undefined} onDeviceChange={() => undefined} onRetry={() => undefined} />
+    );
+    expect(content(true)).toContain("MODO DEMOSTRACIÓN — DATOS SIMULADOS");
+    expect(content(false)).not.toContain("DATOS SIMULADOS");
+  });
   it("prioriza solo métricas reales soportadas por el schema", () => {
     expect(supportedRainGaugeMetrics(metrics).map((item) => item.metric_code)).toEqual([
       "RAIN_DELTA_MM",

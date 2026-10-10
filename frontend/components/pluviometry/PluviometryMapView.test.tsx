@@ -130,6 +130,14 @@ describe("PluviometryMapView", () => {
     expect(markup).toContain("Ver pluviómetro");
   });
 
+  it("labels simulated telemetry by device even when the site is not named DEMO", () => {
+    const demo = { ...snapshot.devices[0], is_demo: true };
+    const markup = renderToStaticMarkup(<MapPopupCard device={demo} isDemo={false} onClose={() => undefined} onOpen={() => undefined} />);
+    expect(markup).toContain("MODO DEMOSTRACIÓN — DATOS SIMULADOS");
+    const real = renderToStaticMarkup(<MapPopupCard device={snapshot.devices[0]} isDemo={false} onClose={() => undefined} onOpen={() => undefined} />);
+    expect(real).not.toContain("DATOS SIMULADOS");
+  });
+
   it("routes the popup action to the authenticated placeholder", () => {
     expect(rainGaugeDetailPath(71)).toBe("/pluviometria/pluviometros/71");
   });

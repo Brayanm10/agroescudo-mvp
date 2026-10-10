@@ -388,6 +388,7 @@ class RainGaugeMapDeviceOut(BaseModel):
     last_seen_at: datetime | None = None
     latest: RainGaugeLatestMetricsOut
     rain_today_mm: float | None = None
+    is_demo: bool = False
 
 
 class PluviometryMapSnapshotOut(BaseModel):
