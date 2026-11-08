@@ -74,16 +74,33 @@ class Settings(BaseSettings):
     sentry_enabled: bool = False
     sentry_dsn: str | None = None
     release_version: str = "control-center-v1.0.0"
+    partner_api_enabled: bool = False
+    partner_signing_key: str = ""
+    partner_requests_per_minute: int = Field(default=60, ge=1, le=10000)
+    partner_burst: int = Field(default=10, ge=1, le=1000)
+    partner_auth_per_minute: int = Field(default=10, ge=1, le=1000)
+    partner_auth_burst: int = Field(default=5, ge=1, le=100)
+    partner_max_response_bytes: int = Field(default=1048576, ge=4096, le=10485760)
+    partner_sandbox: bool = False
+    partner_staging_expected_host: str = ""
+    partner_staging_expected_database: str = ""
+    partner_staging_expected_role: str = ""
+    partner_staging_allowed_hosts: str = ""
+    partner_staging_proxy_cidrs: str = ""
 
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore", populate_by_name=True)
+    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore", populate_by_name=True, hide_input_in_errors=True)
 
     @model_validator(mode="after")
     def validate_environment_settings(self) -> "Settings":
         environment = self.environment.lower().strip()
-        if environment not in {"local", "demo", "production"}:
-            raise ValueError("ENVIRONMENT must be one of: local, demo, production.")
+        if self.partner_sandbox and environment != "local":
+            raise ValueError("PARTNER_SANDBOX is only allowed in local environment.")
+        if self.partner_api_enabled and environment != "local" and len(self.partner_signing_key) < 32:
+            raise ValueError("PARTNER_SIGNING_KEY must have at least 32 characters outside local.")
+        if environment not in {"local", "demo", "staging", "production"}:
+            raise ValueError("ENVIRONMENT must be one of: local, demo, staging, production.")
 
-        if environment in {"demo", "production"}:
+        if environment in {"demo", "staging", "production"}:
             if not self.database_url.strip():
                 raise ValueError("DATABASE_URL is required when ENVIRONMENT is demo or production.")
             if self.database_backend == "sqlite":

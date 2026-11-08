@@ -3,6 +3,7 @@ import math
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from app.domain.time_quality import persisted_time_quality
 
 
 def validate_boundary_geojson(value: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -634,6 +635,13 @@ class IotBatchReadingIn(BaseModel):
     rssi_dbm: int | None = None
     snr_db_x10: int | None = None
     metrics: list[IotMetricIn] = Field(default_factory=list, max_length=32)
+
+    @field_validator("time_quality", mode="before")
+    @classmethod
+    def validate_time_quality(cls, value):
+        # Validate explicitly but keep the wire label for canonical event history.
+        persisted_time_quality(value)
+        return value
 
     @model_validator(mode="after")
     def normalize_event_fields(self):

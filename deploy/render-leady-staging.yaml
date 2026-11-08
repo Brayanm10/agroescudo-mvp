@@ -1,0 +1,55 @@
+# Preparation only. Create a NEW service after checking that the name is unused.
+# Do not sync this Blueprint onto an existing production service.
+services:
+  - type: web
+    name: AgroEscudo LEADY Staging
+    runtime: python
+    plan: free
+    repo: https://github.com/Brayanm10/agroescudo-mvp
+    branch: feature/leady-partner-api-p0
+    rootDir: backend
+    autoDeployTrigger: off
+    buildCommand: pip install -r requirements-partner-staging.txt
+    startCommand: python -m scripts.partner_staging serve
+    healthCheckPath: /ready
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.13.7
+      - key: ENVIRONMENT
+        value: staging
+      - key: PARTNER_API_ENABLED
+        value: "true"
+      - key: PARTNER_SANDBOX
+        value: "false"
+      - key: RUN_SEED_ON_START
+        value: "false"
+      - key: JWT_SECRET
+        generateValue: true
+      - key: PARTNER_SIGNING_KEY
+        generateValue: true
+      - key: DATABASE_URL
+        sync: false
+      - key: PARTNER_STAGING_EXPECTED_HOST
+        sync: false
+      - key: PARTNER_STAGING_EXPECTED_DATABASE
+        value: leady_staging
+      - key: PARTNER_STAGING_EXPECTED_ROLE
+        value: leady_staging_role
+      - key: PARTNER_STAGING_ALLOWED_HOSTS
+        sync: false
+      - key: PARTNER_STAGING_PROXY_CIDRS
+        sync: false
+      - key: EMAIL_ENABLED
+        value: "false"
+      - key: NOTIFICATIONS_DRY_RUN
+        value: "true"
+      - key: WHATSAPP_ENABLED
+        value: "false"
+      - key: TELEGRAM_ENABLED
+        value: "false"
+      - key: FCM_ENABLED
+        value: "false"
+      - key: AI_ENABLED
+        value: "false"
+      - key: AGRO_ASSISTANT_LLM_ENABLED
+        value: "false"

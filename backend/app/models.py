@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint, text
+from sqlalchemy import BigInteger, Boolean, DateTime, Float, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -268,7 +268,7 @@ class IotReading(Base):
     company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), index=True)
     site_id: Mapped[int] = mapped_column(ForeignKey("sites.id"), index=True)
     storage_unit_id: Mapped[int] = mapped_column(ForeignKey("storage_units.id"), index=True)
-    boot_id: Mapped[int] = mapped_column(Integer)
+    boot_id: Mapped[int] = mapped_column(BigInteger)
     sequence: Mapped[int] = mapped_column(Integer)
     sample_counter: Mapped[int] = mapped_column(Integer)
     timestamp_utc: Mapped[int] = mapped_column(Integer)
@@ -301,7 +301,7 @@ class IotIngestionEvent(Base):
     gateway_id: Mapped[int] = mapped_column(ForeignKey("iot_gateways.id"), index=True)
     iot_device_id: Mapped[int | None] = mapped_column(ForeignKey("iot_devices.id"), nullable=True, index=True)
     device_identifier: Mapped[int] = mapped_column(Integer, index=True)
-    boot_id: Mapped[int] = mapped_column(Integer)
+    boot_id: Mapped[int] = mapped_column(BigInteger)
     sequence: Mapped[int] = mapped_column(Integer)
     status: Mapped[str] = mapped_column(String(40), index=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -769,7 +769,7 @@ class TelemetryEvent(Base):
     gateway_id: Mapped[int | None] = mapped_column(ForeignKey("iot_gateways.id"), nullable=True, index=True)
     sensor_reading_id: Mapped[int | None] = mapped_column(ForeignKey("sensor_readings.id"), nullable=True, index=True)
     iot_reading_id: Mapped[int | None] = mapped_column(ForeignKey("iot_readings.id"), nullable=True, index=True)
-    boot_id: Mapped[int] = mapped_column(Integer)
+    boot_id: Mapped[int] = mapped_column(BigInteger)
     sequence: Mapped[int] = mapped_column(Integer)
     sample_counter: Mapped[int] = mapped_column(Integer)
     sampled_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
@@ -1290,3 +1290,10 @@ class RateLimitEvent(Base):
     action: Mapped[str] = mapped_column(String(80), index=True)
     count: Mapped[int] = mapped_column(Integer, default=1)
     window_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now, index=True)
+
+
+# Register additive partner tables with the existing metadata and Alembic.
+from app.partner_models import (  # noqa: E402,F401
+    PartnerAudit, PartnerBucket, PartnerClient, PartnerCredential, PartnerGrant,
+    PartnerOrganization, PartnerProducer, PartnerToken,
+)

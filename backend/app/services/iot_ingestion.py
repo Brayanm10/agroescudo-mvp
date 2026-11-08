@@ -11,6 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.domain.time_quality import persisted_time_quality
 from app.core.security import decrypt_secret, hash_secret
 from app.models import (
     Company,
@@ -355,7 +356,7 @@ def _process_reading(
         sample_counter=reading.sample_counter,
         timestamp_utc=reading.timestamp_utc,
         timestamp=timestamp,
-        time_quality=reading.time_quality,
+        time_quality=persisted_time_quality(reading.time_quality),
         grain_temp_c_x100=reading.grain_temp_c_x100,
         air_temp_c_x100=reading.air_temp_c_x100,
         rh_x100=reading.rh_x100,

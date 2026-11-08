@@ -1,0 +1,11 @@
+# Dedicated partner-only staging; never install the legacy full app on this service.
+fastapi==0.162.2
+starlette==1.10.0
+python-multipart==0.0.33
+SQLAlchemy==2.0.35
+alembic==1.13.2
+psycopg[binary]==3.2.13
+pydantic-settings==2.5.2
+cryptography
+uvicorn==0.30.6
+httpx==0.27.2

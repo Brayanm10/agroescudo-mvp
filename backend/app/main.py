@@ -41,9 +41,12 @@ from app.api.routes import (
     users,
 )
 from app.core.config import settings
+from app.api.routes import partner
 from app.db.session import SessionLocal
+from app.services.database_diagnostics import log_database_failure
 
 app = FastAPI(title=settings.app_name)
+app.include_router(partner.router, prefix="/api")
 
 app.add_middleware(
     CORSMiddleware,
@@ -115,6 +118,7 @@ def database_health_check():
 
 @app.exception_handler(SQLAlchemyError)
 async def sqlalchemy_exception_handler(_request: Request, exc: SQLAlchemyError) -> JSONResponse:
+    log_database_failure(_request.url.path, exc)
     return JSONResponse(
         status_code=503,
         content={
