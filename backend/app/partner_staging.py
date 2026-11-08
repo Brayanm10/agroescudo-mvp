@@ -1,5 +1,6 @@
 """Dedicated ASGI factory: partner-only staging, no human/IoT/admin routers."""
 import ipaddress
+import logging
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from sqlalchemy import create_engine
@@ -26,6 +27,10 @@ class TrustedStagingProxy:
             proto=[v for k,v in headers if k==b'x-forwarded-proto']
             if trusted and proto==[b'https']:
                 scope=dict(scope,scheme='https')
+            elif proto==[b'https']:
+                # Actual socket peer only, no credentials or forwarded client IP.
+                # Allows an operator to establish the platform proxy allowlist.
+                logging.getLogger('agroescudo.partner.proxy').warning('untrusted_proxy_peer=%s',peer)
             # No X-Forwarded-For override. Peer quotas remain conservative behind
             # NAT/proxy; tune only after observing the actual trusted topology.
         await self.app(scope,receive,send)

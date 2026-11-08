@@ -9,9 +9,13 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import certifi
 
 
 def main():
+    # libpq/OpenSSL must use the same maintained CA bundle on Windows and Render.
+    # Keep verify-full enabled; never fall back to an unverified TLS connection.
+    os.environ.setdefault('SSL_CERT_FILE',certifi.where())
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('command',choices=['bootstrap','verify','seed','serve'])
     p.add_argument('--credentials-output',help='Solo seed: archivo privado fuera del repositorio para entrega segura')
@@ -48,8 +52,8 @@ def main():
             uvicorn.run('app.partner_staging:create_app',factory=True,host='0.0.0.0',port=int(os.getenv('PORT','8000')),proxy_headers=False,access_log=False,limit_concurrency=20,timeout_keep_alive=5)
         else:print('PASS: destino e identidad de staging verificados; no se modificó la base.')
         engine.dispose()
-    except Exception:
-        p.exit(1,'BLOQUEADO: comprobar destino aprobado, identidad, TLS y conectividad en la consola segura. No se imprimen cadenas, credenciales ni errores SQL.\n')
+    except Exception as exc:
+        p.exit(1,'BLOQUEADO ('+type(exc).__name__+'): comprobar destino aprobado, identidad, TLS y conectividad en la consola segura. No se imprimen cadenas, credenciales ni errores SQL.\n')
 
 
 if __name__=='__main__':main()
